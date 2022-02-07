@@ -51,4 +51,52 @@ Usage of ./hidi:
 - if necessary, add permission for execution with `chmod +x hidi`
 - just run by `./hidi`
 
+example stdout:
+```
+2021/12/25 10:18:39 New Devices: 3
+2021/12/25 10:18:39 - [Keyboard], "Kingston HyperX Alloy FPS Mechanical Gaming Keyboard", 5 handlers
+2021/12/25 10:18:39 - [Keyboard], "HOLTEK USB-HID Keyboard", 6 handlers
+2021/12/25 10:18:39 - [Joystick], "Microsoft X-Box One S pad", 1 handlers
+2021/12/25 10:18:45 > mapping up (Accordion) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:50 > Note On : D  1 (channel:  1, velocity:  64) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:50 > Note Off: D  1 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:50 > Note On : D# 1 (channel:  1, velocity:  64) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:51 > Note Off: D# 1 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:51 > Note On : E  1 (channel:  1, velocity:  64) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:51 > Note Off: E  1 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:51 > Note On : F  1 (channel:  1, velocity:  64) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:51 > Note Off: F  1 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:54 > octave up (1) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:18:56 > semitone up (1) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:00 > semitone up (2) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:08 > Note On : B  1 (channel:  1, velocity:  64) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:08 > Note On : B  2 (channel:  1, velocity:  64) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:09 > Multinote mode engaged, intervals: [12]/[Perfect octave] [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:13 > Note Off: B  1 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:13 > Note Off: B  2 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:13 > Note Off: B  2 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:13 > Note Off: B  3 (channel:  1, velocity:   0) [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:17 > Bruh, no pressed notes, multinote mode disengaged [HOLTEK USB-HID Keyboard]
+2021/12/25 10:19:44 > Note On : C  1 (channel:  1, velocity:  64) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:19:44 > Note Off: C  1 (channel:  1, velocity:   0) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:19:49 > octave up (1) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:19:49 > Note On : C  2 (channel:  1, velocity:  64) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:19:50 > Note Off: C  2 (channel:  1, velocity:   0) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:19:57 > Note On : D  0 (channel:  1, velocity:  64) [Microsoft X-Box One S pad]
+2021/12/25 10:19:57 > Note Off: D  0 (channel:  1, velocity:   0) [Microsoft X-Box One S pad]
+2021/12/25 10:19:59 > Note On : C  0 (channel:  1, velocity:  64) [Microsoft X-Box One S pad]
+2021/12/25 10:19:59 > Note Off: C  0 (channel:  1, velocity:   0) [Microsoft X-Box One S pad]
+2021/12/25 10:20:06 > Control Change:   4, value:  20 (channel:  1) [Microsoft X-Box One S pad]
+2021/12/25 10:20:06 > Control Change:   4, value:  87 (channel:  1) [Microsoft X-Box One S pad]
+2021/12/25 10:20:06 > Control Change:   4, value: 127 (channel:  1) [Microsoft X-Box One S pad]
+2021/12/25 10:20:08 > Control Change:   4, value:  92 (channel:  1) [Microsoft X-Box One S pad]
+2021/12/25 10:20:08 > Control Change:   4, value:  17 (channel:  1) [Microsoft X-Box One S pad]
+2021/12/25 10:20:08 > Control Change:   4, value:   0 (channel:  1) [Microsoft X-Box One S pad]
+2021/12/25 10:21:45 > Note On : D# 1 (channel:  2, velocity:  64) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:21:46 > channel up ( 3) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:21:48 > Note Off: D# 1 (channel:  2, velocity:   0) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:21:50 > Note On : D# 1 (channel:  3, velocity:  64) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+2021/12/25 10:21:51 > Note Off: D# 1 (channel:  3, velocity:   0) [Kingston HyperX Alloy FPS Mechanical Gaming Keyboard]
+```
+
 Have fun!
