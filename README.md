@@ -1,12 +1,13 @@
 # HIDI
-Flexible HID to MIDI application
+Flexible HID to MIDI translation layer
 ![no china usb midi](./docs/hidi-logo.png)
 
 # Purpose of this project
 This application is a translation layer between HID devices like keyboards or gamepads and MIDI interface 
 with a bunch of useful features:
 
-- Any number of customized MIDI mappings, easily switchable by a precise binding (currently included Piano and Accordion)
+- Any number of customized MIDI mappings, easily switchable by a precise binding, currently included Piano
+  and Accordion (chromatic layout like lumatone or LinnStrument)
 - Making use of analog gamepad input to control things such as pitch-bend or CC (also configurable).
 - octave (F1-F2), semitone (F3-F4), mapping (F5-F6) channel (F7-F8) controls.
 - customizable multinote mode with just one press of a button, simply hold any number of desired additional intervals
@@ -14,6 +15,7 @@ with a bunch of useful features:
 - non-lazy note emitting implementation, user can conveniently change device state on the fly (octave, semitone, channel)
   even when some notes are already pressed, NoteOff events will be emitted correctly anyway. However, panic button (ESC)
   is also available just in case.
+- NKRO keyboards support (if it can be enabled in hardware by some key-sequence)
 - You can connect whatever number of HID devices you want, completely dynamically!
 
 # Initial status of the project
@@ -33,7 +35,7 @@ There is a small list of missing functionality that I want to implement:
   it can be run on x64 dedicated tower PC
 - In the case of Pi Zero, thing like USB HAT may be very useful
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
-  (unless you have old version lying around, it may work)
+  (unless you have old version lying around, it may work just fine)
   ![no china usb midi](./docs/no-china-usb-midi.png)
 - If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
 - **Keyboards**, **gamepads** :)
