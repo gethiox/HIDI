@@ -1,6 +1,8 @@
 # HIDI
 Flexible HID to MIDI translation layer
 ![no china usb midi](./docs/hidi-logo.png)
+Ultimate successor of [keyboard2000](https://github.com/gethiox/keyboard2000)
+and [keyboard3000](https://github.com/gethiox/keyboard3000) projects.
 
 # Purpose of this project
 This application is a translation layer between HID devices like keyboards or gamepads and MIDI interface 
@@ -19,7 +21,7 @@ with a bunch of useful features:
 - You can connect whatever number of HID devices you want, completely dynamically!
 
 # Initial status of the project
-It is just in usable state as a beta release, but already feature-rich and stable enough in my opinion.  
+It is just in usable state as a beta release, but already feature-rich and stable.  
 There is a small list of missing functionality that I want to implement:
 - YAML configurations for devices, currently configurations are hardcoded and can be only changed by modifying the code.
 - Arpeggiator and other MIDI effects, MIDI clock sync
@@ -28,14 +30,14 @@ There is a small list of missing functionality that I want to implement:
 - performance improvements in the field of monitoring for connected devices, currently `/proc/bus/input/devices` is being
   parsed every second, it can be implemented much more efficiently
 - Precompiled builds targeted for more platforms
-- MIDI sequencer, only if there are Keyboards available with full LED control over Linux input subsystem (wishlist)  
+- MIDI sequencer, only if there are keyboards available with full LED control over Linux input subsystem (wishlist)  
 
 # Requirements
 - **Application is designed to be run under a Linux machine**, it can be run under Raspberry Pi zero,
   it can be run on x64 dedicated tower PC
 - In the case of Pi Zero, thing like USB HAT may be very useful
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
-  (unless you have old version lying around, it may work just fine)
+  (unless you have old version lying around, it may work just fine). Here is my recommendation:
   ![no china usb midi](./docs/no-china-usb-midi.png)
 - If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
 - **Keyboards**, **gamepads** :)
