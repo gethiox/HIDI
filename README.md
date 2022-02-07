@@ -3,7 +3,8 @@ Flexible HID to MIDI application
 ![no china usb midi](./docs/hidi-logo.png)
 
 # Purpose of this project
-This application is a translation layer between HID devices like keyboard and gamepad with a bunch of useful features:
+This application is a translation layer between HID devices like keyboards or gamepads and MIDI interface 
+with a bunch of useful features:
 
 - Any number of customized MIDI mappings, easily switchable by a precise binding (currently included Piano and Accordion)
 - Making use of analog gamepad input to control things such as pitch-bend or CC (also configurable).
@@ -22,11 +23,15 @@ There is a small list of missing functionality that I want to implement:
 - Arpeggiator and other MIDI effects, MIDI clock sync
 - a few tiny refactorizations, implement missing features in [holoplot's go-evdev](https://github.com/holoplot/go-evdev) library,
   other related upkeep tasks in the codebase
+- performance improvements in the field of monitoring for connected devices, currently `/proc/bus/input/devices` is being
+  parsed every second, it can be implemented much more efficiently
+- Precompiled builds targeted for more platforms
 - MIDI sequencer, only if there are Keyboards available with full LED control over Linux input subsystem (wishlist)  
 
 # Requirements
 - **Application is designed to be run under a Linux machine**, it can be run under Raspberry Pi zero,
   it can be run on x64 dedicated tower PC
+- In the case of Pi Zero, thing like USB HAT may be very useful
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work)
   ![no china usb midi](./docs/no-china-usb-midi.png)
