@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"pi-midi-keyboard/internal/pkg/input"
+	"hidi/internal/pkg/input"
 
 	"github.com/holoplot/go-evdev"
 )

@@ -1,4 +1,4 @@
-module pi-midi-keyboard
+module hidi
 
 go 1.16
 

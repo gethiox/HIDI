@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"pi-midi-keyboard/internal/pkg/input"
-	"pi-midi-keyboard/internal/pkg/midi"
+	"hidi/internal/pkg/input"
+	"hidi/internal/pkg/midi"
 
 	"github.com/holoplot/go-evdev"
 )
