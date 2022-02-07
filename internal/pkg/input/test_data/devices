@@ -1,0 +1,445 @@
+I: Bus=0003 Vendor=0951 Product=16b7 Version=0111
+N: Name="Kingston HyperX Alloy FPS Mechanical Gaming Keyboard"
+P: Phys=usb-20980000.usb-1.1/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.0/0003:0951:16B7.0001/input/input0
+U: Uniq=
+H: Handlers=sysrq kbd leds event0 
+B: PROP=0
+B: EV=120013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+B: LED=1f
+
+I: Bus=0003 Vendor=0951 Product=16b7 Version=0111
+N: Name="Kingston HyperX Alloy FPS Mechanical Gaming Keyboard Mouse"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:0951:16B7.0002/input/input1
+U: Uniq=
+H: Handlers=mouse0 event1 
+B: PROP=0
+B: EV=17
+B: KEY=1f0000 0 0 0 0 0 0 0 0
+B: REL=1943
+B: MSC=10
+
+I: Bus=0003 Vendor=0951 Product=16b7 Version=0111
+N: Name="Kingston HyperX Alloy FPS Mechanical Gaming Keyboard System Control"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:0951:16B7.0002/input/input2
+U: Uniq=
+H: Handlers=kbd event2 
+B: PROP=0
+B: EV=13
+B: KEY=c000 100000 0 0 0
+B: MSC=10
+
+I: Bus=0003 Vendor=0951 Product=16b7 Version=0111
+N: Name="Kingston HyperX Alloy FPS Mechanical Gaming Keyboard Consumer Control"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:0951:16B7.0002/input/input3
+U: Uniq=
+H: Handlers=kbd event3 
+B: PROP=0
+B: EV=1f
+B: KEY=3f 301ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130ff3 8b17c000 677bfa d9415fed 19ed680 4400 0 10000002
+B: REL=1040
+B: ABS=1 0
+B: MSC=10
+
+I: Bus=0003 Vendor=0951 Product=16b7 Version=0111
+N: Name="Kingston HyperX Alloy FPS Mechanical Gaming Keyboard"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:0951:16B7.0002/input/input5
+U: Uniq=
+H: Handlers=sysrq kbd event4 
+B: PROP=0
+B: EV=100013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+
+I: Bus=0003 Vendor=1532 Product=021e Version=0111
+N: Name="Razer Razer Ornata Chroma"
+P: Phys=usb-20980000.usb-1.2/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.0/0003:1532:021E.0004/input/input6
+U: Uniq=
+H: Handlers=sysrq kbd leds event5 
+B: PROP=0
+B: EV=120013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+B: LED=7
+
+I: Bus=0003 Vendor=1532 Product=021e Version=0111
+N: Name="Razer Razer Ornata Chroma Keyboard"
+P: Phys=usb-20980000.usb-1.2/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.1/0003:1532:021E.0005/input/input7
+U: Uniq=
+H: Handlers=sysrq kbd event6 
+B: PROP=0
+B: EV=100013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+
+I: Bus=0003 Vendor=1532 Product=021e Version=0111
+N: Name="Razer Razer Ornata Chroma Consumer Control"
+P: Phys=usb-20980000.usb-1.2/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.1/0003:1532:021E.0005/input/input8
+U: Uniq=
+H: Handlers=kbd event7 
+B: PROP=0
+B: EV=1f
+B: KEY=300ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130c73 b17c000 267bfa d9415fed 9e1680 4400 0 10000002
+B: REL=1040
+B: ABS=1 0
+B: MSC=10
+
+I: Bus=0003 Vendor=1532 Product=021e Version=0111
+N: Name="Razer Razer Ornata Chroma System Control"
+P: Phys=usb-20980000.usb-1.2/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.1/0003:1532:021E.0005/input/input9
+U: Uniq=
+H: Handlers=kbd event8 
+B: PROP=0
+B: EV=13
+B: KEY=c000 100000 0 0 0
+B: MSC=10
+
+I: Bus=0003 Vendor=1532 Product=021e Version=0111
+N: Name="Razer Razer Ornata Chroma"
+P: Phys=usb-20980000.usb-1.2/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.1/0003:1532:021E.0005/input/input10
+U: Uniq=
+H: Handlers=event9 
+B: PROP=0
+B: EV=9
+B: ABS=100 0
+
+I: Bus=0003 Vendor=1532 Product=021e Version=0111
+N: Name="Razer Razer Ornata Chroma"
+P: Phys=usb-20980000.usb-1.2/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.2/0003:1532:021E.0006/input/input11
+U: Uniq=
+H: Handlers=mouse1 event10 
+B: PROP=0
+B: EV=17
+B: KEY=1f0000 0 0 0 0 0 0 0 0
+B: REL=903
+B: MSC=10
+
+I: Bus=0003 Vendor=04d9 Product=a131 Version=0111
+N: Name="HOLTEK USB-HID Keyboard"
+P: Phys=usb-20980000.usb-1.4/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.0/0003:04D9:A131.0007/input/input12
+U: Uniq=
+H: Handlers=sysrq kbd leds event11 
+B: PROP=0
+B: EV=120013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+B: LED=7
+
+I: Bus=0003 Vendor=04d9 Product=a131 Version=0111
+N: Name="HOLTEK USB-HID Keyboard Mouse"
+P: Phys=usb-20980000.usb-1.4/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.2/0003:04D9:A131.0009/input/input13
+U: Uniq=
+H: Handlers=mouse2 event12 
+B: PROP=0
+B: EV=17
+B: KEY=1f0000 0 0 0 0 0 0 0 0
+B: REL=1943
+B: MSC=10
+
+I: Bus=0003 Vendor=04d9 Product=a131 Version=0111
+N: Name="HOLTEK USB-HID Keyboard System Control"
+P: Phys=usb-20980000.usb-1.4/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.2/0003:04D9:A131.0009/input/input14
+U: Uniq=
+H: Handlers=kbd event13 
+B: PROP=0
+B: EV=13
+B: KEY=c000 100000 0 0 0
+B: MSC=10
+
+I: Bus=0003 Vendor=04d9 Product=a131 Version=0111
+N: Name="HOLTEK USB-HID Keyboard Consumer Control"
+P: Phys=usb-20980000.usb-1.4/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.2/0003:04D9:A131.0009/input/input15
+U: Uniq=
+H: Handlers=kbd event14 
+B: PROP=0
+B: EV=1f
+B: KEY=3f 301ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130ff3 8b17c000 677bfa d9415fed 19ed680 4400 0 10000002
+B: REL=1040
+B: ABS=1 0
+B: MSC=10
+
+I: Bus=0003 Vendor=04d9 Product=a131 Version=0111
+N: Name="HOLTEK USB-HID Keyboard"
+P: Phys=usb-20980000.usb-1.4/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.2/0003:04D9:A131.0009/input/input16
+U: Uniq=
+H: Handlers=event15 
+B: PROP=0
+B: EV=9
+B: ABS=100 0
+
+I: Bus=0003 Vendor=04d9 Product=a131 Version=0111
+N: Name="HOLTEK USB-HID Keyboard"
+P: Phys=usb-20980000.usb-1.4/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.2/0003:04D9:A131.0009/input/input17
+U: Uniq=
+H: Handlers=sysrq kbd event16 
+B: PROP=0
+B: EV=100013
+B: KEY=10000 7 ff980000 7ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+
+I: Bus=0003 Vendor=0c45 Product=8508 Version=0111
+N: Name="SONiX USB DEVICE"
+P: Phys=usb-20980000.usb-1.3/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.0/0003:0C45:8508.000B/input/input18
+U: Uniq=
+H: Handlers=sysrq kbd leds event17 
+B: PROP=0
+B: EV=120013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+B: LED=1f
+
+I: Bus=0003 Vendor=0c45 Product=8508 Version=0111
+N: Name="SONiX USB DEVICE Keyboard"
+P: Phys=usb-20980000.usb-1.3/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.1/0003:0C45:8508.000C/input/input19
+U: Uniq=
+H: Handlers=kbd event18 
+B: PROP=0
+B: EV=100013
+B: KEY=ff800000 0 80b0ffcd 1cfffff febffbff dffffffe
+B: MSC=10
+
+I: Bus=0003 Vendor=0c45 Product=8508 Version=0111
+N: Name="SONiX USB DEVICE System Control"
+P: Phys=usb-20980000.usb-1.3/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.1/0003:0C45:8508.000C/input/input20
+U: Uniq=
+H: Handlers=kbd event19 
+B: PROP=0
+B: EV=13
+B: KEY=c000 100000 0 0 0
+B: MSC=10
+
+I: Bus=0003 Vendor=0c45 Product=8508 Version=0111
+N: Name="SONiX USB DEVICE Consumer Control"
+P: Phys=usb-20980000.usb-1.3/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.1/0003:0C45:8508.000C/input/input21
+U: Uniq=
+H: Handlers=kbd event20 
+B: PROP=0
+B: EV=1f
+B: KEY=3f 301ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130ff3 8b17c000 677bfa d9415fed 19ed680 4400 0 10000002
+B: REL=1040
+B: ABS=1 0
+B: MSC=10
+
+I: Bus=0003 Vendor=0c45 Product=8508 Version=0111
+N: Name="SONiX USB DEVICE"
+P: Phys=usb-20980000.usb-1.3/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.1/0003:0C45:8508.000C/input/input22
+U: Uniq=
+H: Handlers=event21 
+B: PROP=0
+B: EV=9
+B: ABS=100 0
+
+I: Bus=0003 Vendor=05ac Product=0256 Version=0110
+N: Name="HID 05ac:0256"
+P: Phys=usb-20980000.usb-1.1/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.0/0003:05AC:0256.0001/input/input0
+U: Uniq=
+H: Handlers=sysrq kbd leds event0
+B: PROP=0
+B: EV=120013
+B: KEY=10000 7 ff800000 7ff febeffdf f3cfffff ffffffff fffffffe
+B: MSC=10
+B: LED=7
+
+I: Bus=0003 Vendor=05ac Product=0256 Version=0110
+N: Name="HID 05ac:0256 Mouse"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:05AC:0256.0002/input/input1
+U: Uniq=
+H: Handlers=mouse0 event1
+B: PROP=0
+B: EV=17
+B: KEY=1f0000 0 0 0 0 0 0 0 0
+B: REL=1943
+B: MSC=10
+
+I: Bus=0003 Vendor=05ac Product=0256 Version=0110
+N: Name="HID 05ac:0256 Consumer Control"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:05AC:0256.0002/input/input2
+U: Uniq=
+H: Handlers=kbd event2
+B: PROP=0
+B: EV=1f
+B: KEY=3f 301ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130ff3 8b17c000 677bfa d9415fed 19ed680 4400 0 10000002
+B: REL=1040
+B: ABS=1 0
+B: MSC=10
+
+I: Bus=0003 Vendor=05ac Product=0256 Version=0110
+N: Name="HID 05ac:0256 System Control"
+P: Phys=usb-20980000.usb-1.1/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.1/0003:05AC:0256.0002/input/input3
+U: Uniq=
+H: Handlers=kbd event3
+B: PROP=0
+B: EV=13
+B: KEY=c000 100000 0 0 0
+B: MSC=10
+
+I: Bus=0003 Vendor=046d Product=406f Version=0111
+N: Name="Logitech MX Ergo"
+P: Phys=usb-20980000.usb-1.2/input2:1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.2/0003:046D:C52B.0005/0003:046D:406F.0006/input/input16
+U: Uniq=406f-55-d6-15-c2
+H: Handlers=sysrq kbd leds mouse1 event4
+B: PROP=0
+B: EV=12001f
+B: KEY=3f 301ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 ffff0001 130ff3 8b17c007 ffff7bfa d941dfff ffbeffdf ffefffff ffffffff fffffffe
+B: REL=1943
+B: ABS=1 0
+B: MSC=10
+B: LED=1f
+
+I: Bus=0003 Vendor=045e Product=02ea Version=0301
+N: Name="Microsoft X-Box One S pad"
+P: Phys=usb-20980000.usb-1.1/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.1/1-1.1:1.0/input/input2
+U: Uniq=
+H: Handlers=event2 js0
+B: PROP=0
+B: EV=20000b
+B: KEY=7cdb0000 0 0 0 0 0 0 0 0 0
+B: ABS=3003f
+B: FF=1 7030000 0 0
+
+I: Bus=0003 Vendor=28de Product=1102 Version=0111
+N: Name="Valve Software Wired Controller"
+P: Phys=usb-20980000.usb-1.2/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.0/0003:28DE:1102.0001/input/input3
+U: Uniq=
+H: Handlers=sysrq kbd leds event0
+B: PROP=0
+B: EV=120013
+B: KEY=e080ffdf 1cfffff ffffffff fffffffe
+B: MSC=10
+B: LED=1f
+
+I: Bus=0003 Vendor=28de Product=1102 Version=0111
+N: Name="Valve Software Wired Controller"
+P: Phys=usb-20980000.usb-1.2/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.1/0003:28DE:1102.0002/input/input4
+U: Uniq=
+H: Handlers=mouse0 event1
+B: PROP=0
+B: EV=17
+B: KEY=1f0000 0 0 0 0 0 0 0 0
+B: REL=903
+B: MSC=10
+
+I: Bus=0003 Vendor=28de Product=1102 Version=0111
+N: Name="Steam Controller"
+P: Phys=usb-20980000.usb-1.2/input2
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.2/1-1.2:1.2/0003:28DE:1102.0003/input/input5
+U: Uniq=FC64120ECC
+H: Handlers=event3 js1
+B: PROP=0
+B: EV=b
+B: KEY=f 0 0 0 0 0 0 30000 7fdb0006 0 0 0 0 0 0 0 0 0
+B: ABS=33001b
+
+I: Bus=0003 Vendor=054c Product=09cc Version=8111
+N: Name="Sony Interactive Entertainment Wireless Controller Touchpad"
+P: Phys=usb-20980000.usb-1.3/input3
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.3/0003:054C:09CC.0005/input/input7
+U: Uniq=a4:53:85:fd:7b:d1
+H: Handlers=mouse1 event4
+B: PROP=5
+B: EV=b
+B: KEY=2420 0 10000 0 0 0 0 0 0 0 0
+B: ABS=2608000 3
+
+I: Bus=0003 Vendor=054c Product=09cc Version=8111
+N: Name="Sony Interactive Entertainment Wireless Controller Motion Sensors"
+P: Phys=usb-20980000.usb-1.3/input3
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.3/0003:054C:09CC.0005/input/input8
+U: Uniq=a4:53:85:fd:7b:d1
+H: Handlers=event5
+B: PROP=40
+B: EV=19
+B: ABS=3f
+B: MSC=20
+
+I: Bus=0003 Vendor=054c Product=09cc Version=8111
+N: Name="Sony Interactive Entertainment Wireless Controller"
+P: Phys=usb-20980000.usb-1.3/input3
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.3/1-1.3:1.3/0003:054C:09CC.0005/input/input6
+U: Uniq=a4:53:85:fd:7b:d1
+H: Handlers=event6 js2
+B: PROP=0
+B: EV=20001b
+B: KEY=7fdb0000 0 0 0 0 0 0 0 0 0
+B: ABS=3003f
+B: MSC=10
+B: FF=1 7030000 0 0
+
+I: Bus=0003 Vendor=2252 Product=0120 Version=0110
+N: Name="HBGIC Technology Co., Ltd. USB Keyboard Mouse"
+P: Phys=usb-20980000.usb-1.4/input0
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.0/0003:2252:0120.0004/input/input6
+U: Uniq=
+H: Handlers=sysrq kbd leds event5
+B: PROP=0
+B: EV=120013
+B: KEY=10000 7 ff9f207a c14057ff febeffdf ffefffff ffffffff fffffffe
+B: MSC=10
+B: LED=7
+
+I: Bus=0003 Vendor=2252 Product=0120 Version=0110
+N: Name="HBGIC Technology Co., Ltd. USB Keyboard Mouse"
+P: Phys=usb-20980000.usb-1.4/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.1/0003:2252:0120.0005/input/input7
+U: Uniq=
+H: Handlers=mouse1 event6
+B: PROP=0
+B: EV=17
+B: KEY=70000 0 0 0 0 0 0 0 0
+B: REL=903
+B: MSC=10
+
+I: Bus=0003 Vendor=2252 Product=0120 Version=0110
+N: Name="HBGIC Technology Co., Ltd. USB Keyboard Mouse Consumer Control"
+P: Phys=usb-20980000.usb-1.4/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.1/0003:2252:0120.0005/input/input8
+U: Uniq=
+H: Handlers=kbd event7
+B: PROP=0
+B: EV=1f
+B: KEY=3f 301ff 0 0 0 0 483ffff 17aff32d bfd44446 0 0 1 130ff3 8b17c000 677bfa d9415fed 19ed680 4400 0 10000002
+B: REL=1040
+B: ABS=1 0
+B: MSC=10
+
+I: Bus=0003 Vendor=2252 Product=0120 Version=0110
+N: Name="HBGIC Technology Co., Ltd. USB Keyboard Mouse System Control"
+P: Phys=usb-20980000.usb-1.4/input1
+S: Sysfs=/devices/platform/soc/20980000.usb/usb1/1-1/1-1.4/1-1.4:1.1/0003:2252:0120.0005/input/input9
+U: Uniq=
+H: Handlers=kbd event8
+B: PROP=0
+B: EV=13
+B: KEY=c000 100000 0 0 0
+B: MSC=10
