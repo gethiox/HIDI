@@ -35,6 +35,7 @@ There is a small list of missing functionality that I want to implement:
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work)
   ![no china usb midi](./docs/no-china-usb-midi.png)
+- If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
 - **Keyboards**, **gamepads** :)
 
 # Usage
