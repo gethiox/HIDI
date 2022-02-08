@@ -4,6 +4,9 @@ Flexible HID to MIDI translation layer
 Ultimate successor of [keyboard2000](https://github.com/gethiox/keyboard2000)
 and [keyboard3000](https://github.com/gethiox/keyboard3000) projects.
 
+Demo video:  
+[![Beta Demo](https://img.youtube.com/vi/luA-u8MfgAs/default.jpg)](https://www.youtube.com/watch?v=luA-u8MfgAs)
+
 # Purpose of this project
 This application is a translation layer between HID devices like keyboards or gamepads and MIDI interface 
 with a bunch of useful features:
