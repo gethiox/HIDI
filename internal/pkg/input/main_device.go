@@ -156,7 +156,7 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
-func (d *Device) Open() (<-chan *evdev.InputEvent, error) {
+func (d *Device) Open(grab bool) (<-chan *evdev.InputEvent, error) {
 	var events = make(chan *evdev.InputEvent)
 
 	wg := sync.WaitGroup{}
@@ -171,7 +171,9 @@ func (d *Device) Open() (<-chan *evdev.InputEvent, error) {
 		wg.Add(1)
 		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo) {
 			defer wg.Done()
-			_ = dev.Grab()
+			if grab {
+				_ = dev.Grab()
+			}
 			for {
 				event, err := dev.ReadOne()
 				if err != nil {
@@ -179,7 +181,9 @@ func (d *Device) Open() (<-chan *evdev.InputEvent, error) {
 				}
 				events <- event
 			}
-			// _ = dev.Ungrab() // TODO: implement in evdev
+			if grab {
+				// _ = dev.Ungrab() // TODO: implement in evdev
+			}
 		}(dev, ht, h)
 	}
 

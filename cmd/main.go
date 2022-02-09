@@ -34,9 +34,10 @@ func processLogs(debug bool, logs <-chan logg.LogEntry) {
 }
 
 func main() {
-	var debug bool
+	var grab, debug bool
 	var midiDevice int
 
+	flag.BoolVar(&grab, "grab", false, "grab input devices for exclusive usage, see README before use")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
@@ -75,7 +76,7 @@ device:
 		appearedAt := time.Now()
 
 		for {
-			inputEvents, err = d.Open()
+			inputEvents, err = d.Open(grab)
 			if err != nil {
 				if time.Now().Sub(appearedAt) > time.Second*5 {
 					logs <- logg.Warning(fmt.Sprintf("failed to open \"%s\" device on time, giving up", d.Name))

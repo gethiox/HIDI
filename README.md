@@ -40,7 +40,7 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 
 # Requirements
 - **Application is designed to be run under a Linux machine**, it can be run under Raspberry Pi zero,
-  it can be run on x64 dedicated tower PC
+  it can be run on x64 dedicated tower PC or a laptop, which conveniently provide integrated keyboard out-of-the-box.
 - In the case of Pi Zero, thing like USB HAT may be very useful
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work just fine). Here is my recommendation:
@@ -55,14 +55,21 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 Usage of ./hidi:
   -debug
         enable debug logging
+  -grab
+        grab input devices for exclusive usage, see README before use
   -mididevice int
         select N-th midi device, default: 0 (first)
 ```
-- if necessary, add permission for execution with `chmod +x hidi`
-- just run by `./hidi`
-- if you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
+- If necessary, add permission for execution with `chmod +x hidi`
+- If you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
   to avoid program termination on connection loss, just type `tmux` to run multiplexer, `ctr+b -> d` to leave tmux
   running in the backgroud, `tmux a` to re-enter your session. **tmux > screen**
+- During application use you probably don't want to propagate keyboard events into your system.
+  To avoid that use `-grab` parameter.  
+  **Warning**: If you're starting application with your directly connected keyboard it may be impossible to terminate it
+  in that case.  
+  Proper solution coming soon™
+- Just run by `./hidi`
 
 **Example stdout:**
 ```
