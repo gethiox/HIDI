@@ -207,9 +207,9 @@ var JoystickConfig = Config{
 				evdev.BTN_THUMBR: StringToNoteUnsafe("f0"),  // Right-analog press
 				evdev.BTN_TL:     StringToNoteUnsafe("f#0"), // Left bumper
 				evdev.BTN_TR:     StringToNoteUnsafe("g0"),  // Right bumper
-				evdev.BTN_SELECT: StringToNoteUnsafe("g#0"),
-				evdev.BTN_START:  StringToNoteUnsafe("a0"),
-				evdev.BTN_MODE:   StringToNoteUnsafe("a#0"), // xbox-logo
+				// evdev.BTN_SELECT: StringToNoteUnsafe("g#0"),
+				// evdev.BTN_START:  StringToNoteUnsafe("a0"),
+				evdev.BTN_MODE: StringToNoteUnsafe("a#0"), // xbox-logo
 			},
 		},
 	},
@@ -224,7 +224,9 @@ var JoystickConfig = Config{
 		// evdev.ABS_HAT0X: {id: AnalogKeySim, cc: 5},
 		// evdev.ABS_HAT0Y: {id: AnalogKeySim, cc: 6, flipAxis: true},
 	},
-	// actionMapping: map[evdev.EvCode]Action{
-	// 	evdev.ABS_HAT0X:
-	// },
+	actionMapping: map[evdev.EvCode]Action{
+		evdev.BTN_SELECT: ChannelDown,
+		evdev.BTN_START:  ChannelUp,
+		// evdev.ABS_HAT0X:
+	},
 }

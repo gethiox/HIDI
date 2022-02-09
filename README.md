@@ -14,7 +14,7 @@ with a bunch of useful features:
 - Any number of customized MIDI mappings, easily switchable by a precise binding, currently included Piano
   and Accordion (chromatic layout like lumatone or LinnStrument)
 - Making use of analog gamepad input to control things such as pitch-bend or CC (also configurable).
-- octave (F1-F2), semitone (F3-F4), mapping (F5-F6) channel (F7-F8) controls.
+- octave (F1-F2), semitone (F3-F4), mapping (F5-F6) channel (F7-F8) controls. Press both key-pairs at once to reset,
 - customizable multinote mode with just one press of a button, simply hold any number of desired additional intervals
   and press F9. Press again without holding any notes to disable multinote mode.
 - non-lazy note emitting implementation, user can conveniently change device state on the fly (octave, semitone, channel)
@@ -34,6 +34,9 @@ There is a small list of missing functionality that I want to implement:
   parsed every second, it can be implemented much more efficiently
 - Precompiled builds targeted for more platforms
 - MIDI sequencer, only if there are keyboards available with full LED control over Linux input subsystem (wishlist)  
+
+# License
+Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
 
 # Requirements
 - **Application is designed to be run under a Linux machine**, it can be run under Raspberry Pi zero,
@@ -57,8 +60,11 @@ Usage of ./hidi:
 ```
 - if necessary, add permission for execution with `chmod +x hidi`
 - just run by `./hidi`
+- if you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
+  to avoid program termination on connection loss, just type `tmux` to run multiplexer, `ctr+b -> d` to leave tmux
+  running in the backgroud, `tmux a` to re-enter your session. **tmux > screen**
 
-example stdout:
+**Example stdout:**
 ```
 2021/12/25 10:18:39 New Devices: 3
 2021/12/25 10:18:39 - [Keyboard], "Kingston HyperX Alloy FPS Mechanical Gaming Keyboard", 5 handlers
