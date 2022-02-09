@@ -77,6 +77,7 @@ var pitchToVal = map[string]uint8{
 func noteToPitch(note byte) string {
 	return valToPitch[note%12]
 }
+
 func noteToOctave(note byte) int {
 	return int(note/12) - 2
 }
@@ -114,6 +115,7 @@ func (e Event) String() string {
 	case PitchWheelChange:
 		val := float64((int(e[2])<<7)+int(e[1])-8192) / 8192 // max value: 16383, middle value (no pitch change): 8192
 		return fmt.Sprintf("Pitch Bend: %4.0f%% (channel: %2d)", val*100, channel)
+	// TODO: cover the rest of possible midi events
 	default:
 		msg := "Oof, unexpected event format: "
 		for _, v := range e {
@@ -131,9 +133,10 @@ func ControlChangeEvent(channel, function, value uint8) Event {
 	return Event{ControlChange | channel, function, value}
 }
 
+// PitchBendEvent accepts a value in range -1.0 to 1.0
 func PitchBendEvent(channel uint8, val float64) Event {
-	target := int(float64((1<<14)-1) * val) // valid 14-bit pitch-bend range
-	msb := uint8(target >> 7)
-	lsb := uint8(target & 0b01111111) // filtering out one bit of msb, feels good man
+	target := int(float64((1<<14)-1) * val)  // valid 14-bit pitch-bend range
+	msb := uint8((target >> 7) & 0b01111111) // filtering bit that is beyond valid pitch-bend range when val>1.0, just in case
+	lsb := uint8(target & 0b01111111)        // filtering out one bit of msb, feels good man
 	return Event{PitchWheelChange | channel, lsb, msb}
 }
