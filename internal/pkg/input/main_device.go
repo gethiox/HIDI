@@ -22,6 +22,11 @@ const (
 	JoystickDevice            // joystick device, may contain keyboard, mouse, sensors events
 )
 
+type InputEvent struct {
+	Source DeviceInfo
+	Event  *evdev.InputEvent
+}
+
 func (e DeviceType) String() string {
 	switch e {
 	case KeyboardDevice:
@@ -162,14 +167,14 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
-func (d *Device) ProcessEvents(ctx context.Context, grab bool) (<-chan *evdev.InputEvent, error) {
-	var events = make(chan *evdev.InputEvent)
+func (d *Device) ProcessEvents(ctx context.Context, grab bool) (<-chan *InputEvent, error) {
+	var events = make(chan *InputEvent)
 
 	wg := sync.WaitGroup{}
 	for ht, h := range d.Handlers {
 		dev, err := evdev.Open(h.EventPath())
 		if err != nil {
-			return events, fmt.Errorf("opening handler failed: %v", err)
+			return nil, fmt.Errorf("opening handler failed: %v", err)
 		}
 
 		d.Evdevs[ht] = dev
@@ -182,25 +187,30 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool) (<-chan *evdev.In
 		wg.Add(1)
 		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo) {
 			name, _ := dev.InputID()
+			path := dev.Path()
 			defer wg.Done()
+
 			if grab {
 				_ = dev.Grab()
-				log.Printf("[%v] Grabbing device for exclusive usage", name)
+				log.Printf("[%+v, %s] Grabbing device for exclusive usage", name, path)
 			}
-			log.Printf("[%v] Reading input events", name)
+			log.Printf("[%+v, %s] Reading input events", name, path)
 			for {
 				event, err := dev.ReadOne()
 				if err != nil {
-					log.Printf("[%v] Reading input events error: %v", name, err)
+					log.Printf("[%+v, %s] Reading input events error: %v", name, path, err)
 					break
 				}
-				events <- event
+				events <- &InputEvent{
+					Source: info,
+					Event:  event,
+				}
 			}
 			if grab {
-				log.Printf("[%v] Ungrabbing device", name)
+				log.Printf("[%+v, %s] Ungrabbing device", name, path)
 				_ = dev.Ungrab()
 			}
-			log.Printf("[%v] Reading input events finished", name)
+			log.Printf("[%+v, %s] Reading input events finished", name, path)
 		}(dev, ht, h)
 	}
 

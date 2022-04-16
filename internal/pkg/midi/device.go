@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"hidi/internal/pkg/input"
 	"hidi/internal/pkg/logg"
@@ -21,13 +22,13 @@ const (
 type Device struct {
 	config      Config
 	InputDevice input.Device
-	inputEvents <-chan *evdev.InputEvent
+	inputEvents <-chan *input.InputEvent
 	midiEvents  chan<- Event
 	logs        chan<- logg.LogEntry
 
 	// TODO: move this to input.Device
 	// absinfos holds information about boundaries of analog information
-	absinfos map[evdev.EvCode]evdev.AbsInfo
+	absinfos map[string]map[evdev.EvCode]evdev.AbsInfo // map key: DeviceInfo.Event()
 
 	// instead of generating NoteOff events based on the current Device state (lazy approach), every emitted note
 	// is being tracked and released precisely on related hardware button release.
@@ -43,31 +44,30 @@ type Device struct {
 	mapping   int
 }
 
-func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan *evdev.InputEvent, midiEvents chan<- Event,
+func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan *input.InputEvent, midiEvents chan<- Event,
 	logs chan<- logg.LogEntry) Device {
 
 	// var config Config
-	var absinfos = make(map[evdev.EvCode]evdev.AbsInfo)
+	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
 
-	// switch inputDevice.DeviceType {
-	// case input.KeyboardDevice:
-	// 	config = KeyboardConfig
-	// case input.JoystickDevice:
-	// 	config = JoystickConfig
-	//
-	// 	for ht, edev := range inputDevice.Evdevs {
-	// 		// TODO: handle situation where joystick provides more than one input handler
-	// 		if ht == input.DI_TYPE_JOYSTICK {
-	// 			absi, err := edev.AbsInfos()
-	// 			if err != nil {
-	// 				logs <- logg.Warning(fmt.Sprintf("Failed to fetch absinfos [%s]", inputDevice.Name))
-	// 			}
-	// 			absinfos = absi
-	// 		}
-	// 	}
-	// default:
-	// 	panic(fmt.Sprintf("cannot pick config for \"%s\" device", inputDevice.DeviceType.String()))
-	// }
+	if inputDevice.DeviceType == input.JoystickDevice {
+		for ht, edev := range inputDevice.Evdevs {
+			if ht != input.DI_TYPE_JOYSTICK {
+				continue
+			}
+			eventRaw := strings.Split(edev.Path(), "/")
+			event := eventRaw[len(eventRaw)-1]
+
+			absi, err := edev.AbsInfos()
+			if err != nil {
+				logs <- logg.Warning(fmt.Sprintf("Failed to fetch absinfos [%s]", inputDevice.Name))
+				absinfos[event] = make(map[evdev.EvCode]evdev.AbsInfo)
+				continue
+			}
+
+			absinfos[event] = absi
+		}
+	}
 
 	return Device{
 		config:      config.Config,
@@ -85,7 +85,7 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 func (d *Device) ProcessEvents(ctx context.Context) {
 root:
 	for {
-		var ie *evdev.InputEvent
+		var ie *input.InputEvent
 		select {
 		case <-ctx.Done():
 			break root
@@ -93,25 +93,23 @@ root:
 			break
 		}
 
-		if ie.Type == evdev.EV_SYN {
+		switch ie.Event.Type {
+		case evdev.EV_SYN:
 			continue
-		}
-
-		switch ie.Type {
 		case evdev.EV_KEY:
-			_, noteOk := d.config.MidiMappings[d.mapping].Mapping[ie.Code]
-			action, actionOk := d.config.ActionMapping[ie.Code]
+			_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
+			action, actionOk := d.config.ActionMapping[ie.Event.Code]
 
 			switch {
 			case noteOk:
-				switch ie.Value {
+				switch ie.Event.Value {
 				case EV_KEY_PRESS:
-					d.NoteOn(ie.Code)
+					d.NoteOn(ie.Event.Code)
 				case EV_KEY_RELEASE:
-					d.NoteOff(ie.Code)
+					d.NoteOff(ie.Event.Code)
 				}
 			case actionOk:
-				switch ie.Value {
+				switch ie.Event.Value {
 				case EV_KEY_PRESS:
 					d.actionTracker[action] = true
 					if len(d.actionTracker) > 1 {
@@ -160,24 +158,28 @@ root:
 				}
 			default:
 				switch {
-				case ie.Type == evdev.EV_KEY && ie.Value == EV_KEY_RELEASE:
+				case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_RELEASE:
 					continue
-				case ie.Type == evdev.EV_KEY && ie.Value == EV_KEY_REPEAT:
+				case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_REPEAT:
 					continue
 				}
 
 				d.logs <- logg.Debug(fmt.Sprintf(
-					"Unbinded Button: code: %3d (0x%2x) [%s], type: %2x [%s] value: %d (0x%x) [%s]",
-					ie.Code, ie.Code, evdev.KEYToString[ie.Code], ie.Type, evdev.EVToString[ie.Type], ie.Value, ie.Value, d.InputDevice.Name,
+					"Unbinded Button: code: %3d (0x%02x) [%s], type: %2x [%s] value: %d (0x%x) [%s]",
+					ie.Event.Code, ie.Event.Code, evdev.KEYToString[ie.Event.Code],
+					ie.Event.Type, evdev.EVToString[ie.Event.Type],
+					ie.Event.Value, ie.Event.Value,
+					d.InputDevice.Name,
 				))
 			}
 		case evdev.EV_ABS:
-			analog, analogOk := d.config.AnalogMapping[ie.Code]
+			analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
 
 			switch {
 			case analogOk:
-				min, max := float64(d.absinfos[ie.Code].Minimum), float64(d.absinfos[ie.Code].Maximum)
-				value := (float64(ie.Value) + math.Abs(min)) / (math.Abs(min) + max)
+				min := float64(d.absinfos[ie.Source.Event()][ie.Event.Code].Minimum)
+				max := float64(d.absinfos[ie.Source.Event()][ie.Event.Code].Maximum)
+				value := (float64(ie.Event.Value) + math.Abs(min)) / (math.Abs(min) + max)
 				if analog.flipAxis {
 					value = 1 - value
 				}
@@ -186,12 +188,18 @@ root:
 				switch analog.id {
 				case AnalogCC:
 					event = ControlChangeEvent(d.channel, analog.cc, byte(int(float64(127)*value)))
+					fmt.Printf("PROCESSING ANALOG, %+v, %+v, %+v\n", d.channel, analog.cc, byte(int(float64(127)*value)))
 				case AnalogPitchBend:
 					event = PitchBendEvent(d.channel, value)
+					fmt.Printf("PROCESSING ANALOG 2, %+v, %+v\n", d.channel, value)
 				case AnalogKeySim:
 					// TODO
 					continue
+				default:
+					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.id))
 				}
+
+				fmt.Printf("PROCESSING ANALOG, %#v\n", []byte(event))
 
 				d.midiEvents <- event
 				d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
@@ -209,7 +217,7 @@ root:
 }
 
 func (d *Device) NoteOn(evCode evdev.EvCode) {
-	note, ok := d.config.MidiMappings[d.mapping].Mapping[evCode]
+	note, ok := d.config.KeyMappings[d.mapping].Midi[evCode]
 	if !ok {
 		return
 	}
@@ -295,19 +303,19 @@ func (d *Device) MappingDown() {
 	if d.mapping != 0 {
 		d.mapping--
 	}
-	d.logs <- logg.Info(fmt.Sprintf("mapping down (%s) [%s]", d.config.MidiMappings[d.mapping].Name, d.InputDevice.Name))
+	d.logs <- logg.Info(fmt.Sprintf("mapping down (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name))
 }
 
 func (d *Device) MappingUp() {
-	if d.mapping != len(d.config.MidiMappings)-1 {
+	if d.mapping != len(d.config.KeyMappings)-1 {
 		d.mapping++
 	}
-	d.logs <- logg.Info(fmt.Sprintf("mapping up (%s) [%s]", d.config.MidiMappings[d.mapping].Name, d.InputDevice.Name))
+	d.logs <- logg.Info(fmt.Sprintf("mapping up (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name))
 }
 
 func (d *Device) MappingReset() {
 	d.mapping = 0
-	d.logs <- logg.Info(fmt.Sprintf("mapping reset (%s) [%s]", d.config.MidiMappings[d.mapping].Name, d.InputDevice.Name))
+	d.logs <- logg.Info(fmt.Sprintf("mapping reset (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name))
 }
 
 func (d *Device) ChannelDown() {

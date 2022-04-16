@@ -5,6 +5,8 @@ package input
 import (
 	"fmt"
 	"strings"
+
+	"github.com/gethiox/go-evdev"
 )
 
 type PhysicalID string
@@ -61,26 +63,35 @@ type InputID struct {
 type Bitmaps struct {
 	// BITS_TO_LONGS/__KERNEL_DIV_ROUND_UP calculation for keeping original lengths of bitmaps,
 	// kernel 5.14.15
-	PROP [(INPUT_PROP_CNT + 32 - 1) / 32]uint32 // 1   // device properties and quirks
-	EV   [(EV_CNT + 32 - 1) / 32]uint32         // 1   // types of events supported by the device
-	KEY  [(KEY_CNT + 32 - 1) / 32]uint32        // 24  // keys/buttons this device has
-	REL  [(REL_CNT + 32 - 1) / 32]uint32        // 1
-	ABS  [(ABS_CNT + 32 - 1) / 32]uint32        // 2
-	MSC  [(MSC_CNT + 32 - 1) / 32]uint32        // 1   // miscellaneous events supported by the device
-	LED  [(LED_CNT + 32 - 1) / 32]uint32        // 1   // leds present on the device
-	SND  [(SND_CNT + 32 - 1) / 32]uint32        // 1
-	FF   [(FF_CNT + 32 - 1) / 32]uint32         // 4
-	SW   [(SW_CNT + 32 - 1) / 32]uint32         // 1
+	PROP [(evdev.INPUT_PROP_CNT + 32 - 1) / 32]uint32 // 1   // device properties and quirks
+	EV   [(evdev.EV_CNT + 32 - 1) / 32]uint32         // 1   // types of events supported by the device
+	KEY  [(evdev.KEY_CNT + 32 - 1) / 32]uint32        // 24  // keys/buttons this device has
+	REL  [(evdev.REL_CNT + 32 - 1) / 32]uint32        // 1
+	ABS  [(evdev.ABS_CNT + 32 - 1) / 32]uint32        // 2
+	MSC  [(evdev.MSC_CNT + 32 - 1) / 32]uint32        // 1   // miscellaneous events supported by the device
+	LED  [(evdev.LED_CNT + 32 - 1) / 32]uint32        // 1   // leds present on the device
+	SND  [(evdev.SND_CNT + 32 - 1) / 32]uint32        // 1
+	FF   [(evdev.FF_CNT + 32 - 1) / 32]uint32         // 4
+	SW   [(evdev.SW_CNT + 32 - 1) / 32]uint32         // 1
+}
+
+// Event returns event name, like "event0" for /dev/input/event0
+func (d *DeviceInfo) Event() string {
+	for _, handler := range d.Handlers {
+		if strings.HasPrefix(handler, "event") {
+			return handler
+		}
+	}
+	return ""
 }
 
 // EventPath returns a /dev/input/event filepath for button presses
 func (d *DeviceInfo) EventPath() string {
-	for _, handler := range d.Handlers {
-		if strings.HasPrefix(handler, "event") {
-			return fmt.Sprintf("/dev/input/%s", handler)
-		}
+	event := d.Event()
+	if event == "" {
+		return ""
 	}
-	return ""
+	return fmt.Sprintf("/dev/input/%s", event)
 }
 
 func (d *DeviceInfo) HandlerType() HandlerType {

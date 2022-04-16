@@ -10,13 +10,10 @@ import (
 	"hidi/internal/pkg/input"
 	"hidi/internal/pkg/logg"
 	"hidi/internal/pkg/midi"
-
-	"github.com/gethiox/go-evdev"
 )
 
 func runManager(logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, devices map[*midi.Device]*midi.Device) {
-	deviceConfigChange := make(chan bool)
-	go midi.DetectDeviceConfigChanges(logs, deviceConfigChange)
+	deviceConfigChange := midi.DetectDeviceConfigChanges(logs)
 
 	for {
 		configs, err := midi.LoadDeviceConfigs()
@@ -37,6 +34,7 @@ func runManager(logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, 
 		newDevices := input.MonitorNewDevices(ctx)
 	device:
 		for {
+			// TODO: inspect this code against possible race-condition
 			var d input.Device
 
 			select {
@@ -46,7 +44,7 @@ func runManager(logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, 
 				break
 			}
 
-			var inputEvents <-chan *evdev.InputEvent
+			var inputEvents <-chan *input.InputEvent
 			var err error
 
 			appearedAt := time.Now()
@@ -74,7 +72,6 @@ func runManager(logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, 
 					panic(err)
 				}
 				logs <- logg.Debugf("[\"%s\"] Config loaded!", dev.Name)
-				// logs <- logg.Debugf("[\"%s\"] Config: %+v", conf)
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents, logs)
 				devices[&midiDev] = &midiDev
 				logs <- logg.Debugf("[\"%s\"] Starting to process events", dev.Name)

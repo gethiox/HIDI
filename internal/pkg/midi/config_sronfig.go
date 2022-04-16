@@ -1,12 +1,15 @@
 package midi
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	path2 "path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"hidi/internal/pkg/input"
@@ -90,7 +93,13 @@ type YamlDeviceConfig struct {
 		Uniq    string `yaml:"uniq"`
 	} `yaml:"identifier"`
 	ActionMapping map[string]string              `yaml:"action_mapping"`
-	MidiMappings  []map[string]map[string]string `yaml:"midi_mappings"`
+	KeyMappings   []map[string]map[string]string `yaml:"midi_mappings"`
+}
+
+type YamlAnalogMapping struct {
+	ID       string `yaml:"id"`
+	CC       uint8  `yaml:"cc"`
+	FlipAxis bool   `yaml:"flip_axis"`
 }
 
 type DeviceConfig struct {
@@ -98,10 +107,9 @@ type DeviceConfig struct {
 	ID         input.InputID
 	Uniq       string
 	Config     Config
-	// ActionMapping map[string]string
-	// MidiMappings  []map[string]map[string]string
 }
 
+// readDeviceConfig parses yaml file and provide ready to use DeviceConfig
 func readDeviceConfig(path string) (DeviceConfig, error) {
 	cfg := YamlDeviceConfig{}
 	fd, err := os.OpenFile(path, os.O_RDONLY, 0)
@@ -120,23 +128,64 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 		return DeviceConfig{}, fmt.Errorf("parsing yaml failed: %w", err)
 	}
 
-	var midiMapping []MidiMapping
+	var keyMapping []KeyMapping
 	var actionMapping = make(map[evdev.EvCode]Action)
-	var analogMapping = make(map[evdev.EvCode]Analog)
 
-	for _, mappings := range cfg.MidiMappings {
+	for _, mappings := range cfg.KeyMappings {
 		for name, mappingRaw := range mappings {
-			var mapping = make(map[evdev.EvCode]byte)
+			var midiMapping = make(map[evdev.EvCode]byte)
+			var analogMapping = make(map[evdev.EvCode]Analog)
 
-			for evcodeRaw, noteRaw := range mappingRaw {
-				evcode := evdev.KEYFromString[evcodeRaw]
-				note := StringToNoteUnsafe(noteRaw)
-				mapping[evcode] = note
+			for evcodeRaw, valueRaw := range mappingRaw {
+				_, isKey := evdev.KEYFromString[evcodeRaw]
+				_, isAbs := evdev.ABSFromString[evcodeRaw]
+				switch {
+				case isKey:
+					evcode := evdev.KEYFromString[evcodeRaw]
+
+					noteInt, err := strconv.Atoi(valueRaw)
+					if err == nil {
+						if noteInt < 0 || noteInt > 127 {
+							panic(fmt.Sprintf("note value outside of 0-127 range"))
+						}
+						midiMapping[evcode] = byte(noteInt)
+						continue
+					}
+
+					note, err := StringToNote(valueRaw)
+					if err == nil {
+						if note < 0 || note > 127 {
+							panic(fmt.Sprintf("note value outside of 0-127 range"))
+						}
+						midiMapping[evcode] = note
+						continue
+					}
+					panic(fmt.Errorf("failed to parse note: %v", err))
+				case isAbs:
+					var mapping YamlAnalogMapping
+					evcode := evdev.ABSFromString[evcodeRaw]
+
+					err := yaml.Unmarshal([]byte(valueRaw), &mapping)
+					if err != nil {
+						panic(fmt.Sprintf("cannot unmarshal analog configuration for \"%s\" key: %v", evcodeRaw, err))
+					}
+					fmt.Printf("mapping raw: %s\n", valueRaw)
+
+					fmt.Printf("mapping: %+v\n", mapping)
+					analogMapping[evcode] = Analog{
+						id:       NameToAnalogID[mapping.ID],
+						cc:       mapping.CC,
+						flipAxis: mapping.FlipAxis,
+					}
+				default:
+					panic(fmt.Sprintf("unsupported value type of \"%s\" key: %s", evcodeRaw, valueRaw))
+				}
 			}
 
-			midiMapping = append(midiMapping, MidiMapping{
-				Name:    name,
-				Mapping: mapping,
+			keyMapping = append(keyMapping, KeyMapping{
+				Name:   name,
+				Midi:   midiMapping,
+				Analog: analogMapping,
 			})
 		}
 	}
@@ -166,9 +215,8 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 		},
 		Uniq: cfg.Identifier.Uniq,
 		Config: Config{
-			MidiMappings:    midiMapping,
+			KeyMappings:     keyMapping,
 			ActionMapping:   actionMapping,
-			AnalogMapping:   analogMapping,
 			AnalogDeadzones: nil,
 		},
 	}
@@ -200,7 +248,12 @@ func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (
 		if ok {
 			return cfg, nil
 		}
-		return c.Factory.Keyboards[input.InputID{}], nil // should return default config
+		cfg, ok = c.Factory.Keyboards[input.InputID{}] // picking default config
+		if ok {
+			return cfg, nil
+		}
+		return DeviceConfig{}, errors.New("default keyboard config not found")
+
 	case input.JoystickDevice:
 		cfg, ok := c.User.Gamepads[id]
 		if ok {
@@ -210,10 +263,39 @@ func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (
 		if ok {
 			return cfg, nil
 		}
-		return c.Factory.Gamepads[input.InputID{}], nil // should return default config
+		cfg, ok = c.Factory.Gamepads[input.InputID{}] // picking default config
+		if ok {
+			return cfg, nil
+		}
+		return DeviceConfig{}, errors.New("default gamepad config not found")
 	}
 
 	return DeviceConfig{}, fmt.Errorf("shiet aaa")
+}
+
+func loadDirectory(root string, configMap ConfigMap) error {
+	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+
+		name := strings.ToLower(info.Name())
+
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			devCfg, err := readDeviceConfig(path)
+			if err != nil {
+				log.Printf("device config %s load failed: %s", name, err)
+				return nil
+			}
+			configMap[devCfg.ID] = devCfg
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("walk failed: %w", err)
+	}
+	return nil
 }
 
 func LoadDeviceConfigs() (DeviceConfigs, error) {
@@ -226,35 +308,6 @@ func LoadDeviceConfigs() (DeviceConfigs, error) {
 			Keyboards: make(ConfigMap),
 			Gamepads:  make(ConfigMap),
 		},
-	}
-
-	var cfgCount, cfgFailedCount int
-
-	loadDirectory := func(root string, configMap ConfigMap) error {
-		err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
-			if info.IsDir() {
-				return nil
-			}
-
-			name := strings.ToLower(info.Name())
-
-			if strings.HasSuffix(name, "yaml") || strings.HasSuffix(name, "yml") {
-				cfgCount++
-				devCfg, err := readDeviceConfig(path)
-				if err != nil {
-					logg.Warningf("device config %s load failed: %s", name, err)
-					cfgFailedCount++
-					return nil
-				}
-				configMap[devCfg.ID] = devCfg
-			}
-
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("walk failed: %w", err)
-		}
-		return nil
 	}
 
 	pairs := []struct {
@@ -277,30 +330,37 @@ func LoadDeviceConfigs() (DeviceConfigs, error) {
 	return cfg, nil
 }
 
-func DetectDeviceConfigChanges(logs chan logg.LogEntry, change chan<- bool) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return
-	}
+func DetectDeviceConfigChanges(logs chan logg.LogEntry) <-chan bool {
+	var change = make(chan bool)
 
-	for _, path := range []string{
-		factoryGamepad,
-		factoryKeyboard,
-		userGamepad,
-		userKeyboard,
-	} {
-		err = watcher.Add(path)
-	}
-
-	for event := range watcher.Events {
-		if event.Op != fsnotify.Write {
-			continue
+	go func() {
+		defer close(change)
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			return
 		}
 
-		name := strings.ToLower(event.Name)
-		if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") {
-			logs <- logg.Infof("config change detected: %s", event.Name)
-			change <- true
+		for _, path := range []string{
+			factoryGamepad,
+			factoryKeyboard,
+			userGamepad,
+			userKeyboard,
+		} {
+			err = watcher.Add(path)
 		}
-	}
+
+		for event := range watcher.Events {
+			if event.Op != fsnotify.Write {
+				continue
+			}
+
+			name := strings.ToLower(event.Name)
+			if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") {
+				logs <- logg.Infof("config change detected: %s", event.Name)
+				change <- true
+			}
+		}
+	}()
+
+	return change
 }

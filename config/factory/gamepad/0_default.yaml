@@ -1,27 +1,32 @@
+identifier:
+  bus: 0
+  vendor: 0
+  product: 0
+  version: 0
+  uniq: "" # optional
+
 action_mapping:
-  BTN_SELECT: "ChannelDown"
-  BTN_START: "ChannelUp"
+  BTN_SELECT: "channel_down"
+  BTN_START: "channel_up"
 
 midi_mappings:
   - "Default":
       # buttons
-      BTN_A: c0
-      BTN_B: c#0
-      BTN_X: d0
-      BTN_Y: d#0
+      BTN_A: 0
+      BTN_B: 1
+      BTN_X: 2
+      BTN_Y: 3
 
-      BTN_THUMBL: e0 # Left-analog press
-      BTN_THUMBR: f0 # Right-analog press
-      BTN_TL: f#0    # Left bumper
-      BTN_TR: g0     # Right bumper
-      // BTN_SELECT: g#0
-      // BTN_START: a0
-      BTN_MODE: a#0 # xbox-logo
+      BTN_THUMBL: 4 # Left-analog press
+      BTN_THUMBR: 5 # Right-analog press
+      BTN_TL: 6 # Left bumper
+      BTN_TR: 7 # Right bumper
+      BTN_MODE: 8 # xbox-logo
 
-      # analog
-      evdev.ABS_X: { id: AnalogCC, cc: 0 }
-      evdev.ABS_Y: { id: AnalogPitchBend, flipAxis: true }
-      evdev.ABS_RX: { id: AnalogCC, cc: 1 }
-      evdev.ABS_RY: { id: AnalogCC, cc: 2, flipAxis: true }
-      evdev.ABS_Z: { id: AnalogCC, cc: 3 }
-      evdev.ABS_RZ: { id: AnalogCC, cc: 4 }
+      # analog (value needs to be a string, quotes are important)
+      ABS_X: "{id: cc, cc: 0}"
+      ABS_Y: "{id: pitch_bend, flip_axis: true}"
+      ABS_RX: "{id: cc, cc: 1}"
+      ABS_RY: "{id: cc, cc: 2, flip_axis: true}"
+      ABS_Z: "{id: cc, cc: 3}"
+      ABS_RZ: "{id: cc, cc: 4}"

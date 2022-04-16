@@ -1,8 +1,8 @@
-identifier:
-  bus: ""
-  vendor: ""
-  product: ""
-  version: ""
+identifier: # marking config as default as zero-value identifier
+  bus: 0x00
+  vendor: 0x00
+  product: 0x00
+  version: 0x00
   uniq: "" # optional
 
 action_mapping:
@@ -130,4 +130,112 @@ midi_mappings:
       KEY_BACKSLASH: c3
 
   - "Control": # unique midi events for every button
+      # main keyboard section
+      KEY_1: 0
+      KEY_Q: 1
+      KEY_A: 2
+      KEY_Z: 3
+      KEY_2: 4
+      KEY_W: 5
+      KEY_S: 6
+      KEY_X: 7
+      KEY_3: 8
+      KEY_E: 9
+      KEY_D: 10
+      KEY_C: 11
+      KEY_4: 12
+      KEY_R: 13
+      KEY_F: 14
+      KEY_V: 15
+      KEY_5: 16
+      KEY_T: 17
+      KEY_G: 18
+      KEY_B: 19
+      KEY_6: 20
+      KEY_Y: 21
+      KEY_H: 22
+      KEY_N: 23
+      KEY_7: 24
+      KEY_U: 25
+      KEY_J: 26
+      KEY_M: 27
+      KEY_8: 28
+      KEY_I: 29
+      KEY_K: 30
+      KEY_COMMA: 31
+      KEY_9: 32
+      KEY_O: 33
+      KEY_L: 34
+      KEY_DOT: 35
+      KEY_0: 36
+      KEY_P: 37
+      KEY_SEMICOLON: 38
+      KEY_SLASH: 39
+      KEY_MINUS: 40
+      KEY_LEFTBRACE: 41
+      KEY_APOSTROPHE: 42
+      KEY_EQUAL: 43
+      KEY_RIGHTBRACE: 44
+      KEY_ENTER: 45
+      KEY_BACKSPACE: 46
+      KEY_BACKSLASH: 47
+      KEY_GRAVE: 48
+      KEY_TAB: 49
+      KEY_CAPSLOCK: 50
+      KEY_LEFTSHIFT: 51
+      KEY_LEFTCTRL: 52
+      KEY_LEFTMETA: 53
+      KEY_LEFTALT: 54
+      KEY_SPACE: 55
+      KEY_RIGHTALT: 55
+      KEY_RIGHTMETA: 56
+      KEY_COMPOSE: 57
+      KEY_RIGHTCTRL: 58
+      KEY_RIGHTSHIFT: 59
+
+      # arrows
+      KEY_UP: 60
+      KEY_DOWN: 61
+      KEY_LEFT: 62
+      KEY_RIGHT: 63
+
+      KEY_INSERT: 64
+      KEY_DELETE: 65
+      KEY_HOME: 66
+      KEY_END: 67
+      KEY_PAGEUP: 68
+      KEY_PAGEDOWN: 69
+
+      KEY_SYSRQ: 70
+      KEY_SCROLLLOCK: 71
+      KEY_PAUSE: 72
+
+      # media control
+      KEY_PREVIOUSSONG: 73
+      KEY_PLAYPAUSE: 74
+      KEY_NEXTSONG: 75
+      KEY_MUTE: 76
+      KEY_VOLUMEUP: 77
+      KEY_VOLUMEDOWN: 78
+
+      # keypad
+      KEY_NUMLOCK: 79
+      KEY_KPSLASH: 80
+      KEY_KPASTERISK: 81
+      KEY_KPMINUS: 82
+      KEY_KP7: 83
+      KEY_KP8: 84
+      KEY_KP9: 85
+      KEY_KPPLUS: 86
+      KEY_KP4: 87
+      KEY_KP5: 88
+      KEY_KP6: 89
+      KEY_KP1: 90
+      KEY_KP2: 91
+      KEY_KP3: 92
+      KEY_KPENTER: 93
+      KEY_KP0: 94
+      KEY_KPDOT: 95
+
+
 

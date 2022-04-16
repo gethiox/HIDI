@@ -44,7 +44,7 @@ var stringToNoteRegex = regexp.MustCompile("(?P<pitch>[a-zA-Z]#?)(?P<octave>-?[0
 
 func StringToNote(note string) (byte, error) {
 	match := stringToNoteRegex.FindStringSubmatch(note)
-	if match[0] == "" {
+	if len(match) == 0 {
 		return 0, errors.New("unsupported format, bruh")
 	}
 
@@ -55,11 +55,6 @@ func StringToNote(note string) (byte, error) {
 	}
 
 	return (uint8(octave)+2)*12 + pitchToVal[pitch], nil
-}
-
-func StringToNoteUnsafe(note string) byte {
-	b, _ := StringToNote(note)
-	return b
 }
 
 var valToPitch = map[uint8]string{
