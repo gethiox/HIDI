@@ -1,10 +1,12 @@
 package input
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"sync"
 
-	"github.com/holoplot/go-evdev"
+	"github.com/gethiox/go-evdev"
 )
 
 // Collects all separate device-info handlers together for building one logical handler
@@ -74,6 +76,7 @@ func DetermineDeviceType(handlers map[HandlerType]DeviceInfo) DeviceType {
 // Normalize processes all DeviceInfo list and returns generic devices with its underlying DeviceInfo handlers
 func Normalize(deviceInfos []DeviceInfo) []Device {
 	var collection = make(map[PhysicalID][]DeviceInfo, 0)
+	// var collectionOrder = make([]PhysicalID, 0)
 
 	for _, di := range deviceInfos {
 		key := di.PhysicalUUID()
@@ -133,7 +136,10 @@ type Device struct {
 }
 
 func (d *Device) String() string {
-	return fmt.Sprintf("[%s], \"%s\", %d handlers", d.DeviceType, d.Name, len(d.Handlers))
+	return fmt.Sprintf(
+		"[%s], \"%s\", %d handlers (0x%04x, 0x%04x, 0x%04x, 0x%04x, \"%s\")",
+		d.DeviceType, d.Name, len(d.Handlers), d.ID.Bus, d.ID.Vendor, d.ID.Product, d.ID.Version, d.Uniq,
+	)
 }
 
 // SupportsNKRO tells if device has N-Key rollover handler
@@ -156,7 +162,7 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
-func (d *Device) Open(grab bool) (<-chan *evdev.InputEvent, error) {
+func (d *Device) ProcessEvents(ctx context.Context, grab bool) (<-chan *evdev.InputEvent, error) {
 	var events = make(chan *evdev.InputEvent)
 
 	wg := sync.WaitGroup{}
@@ -168,22 +174,33 @@ func (d *Device) Open(grab bool) (<-chan *evdev.InputEvent, error) {
 
 		d.Evdevs[ht] = dev
 
+		go func(dev *evdev.InputDevice) {
+			<-ctx.Done()
+			dev.Close()
+		}(dev)
+
 		wg.Add(1)
 		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo) {
+			name, _ := dev.InputID()
 			defer wg.Done()
 			if grab {
 				_ = dev.Grab()
+				log.Printf("[%v] Grabbing device for exclusive usage", name)
 			}
+			log.Printf("[%v] Reading input events", name)
 			for {
 				event, err := dev.ReadOne()
 				if err != nil {
+					log.Printf("[%v] Reading input events error: %v", name, err)
 					break
 				}
 				events <- event
 			}
 			if grab {
-				// _ = dev.Ungrab() // TODO: implement in evdev
+				log.Printf("[%v] Ungrabbing device", name)
+				_ = dev.Ungrab()
 			}
+			log.Printf("[%v] Reading input events finished", name)
 		}(dev, ht, h)
 	}
 

@@ -1,0 +1,27 @@
+action_mapping:
+  BTN_SELECT: "ChannelDown"
+  BTN_START: "ChannelUp"
+
+midi_mappings:
+  - "Default":
+      # buttons
+      BTN_A: c0
+      BTN_B: c#0
+      BTN_X: d0
+      BTN_Y: d#0
+
+      BTN_THUMBL: e0 # Left-analog press
+      BTN_THUMBR: f0 # Right-analog press
+      BTN_TL: f#0    # Left bumper
+      BTN_TR: g0     # Right bumper
+      // BTN_SELECT: g#0
+      // BTN_START: a0
+      BTN_MODE: a#0 # xbox-logo
+
+      # analog
+      evdev.ABS_X: { id: AnalogCC, cc: 0 }
+      evdev.ABS_Y: { id: AnalogPitchBend, flipAxis: true }
+      evdev.ABS_RX: { id: AnalogCC, cc: 1 }
+      evdev.ABS_RY: { id: AnalogCC, cc: 2, flipAxis: true }
+      evdev.ABS_Z: { id: AnalogCC, cc: 3 }
+      evdev.ABS_RZ: { id: AnalogCC, cc: 4 }

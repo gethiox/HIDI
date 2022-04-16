@@ -3,8 +3,22 @@ package input
 import (
 	"testing"
 
+	"github.com/gethiox/go-evdev"
 	"github.com/stretchr/testify/assert"
 )
+
+func findDevice(devices []Device, target Device) (Device, bool) {
+	var deviceToCompare Device
+	var found bool
+	for _, nd := range devices {
+		if target.ID == nd.ID {
+			deviceToCompare = nd
+			found = true
+			break
+		}
+	}
+	return deviceToCompare, found
+}
 
 func TestNormalize_Snapshot1(t *testing.T) {
 
@@ -705,6 +719,7 @@ func TestNormalize_Snapshot1(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// Razer Razer Ornata Chroma Keyboard
 		{
@@ -870,6 +885,7 @@ func TestNormalize_Snapshot1(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// Havit HV-KB390L Keyboard
 		{
@@ -1035,6 +1051,7 @@ func TestNormalize_Snapshot1(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// SPC Gear GK550 Keyboard
 		{
@@ -1175,18 +1192,21 @@ func TestNormalize_Snapshot1(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 	}
 
 	normalized := Normalize(devInfos)
 
-	t.Run("Device number", func(t *testing.T) {
-		assert.Equal(t, len(expected), len(normalized))
-	})
+	if !assert.Equal(t, len(expected), len(normalized), "unexpected amount of devices") {
+		t.FailNow()
+	}
 
-	for _, device := range expected {
-		t.Run(device.Name, func(t *testing.T) {
-			assert.Contains(t, normalized, device, "missing")
+	for i := 0; i < len(expected); i++ {
+		expectedDev, actualDev := expected[i], normalized[i]
+
+		t.Run(expectedDev.Name, func(t *testing.T) {
+			assert.Equal(t, expectedDev, actualDev)
 		})
 	}
 }
@@ -1438,6 +1458,7 @@ func TestNormalize_Snapshot2(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// Logitech MX Ergo
 		{
@@ -1478,18 +1499,21 @@ func TestNormalize_Snapshot2(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 	}
 
 	normalized := Normalize(devInfos)
 
-	t.Run("Device number", func(t *testing.T) {
-		assert.Equal(t, len(expected), len(normalized))
-	})
+	if !assert.Equal(t, len(expected), len(normalized), "unexpected amount of devices") {
+		t.FailNow()
+	}
 
-	for _, device := range expected {
-		t.Run(device.Name, func(t *testing.T) {
-			assert.Contains(t, normalized, device, "missing")
+	for i := 0; i < len(expected); i++ {
+		expectedDev, actualDev := expected[i], normalized[i]
+
+		t.Run(expectedDev.Name, func(t *testing.T) {
+			assert.Equal(t, expectedDev, actualDev)
 		})
 	}
 }
@@ -1717,6 +1741,7 @@ func TestNormalize_Snapshot3(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// Steam Controller
 		{
@@ -1807,6 +1832,7 @@ func TestNormalize_Snapshot3(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// Play Station Dualshock 4
 		{
@@ -1897,18 +1923,21 @@ func TestNormalize_Snapshot3(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 	}
 
 	normalized := Normalize(devInfos)
 
-	t.Run("Device number", func(t *testing.T) {
-		assert.Equal(t, len(expected), len(normalized))
-	})
+	if !assert.Equal(t, len(expected), len(normalized), "unexpected amount of devices") {
+		t.FailNow()
+	}
 
-	for _, device := range expected {
-		t.Run(device.Name, func(t *testing.T) {
-			assert.Contains(t, normalized, device)
+	for i := 0; i < len(expected); i++ {
+		expectedDev, actualDev := expected[i], normalized[i]
+
+		t.Run(expectedDev.Name, func(t *testing.T) {
+			assert.Equal(t, expectedDev, actualDev)
 		})
 	}
 }
@@ -2009,6 +2038,7 @@ func TestNormalize_Snapshot4_SameDevice(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 		// 2nd Microsoft X-Box One S pad
 		{
@@ -2049,18 +2079,21 @@ func TestNormalize_Snapshot4_SameDevice(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 	}
 
 	normalized := Normalize(devInfos)
 
-	t.Run("Device number", func(t *testing.T) {
-		assert.Equal(t, len(expected), len(normalized))
-	})
+	if !assert.Equal(t, len(expected), len(normalized), "unexpected amount of devices") {
+		t.FailNow()
+	}
 
-	for _, device := range expected {
-		t.Run(device.Name, func(t *testing.T) {
-			assert.Contains(t, normalized, device)
+	for i := 0; i < len(expected); i++ {
+		expectedDev, actualDev := expected[i], normalized[i]
+
+		t.Run(expectedDev.Name, func(t *testing.T) {
+			assert.Equal(t, expectedDev, actualDev)
 		})
 	}
 }
@@ -2285,6 +2318,7 @@ func TestNormalize_Snapshot5(t *testing.T) {
 					},
 				},
 			},
+			Evdevs: map[HandlerType]*evdev.InputDevice{},
 		},
 	}
 
@@ -2294,9 +2328,11 @@ func TestNormalize_Snapshot5(t *testing.T) {
 		assert.Equal(t, len(expected), len(normalized))
 	})
 
-	for _, device := range expected {
-		t.Run(device.Name, func(t *testing.T) {
-			assert.Contains(t, normalized, device)
+	for i := 0; i < len(expected); i++ {
+		expectedDev, actualDev := expected[i], normalized[i]
+
+		t.Run(expectedDev.Name, func(t *testing.T) {
+			assert.Equal(t, expectedDev, actualDev)
 		})
 	}
 }

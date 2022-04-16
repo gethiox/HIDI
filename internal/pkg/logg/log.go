@@ -44,10 +44,22 @@ func Info(message string) LogEntry {
 	return LogEntry{Message: message, Level: LevelInfo}
 }
 
+func Infof(format string, a ...interface{}) LogEntry {
+	return LogEntry{Message: fmt.Sprintf(format, a...), Level: LevelInfo}
+}
+
 func Warning(message string) LogEntry {
 	return LogEntry{Message: message, Level: LevelWarning}
 }
 
+func Warningf(format string, a ...interface{}) LogEntry {
+	return LogEntry{Message: fmt.Sprintf(format, a...), Level: LevelWarning}
+}
+
 func Debug(message string) LogEntry {
 	return LogEntry{Message: message, Level: LevelDebug}
+}
+
+func Debugf(format string, a ...interface{}) LogEntry {
+	return LogEntry{Message: fmt.Sprintf(format, a...), Level: LevelDebug}
 }

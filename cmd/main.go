@@ -3,16 +3,18 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
-	"time"
 
-	"hidi/internal/pkg/input"
+	"github.com/d2r2/go-logger"
+
+	"hidi/internal/pkg/display"
 	"hidi/internal/pkg/logg"
 	"hidi/internal/pkg/midi"
 
-	"github.com/holoplot/go-evdev"
+	"github.com/op/go-logging"
 )
+
+var midiEventsEmitted uint16 // counter for display info
 
 func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event, logs chan<- logg.LogEntry) {
 	for ev := range midiEvents {
@@ -21,15 +23,21 @@ func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event, logs cha
 			logs <- logg.Warning(fmt.Sprintf("failed to write midi event: %v", err))
 			continue
 		}
+		midiEventsEmitted += 1
 	}
 }
 
-func processLogs(debug bool, logs <-chan logg.LogEntry) {
+// asynchronous log processing for latency sensitive tasks
+func processLogs(logger logger.PackageLog, logs <-chan logg.LogEntry) {
 	for l := range logs {
-		if !debug && l.Level == logg.LevelDebug {
-			continue
+		switch l.Level {
+		case logg.LevelDebug:
+			logger.Debugf("> %s", l)
+		case logg.LevelWarning:
+			logger.Warningf("> %s", l)
+		case logg.LevelInfo:
+			logger.Infof("> %s", l)
 		}
-		log.Printf("> %s", l)
 	}
 }
 
@@ -42,15 +50,24 @@ func main() {
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
 
+	l := logger.NewPackageLogger("main", logger.DebugLevel)
+
+	if debug {
+		logging.SetLevel(logging.DEBUG, "main")
+	}
+
+	cfg := midi.NewHIDIConfig("./config/hidi.config")
+	l.Debugf("HIDI config: %+v", cfg)
+
 	ioDevices := midi.DetectDevices()
 	if len(ioDevices) == 0 {
-		log.Print("There is no midi devices available, we're deeply sorry")
+		l.Infof("There is no midi devices available, we're deeply sorry")
 		os.Exit(1)
 	}
 
 	if len(ioDevices) < midiDevice+1 {
-		log.Printf(
-			"MIDI device with \"%d\" ID does not exist. There is %d MIDI devices avaialbe in total",
+		l.Infof(
+			"MIDI device with \"%d\" ID does not exist. There is %d MIDI devices available in total",
 			midiDevice, len(ioDevices),
 		)
 		os.Exit(1)
@@ -58,38 +75,19 @@ func main() {
 
 	ioDevice, err := ioDevices[midiDevice].Open()
 	if err != nil {
-		log.Printf("Failed to open MIDI device: %v", err)
+		l.Infof("Failed to open MIDI device: %v", err)
 		os.Exit(1)
 	}
 
 	var logs = make(chan logg.LogEntry, 128)
 	var midiEvents = make(chan midi.Event)
 
-	go processLogs(debug, logs)
+	go processLogs(l, logs)
 	go processMidiEvents(ioDevice, midiEvents, logs)
 
-device:
-	for d := range input.MonitorNewDevices() {
-		var inputEvents <-chan *evdev.InputEvent
-		var err error
+	var devices = make(map[*midi.Device]*midi.Device, 16)
+	go display.HandleDisplay(cfg, devices, &midiEventsEmitted)
 
-		appearedAt := time.Now()
-
-		for {
-			inputEvents, err = d.Open(grab)
-			if err != nil {
-				if time.Now().Sub(appearedAt) > time.Second*5 {
-					logs <- logg.Warning(fmt.Sprintf("failed to open \"%s\" device on time, giving up", d.Name))
-					continue device
-				}
-				time.Sleep(time.Millisecond * 100)
-				continue
-			}
-			break
-		}
-
-		midiDev := midi.NewDevice(d, inputEvents, midiEvents, logs)
-		go midiDev.ProcessEvents()
-	}
+	runManager(logs, midiEvents, grab, devices)
 	// TODO: graceful handle ctrl-c termination
 }

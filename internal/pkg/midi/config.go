@@ -1,25 +1,8 @@
 package midi
 
-import "github.com/holoplot/go-evdev"
-
-// //              EvCode
-// var Actions map[int]func(value int32)
-//
-//
-// type Config struct {
-// 	//         EvCode
-// 	EV_KEY map[string]func(value int32)
-// 	EV_ABS map[string]func(value int32)
-// }
-//
-//
-// type RawConfig struct {
-// 	// keyboard keys to midi notes map
-// 	midiMap map[interface{}]interface{} `yaml:"midi_map"`
-//
-// 	//            EvCode Action
-// 	functions map[string]string `yaml:"actions"`
-// }
+import (
+	"github.com/gethiox/go-evdev"
+)
 
 const (
 	MappingUp    Action = "mapping_up"
@@ -40,6 +23,21 @@ const (
 	AnalogKeySim    = "key_sim"
 )
 
+var NameToAction = map[string]Action{
+	string(MappingUp):    MappingUp,
+	string(MappingDown):  MappingDown,
+	string(Mapping):      Mapping,
+	string(OctaveUp):     OctaveUp,
+	string(OctaveDown):   OctaveDown,
+	string(SemitoneUp):   SemitoneUp,
+	string(SemitoneDown): SemitoneDown,
+	string(ChannelUp):    ChannelUp,
+	string(ChannelDown):  ChannelDown,
+	string(Channel):      Channel,
+	string(Multinote):    Multinote,
+	string(Panic):        Panic,
+}
+
 type Action string
 type Analog struct {
 	id       string
@@ -47,23 +45,23 @@ type Analog struct {
 	flipAxis bool
 }
 
-type midiMapping struct {
-	name    string
-	mapping map[evdev.EvCode]byte
+type MidiMapping struct {
+	Name    string
+	Mapping map[evdev.EvCode]byte
 }
 
 type Config struct {
-	midiMappings    []midiMapping
-	actionMapping   map[evdev.EvCode]Action
-	analogMapping   map[evdev.EvCode]Analog
-	analogDeadzones map[evdev.EvCode]float64 // 0.0 - 1.0
+	MidiMappings    []MidiMapping
+	ActionMapping   map[evdev.EvCode]Action
+	AnalogMapping   map[evdev.EvCode]Analog
+	AnalogDeadzones map[evdev.EvCode]float64 // 0.0 - 1.0
 }
 
 var KeyboardConfig = Config{
-	midiMappings: []midiMapping{
+	MidiMappings: []MidiMapping{
 		{
-			name: "Piano", // Keyboard-like mapping, two rows (z,s,x,d,c... q,2,w,3,e...)
-			mapping: map[evdev.EvCode]byte{
+			Name: "Piano", // Keyboard-like mapping, two rows (z,s,x,d,c... q,2,w,3,e...)
+			Mapping: map[evdev.EvCode]byte{
 				evdev.KEY_Z: StringToNoteUnsafe("c0"),
 				evdev.KEY_S: StringToNoteUnsafe("c#0"),
 				evdev.KEY_X: StringToNoteUnsafe("d0"),
@@ -109,8 +107,8 @@ var KeyboardConfig = Config{
 			},
 		},
 		{
-			name: "Accordion", // Accordion-like mapping
-			mapping: map[evdev.EvCode]byte{
+			Name: "Accordion", // Accordion-like mapping
+			Mapping: map[evdev.EvCode]byte{
 				evdev.KEY_1: StringToNoteUnsafe("b-1"),
 				evdev.KEY_Q: StringToNoteUnsafe("c0"),
 				evdev.KEY_A: StringToNoteUnsafe("c#0"),
@@ -174,7 +172,7 @@ var KeyboardConfig = Config{
 			},
 		},
 	},
-	actionMapping: map[evdev.EvCode]Action{
+	ActionMapping: map[evdev.EvCode]Action{
 		evdev.KEY_ESC: Panic,
 
 		evdev.KEY_F1: OctaveDown,
@@ -194,10 +192,10 @@ var KeyboardConfig = Config{
 }
 
 var JoystickConfig = Config{
-	midiMappings: []midiMapping{
+	MidiMappings: []MidiMapping{
 		{
-			name: "Default",
-			mapping: map[evdev.EvCode]byte{
+			Name: "Default",
+			Mapping: map[evdev.EvCode]byte{
 				evdev.BTN_A: StringToNoteUnsafe("c0"),
 				evdev.BTN_B: StringToNoteUnsafe("c#0"),
 				evdev.BTN_X: StringToNoteUnsafe("d0"),
@@ -213,7 +211,7 @@ var JoystickConfig = Config{
 			},
 		},
 	},
-	analogMapping: map[evdev.EvCode]Analog{
+	AnalogMapping: map[evdev.EvCode]Analog{
 		evdev.ABS_X:  {id: AnalogCC, cc: 0},
 		evdev.ABS_Y:  {id: AnalogPitchBend, flipAxis: true},
 		evdev.ABS_RX: {id: AnalogCC, cc: 1},
@@ -224,7 +222,7 @@ var JoystickConfig = Config{
 		// evdev.ABS_HAT0X: {id: AnalogKeySim, cc: 5},
 		// evdev.ABS_HAT0Y: {id: AnalogKeySim, cc: 6, flipAxis: true},
 	},
-	actionMapping: map[evdev.EvCode]Action{
+	ActionMapping: map[evdev.EvCode]Action{
 		evdev.BTN_SELECT: ChannelDown,
 		evdev.BTN_START:  ChannelUp,
 		// evdev.ABS_HAT0X:

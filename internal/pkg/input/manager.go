@@ -1,8 +1,10 @@
 package input
 
 import (
-	"log"
+	"context"
 	"time"
+
+	"github.com/d2r2/go-logger"
 )
 
 func fetchDevices() []Device {
@@ -15,7 +17,8 @@ func fetchDevices() []Device {
 	return devices
 }
 
-func MonitorNewDevices() <-chan Device {
+func MonitorNewDevices(ctx context.Context) <-chan Device {
+	l := logger.NewPackageLogger("input", logger.DebugLevel)
 	var devChan = make(chan Device)
 
 	var trackedDevs = make(map[PhysicalID]Device)
@@ -23,7 +26,15 @@ func MonitorNewDevices() <-chan Device {
 	var newDevs []Device
 
 	go func() {
+	root:
 		for {
+			select {
+			case <-ctx.Done():
+				break root
+			default:
+				break
+			}
+
 			current := fetchDevices()
 
 			for _, d := range current {
@@ -44,17 +55,17 @@ func MonitorNewDevices() <-chan Device {
 			}
 
 			if len(newDevs) > 0 {
-				log.Printf("New Devices: %d", len(newDevs))
+				l.Infof("New Devices: %d", len(newDevs))
 				for _, d := range newDevs {
-					log.Printf("- %s", d.String())
+					l.Infof("- %s", d.String())
 					trackedDevs[d.PhysicalUUID()] = d
 				}
 			}
 
 			if len(missingDevs) > 0 {
-				log.Printf("Removed Devices: %d", len(missingDevs))
+				l.Infof("Removed Devices: %d", len(missingDevs))
 				for _, d := range missingDevs {
-					log.Printf("- %s", d.String())
+					l.Infof("- %s", d.String())
 					delete(trackedDevs, d.PhysicalUUID())
 				}
 			}
