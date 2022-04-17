@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"hidi/internal/pkg/hidi"
 	"hidi/internal/pkg/midi"
 
 	device "github.com/d2r2/go-hd44780"
@@ -27,7 +28,7 @@ func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, error
 	return lcd, nil
 }
 
-func HandleDisplay(cfg midi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
+func HandleDisplay(cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
 	if !cfg.Screen.Enabled {
 		return
 	}

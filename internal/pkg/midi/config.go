@@ -20,9 +20,9 @@ const (
 )
 
 const (
-	AnalogPitchBend AnalogID = "pitch_bend"
-	AnalogCC        AnalogID = "cc"
-	AnalogKeySim    AnalogID = "key_sim"
+	AnalogPitchBend AnalogType = "pitch_bend"
+	AnalogCC        AnalogType = "cc"
+	AnalogKeySim    AnalogType = "key"
 )
 
 var NameToAction = map[string]Action{
@@ -40,19 +40,21 @@ var NameToAction = map[string]Action{
 	string(Panic):        Panic,
 }
 
-var NameToAnalogID = map[string]AnalogID{
+var NameToAnalogID = map[string]AnalogType{
 	string(AnalogPitchBend): AnalogPitchBend,
 	string(AnalogCC):        AnalogCC,
 	string(AnalogKeySim):    AnalogKeySim,
 }
 
 type Action string
-type AnalogID string
+type AnalogType string
 
 type Analog struct {
-	id       AnalogID
-	cc       uint8
-	flipAxis bool
+	id            AnalogType
+	cc, ccNeg     byte
+	note, noteNeg byte
+	flipAxis      bool
+	bidirectional bool
 }
 
 type KeyMapping struct {

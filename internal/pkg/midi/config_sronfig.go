@@ -15,10 +15,8 @@ import (
 	"hidi/internal/pkg/input"
 	"hidi/internal/pkg/logg"
 
-	"github.com/d2r2/go-hd44780"
 	"github.com/fsnotify/fsnotify"
 	"github.com/gethiox/go-evdev"
-	"github.com/go-ini/ini"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,61 +26,6 @@ const (
 	userGamepad     = "./config/user/gamepad"
 	userKeyboard    = "./config/user/keyboard"
 )
-
-type HIDIConfig struct {
-	Screen struct {
-		Enabled bool
-		LcdType hd44780.LcdType
-		Bus     int
-		Address uint8
-	}
-}
-
-func NewHIDIConfig(path string) HIDIConfig {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		panic(err)
-	}
-
-	cfg, err := ini.Load(data)
-	if err != nil {
-		panic(err)
-	}
-
-	var c HIDIConfig
-	screen, _ := cfg.GetSection("screen")
-	screenSupport, _ := screen.GetKey("enabled")
-	screenType, _ := screen.GetKey("type")
-	screenAddress, _ := screen.GetKey("address")
-	screenBus, _ := screen.GetKey("bus")
-
-	b, err := screenSupport.Bool()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.Enabled = b
-	switch t := screenType.Value(); t {
-	case "16x2":
-		c.Screen.LcdType = hd44780.LCD_16x2
-	case "20x4":
-		c.Screen.LcdType = hd44780.LCD_20x4
-	default:
-		panic("oof")
-	}
-
-	i, err := screenBus.Int()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.Bus = i
-	i, err = screenAddress.Int()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.Address = uint8(i)
-
-	return c
-}
 
 type YamlDeviceConfig struct {
 	Identifier struct {
@@ -97,9 +40,12 @@ type YamlDeviceConfig struct {
 }
 
 type YamlAnalogMapping struct {
-	ID       string `yaml:"id"`
-	CC       uint8  `yaml:"cc"`
-	FlipAxis bool   `yaml:"flip_axis"`
+	ID           string `yaml:"id"`
+	CC           string `yaml:"cc"`
+	CCNegative   string `yaml:"cc_negative"`
+	Note         string `yaml:"note"`
+	NoteNegative string `yaml:"note_negative"`
+	FlipAxis     bool   `yaml:"flip_axis"`
 }
 
 type DeviceConfig struct {
@@ -169,13 +115,56 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 					if err != nil {
 						panic(fmt.Sprintf("cannot unmarshal analog configuration for \"%s\" key: %v", evcodeRaw, err))
 					}
-					fmt.Printf("mapping raw: %s\n", valueRaw)
 
-					fmt.Printf("mapping: %+v\n", mapping)
+					var bidirectional bool
+					var notes [2]byte
+					for i, noteRaw := range []string{mapping.Note, mapping.NoteNegative} {
+						noteInt, err := strconv.Atoi(noteRaw)
+						if err == nil {
+							if noteInt < 0 || noteInt > 127 {
+								panic(fmt.Sprintf("note value outside of 0-127 range"))
+							}
+							notes[i] = byte(noteInt)
+							if i == 1 {
+								bidirectional = true
+							}
+							continue
+						}
+
+						note, err := StringToNote(noteRaw)
+						if err == nil {
+							if note < 0 || note > 127 {
+								panic(fmt.Sprintf("note value outside of 0-127 range"))
+							}
+							notes[i] = note
+							if i == 1 {
+								bidirectional = true
+							}
+							continue
+						}
+					}
+					var cc [2]byte
+					for i, ccRaw := range []string{mapping.CC, mapping.CCNegative} {
+						ccInt, err := strconv.Atoi(ccRaw)
+						if err == nil {
+							if ccInt < 0 || ccInt > 119 {
+								panic(fmt.Sprintf("cc value outside of 0-119 range"))
+							}
+							cc[i] = byte(ccInt)
+							if i == 1 {
+								bidirectional = true
+							}
+						}
+					}
+
 					analogMapping[evcode] = Analog{
-						id:       NameToAnalogID[mapping.ID],
-						cc:       mapping.CC,
-						flipAxis: mapping.FlipAxis,
+						id:            NameToAnalogID[mapping.ID],
+						cc:            cc[0],
+						ccNeg:         cc[1],
+						note:          notes[0],
+						noteNeg:       notes[1],
+						flipAxis:      mapping.FlipAxis,
+						bidirectional: bidirectional,
 					}
 				default:
 					panic(fmt.Sprintf("unsupported value type of \"%s\" key: %s", evcodeRaw, valueRaw))

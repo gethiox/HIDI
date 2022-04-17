@@ -179,6 +179,24 @@ func TestStringToNote(t *testing.T) {
 	}
 }
 
+func TestStringToNoteFail(t *testing.T) {
+	for _, tc := range []string{
+		"b-3", // outside of bottom range
+		"g#8", // outside of upper range
+		"",
+		// unaligned
+		" c-2",
+		"c-2 ",
+		"BLAH junk text c-2",
+	} {
+		t.Run(tc, func(t *testing.T) {
+			note, err := StringToNote(tc)
+			assert.Equal(t, byte(0), note)
+			assert.NotEqual(t, nil, err)
+		})
+	}
+}
+
 func TestEvent_String(t *testing.T) {
 	for _, tc := range []struct {
 		midiEvent Event

@@ -3,13 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 
-	"github.com/d2r2/go-logger"
-
 	"hidi/internal/pkg/display"
+	"hidi/internal/pkg/hidi"
 	"hidi/internal/pkg/logg"
 	"hidi/internal/pkg/midi"
+
+	"github.com/d2r2/go-logger"
 
 	"github.com/op/go-logging"
 )
@@ -42,6 +45,10 @@ func processLogs(logger logger.PackageLog, logs <-chan logg.LogEntry) {
 }
 
 func main() {
+	go func() {
+		fmt.Println(http.ListenAndServe("0.0.0.0:8080", nil))
+	}()
+
 	var grab, debug bool
 	var midiDevice int
 
@@ -56,7 +63,7 @@ func main() {
 		logging.SetLevel(logging.DEBUG, "main")
 	}
 
-	cfg := midi.NewHIDIConfig("./config/hidi.config")
+	cfg := hidi.LoadHIDIConfig("./config/hidi.config")
 	l.Debugf("HIDI config: %+v", cfg)
 
 	ioDevices := midi.DetectDevices()
@@ -88,6 +95,6 @@ func main() {
 	var devices = make(map[*midi.Device]*midi.Device, 16)
 	go display.HandleDisplay(cfg, devices, &midiEventsEmitted)
 
-	runManager(logs, midiEvents, grab, devices)
+	runManager(cfg, logs, midiEvents, grab, devices)
 	// TODO: graceful handle ctrl-c termination
 }

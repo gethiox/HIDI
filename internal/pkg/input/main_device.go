@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gethiox/go-evdev"
 )
@@ -24,7 +25,7 @@ const (
 
 type InputEvent struct {
 	Source DeviceInfo
-	Event  *evdev.InputEvent
+	Event  evdev.InputEvent
 }
 
 func (e DeviceType) String() string {
@@ -167,8 +168,8 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
-func (d *Device) ProcessEvents(ctx context.Context, grab bool) (<-chan *InputEvent, error) {
-	var events = make(chan *InputEvent)
+func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.Duration) (<-chan InputEvent, error) {
+	var events = make(chan InputEvent)
 
 	wg := sync.WaitGroup{}
 	for ht, h := range d.Handlers {
@@ -184,34 +185,91 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool) (<-chan *InputEve
 			dev.Close()
 		}(dev)
 
+		absEvents := make(chan InputEvent, 64)
+		go func(absEvents chan InputEvent) {
+			lastEvent := make(map[evdev.EvCode]InputEvent)
+			throttledLock := sync.RWMutex{}
+			throttled := make(map[evdev.EvCode]bool)
+			throttledTimer := make(map[evdev.EvCode]<-chan time.Time)
+
+			go func(throttledTimer map[evdev.EvCode]<-chan time.Time) {
+				for {
+					doneTimers := make([]evdev.EvCode, 8)
+					throttledLock.Lock()
+
+					for evcode, timer := range throttledTimer {
+						_, ok := <-timer
+						if !ok {
+							continue
+						}
+						events <- lastEvent[evcode]
+						throttled[evcode] = false
+						doneTimers = append(doneTimers, evcode)
+					}
+					for _, evCode := range doneTimers {
+						delete(throttledTimer, evCode)
+					}
+					throttledLock.Unlock()
+
+					time.Sleep(absThrottle / 10)
+				}
+
+			}(throttledTimer)
+
+			for ev := range absEvents {
+				throttledLock.RLock()
+				if throttled[ev.Event.Code] {
+					throttledLock.RUnlock()
+					lastEvent[ev.Event.Code] = ev
+					continue
+				}
+				throttledLock.RUnlock()
+
+				events <- ev
+				throttledLock.Lock()
+				throttled[ev.Event.Code] = true
+				throttledLock.Unlock()
+				throttledTimer[ev.Event.Code] = time.After(absThrottle)
+			}
+		}(absEvents)
+
 		wg.Add(1)
-		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo) {
-			name, _ := dev.InputID()
+		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan InputEvent) {
 			path := dev.Path()
 			defer wg.Done()
+			defer close(absEvents)
 
 			if grab {
 				_ = dev.Grab()
-				log.Printf("[%+v, %s] Grabbing device for exclusive usage", name, path)
+				log.Printf("[%s] Grabbing device for exclusive usage", path)
 			}
-			log.Printf("[%+v, %s] Reading input events", name, path)
+			log.Printf("[%s] Reading input events", path)
+
 			for {
 				event, err := dev.ReadOne()
 				if err != nil {
-					log.Printf("[%+v, %s] Reading input events error: %v", name, path, err)
+					log.Printf("[%s] Reading input events error: %v", path, err)
 					break
 				}
-				events <- &InputEvent{
+
+				outputEvent := InputEvent{
 					Source: info,
-					Event:  event,
+					Event:  *event,
 				}
+
+				if event.Type == evdev.EV_ABS {
+					// throttling
+					absEvents <- outputEvent
+					continue
+				}
+				events <- outputEvent
 			}
 			if grab {
-				log.Printf("[%+v, %s] Ungrabbing device", name, path)
+				log.Printf("[%s] Ungrabbing device", path)
 				_ = dev.Ungrab()
 			}
-			log.Printf("[%+v, %s] Reading input events finished", name, path)
-		}(dev, ht, h)
+			log.Printf("[%s] Reading input events finished", path)
+		}(dev, ht, h, absEvents)
 	}
 
 	go func() {

@@ -22,7 +22,7 @@ const (
 type Device struct {
 	config      Config
 	InputDevice input.Device
-	inputEvents <-chan *input.InputEvent
+	inputEvents <-chan input.InputEvent
 	midiEvents  chan<- Event
 	logs        chan<- logg.LogEntry
 
@@ -34,17 +34,18 @@ type Device struct {
 	// is being tracked and released precisely on related hardware button release.
 	// This approach gives much nicer user experience as the User may conveniently hold some keys
 	// and modify state on the fly (changing octave, channel etc.), NoteOff events will be emitted correctly anyway.
-	noteTracker   map[evdev.EvCode][2]byte // 1: note, 2: channel
-	actionTracker map[Action]bool
-	octave        int8
-	semitone      int8
-	channel       uint8
+	noteTracker       map[evdev.EvCode][2]byte // 1: note, 2: channel
+	analogNoteTracker map[string][2]byte       // 1: note, 2: channel
+	actionTracker     map[Action]bool
+	octave            int8
+	semitone          int8
+	channel           uint8
 	// warning: currently lazy implementation
 	multiNote []int // list of additional note intervals (offsets)
 	mapping   int
 }
 
-func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan *input.InputEvent, midiEvents chan<- Event,
+func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event,
 	logs chan<- logg.LogEntry) Device {
 
 	// var config Config
@@ -77,15 +78,16 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 		logs:        logs,
 		absinfos:    absinfos,
 
-		noteTracker:   make(map[evdev.EvCode][2]byte, 32),
-		actionTracker: make(map[Action]bool, 16),
+		noteTracker:       make(map[evdev.EvCode][2]byte, 32),
+		analogNoteTracker: make(map[string][2]byte, 32),
+		actionTracker:     make(map[Action]bool, 16),
 	}
 }
 
 func (d *Device) ProcessEvents(ctx context.Context) {
 root:
 	for {
-		var ie *input.InputEvent
+		var ie input.InputEvent
 		select {
 		case <-ctx.Done():
 			break root
@@ -93,9 +95,13 @@ root:
 			break
 		}
 
-		switch ie.Event.Type {
-		case evdev.EV_SYN:
+		if ie.Event.Type == evdev.EV_SYN {
 			continue
+		}
+
+		// d.logs <- logg.Debugf("incoming event: %+v", ie.Event.String())
+
+		switch ie.Event.Type {
 		case evdev.EV_KEY:
 			_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
 			action, actionOk := d.config.ActionMapping[ie.Event.Code]
@@ -177,29 +183,72 @@ root:
 
 			switch {
 			case analogOk:
-				min := float64(d.absinfos[ie.Source.Event()][ie.Event.Code].Minimum)
-				max := float64(d.absinfos[ie.Source.Event()][ie.Event.Code].Maximum)
-				value := (float64(ie.Event.Value) + math.Abs(min)) / (math.Abs(min) + max)
+				// converting integer value to float
+				// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
+				var value float64
+				var canBeNegative bool
+				min := d.absinfos[ie.Source.Event()][ie.Event.Code].Minimum
+				max := d.absinfos[ie.Source.Event()][ie.Event.Code].Maximum
+				if min < 0 {
+					canBeNegative = true
+				}
+
+				if ie.Event.Value < 0 {
+					value = float64(ie.Event.Value) / math.Abs(float64(min))
+				} else {
+					value = float64(ie.Event.Value) / math.Abs(float64(max))
+				}
+
 				if analog.flipAxis {
-					value = 1 - value
+					if canBeNegative {
+						value = -value
+					} else {
+						value = 1.0 - value
+					}
 				}
 
 				var event Event
 				switch analog.id {
 				case AnalogCC:
-					event = ControlChangeEvent(d.channel, analog.cc, byte(int(float64(127)*value)))
-					fmt.Printf("PROCESSING ANALOG, %+v, %+v, %+v\n", d.channel, analog.cc, byte(int(float64(127)*value)))
+					if analog.bidirectional {
+						if value < 0 {
+							event = ControlChangeEvent(d.channel, analog.ccNeg, byte(int(float64(127)*math.Abs(value))))
+						} else {
+							event = ControlChangeEvent(d.channel, analog.cc, byte(int(float64(127)*value)))
+						}
+					} else {
+						event = ControlChangeEvent(d.channel, analog.cc, byte(int(float64(127)*value)))
+					}
 				case AnalogPitchBend:
-					event = PitchBendEvent(d.channel, value)
-					fmt.Printf("PROCESSING ANALOG 2, %+v, %+v\n", d.channel, value)
+					if canBeNegative {
+						event = PitchBendEvent(d.channel, value)
+					} else {
+						event = PitchBendEvent(d.channel, value*2-1.0)
+					}
 				case AnalogKeySim:
-					// TODO
+					identifier := fmt.Sprintf("%d", ie.Event.Code) // for tracking purpose
+					note := analog.note
+
+					if analog.bidirectional && value < 0 {
+						note = analog.noteNeg
+						identifier = fmt.Sprintf("%d_neg", ie.Event.Code)
+					}
+
+					v := math.Abs(value)
+					switch {
+					case v > 0.5:
+						_, ok := d.analogNoteTracker[identifier]
+						if !ok {
+							d.AnalogNoteOn(identifier, note)
+						}
+					case v < 0.49:
+						d.AnalogNoteOff(fmt.Sprintf("%d", ie.Event.Code))
+						d.AnalogNoteOff(fmt.Sprintf("%d_neg", ie.Event.Code))
+					}
 					continue
 				default:
 					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.id))
 				}
-
-				fmt.Printf("PROCESSING ANALOG, %#v\n", []byte(event))
 
 				d.midiEvents <- event
 				d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
@@ -267,6 +316,32 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 		d.midiEvents <- event
 		d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
 	}
+}
+
+func (d *Device) AnalogNoteOn(identifier string, note byte) {
+	noteCalculatored := int(note) + int(d.octave*12) + int(d.semitone)
+	if noteCalculatored < 0 || noteCalculatored > 127 {
+		return
+	}
+	note = uint8(noteCalculatored)
+
+	d.analogNoteTracker[identifier] = [2]byte{note, d.channel}
+	event := NoteEvent(NoteOn, d.channel, note, 64)
+	d.midiEvents <- event
+	d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+}
+
+func (d *Device) AnalogNoteOff(identifier string) {
+	noteAndChannel, ok := d.analogNoteTracker[identifier]
+	if !ok {
+		return
+	}
+	note, channel := noteAndChannel[0], noteAndChannel[1]
+
+	event := NoteEvent(NoteOff, channel, note, 0)
+	d.midiEvents <- event
+	delete(d.analogNoteTracker, identifier)
+	d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
 }
 
 func (d *Device) OctaveDown() {

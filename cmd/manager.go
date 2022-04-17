@@ -7,12 +7,13 @@ import (
 	"os"
 	"time"
 
+	"hidi/internal/pkg/hidi"
 	"hidi/internal/pkg/input"
 	"hidi/internal/pkg/logg"
 	"hidi/internal/pkg/midi"
 )
 
-func runManager(logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, devices map[*midi.Device]*midi.Device) {
+func runManager(cfg hidi.HIDIConfig, logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, devices map[*midi.Device]*midi.Device) {
 	deviceConfigChange := midi.DetectDeviceConfigChanges(logs)
 
 	for {
@@ -44,14 +45,14 @@ func runManager(logs chan logg.LogEntry, midiEvents chan midi.Event, grab bool, 
 				break
 			}
 
-			var inputEvents <-chan *input.InputEvent
+			var inputEvents <-chan input.InputEvent
 			var err error
 
 			appearedAt := time.Now()
 
 			logs <- logg.Debugf("[\"%s\"] Opening device...", d.Name)
 			for {
-				inputEvents, err = d.ProcessEvents(ctx, grab)
+				inputEvents, err = d.ProcessEvents(ctx, grab, cfg.HIDI.EVThrottling)
 				if err != nil {
 					if time.Now().Sub(appearedAt) > time.Second*5 {
 						logs <- logg.Warning(fmt.Sprintf("failed to open \"%s\" device on time, giving up", d.Name))

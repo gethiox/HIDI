@@ -1,7 +1,6 @@
 package midi
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -40,12 +39,12 @@ var intervalToString = map[int]string{
 	12: "Perfect octave",
 }
 
-var stringToNoteRegex = regexp.MustCompile("(?P<pitch>[a-zA-Z]#?)(?P<octave>-?[0-9])")
+var stringToNoteRegex = regexp.MustCompile(`^(?P<pitch>[a-zA-Z]#?)(?P<octave>-?\d)$`)
 
 func StringToNote(note string) (byte, error) {
 	match := stringToNoteRegex.FindStringSubmatch(note)
 	if len(match) == 0 {
-		return 0, errors.New("unsupported format, bruh")
+		return 0, fmt.Errorf("unsupported format, bruh")
 	}
 
 	pitch := strings.ToUpper(match[1])
@@ -54,7 +53,11 @@ func StringToNote(note string) (byte, error) {
 		return 0, fmt.Errorf("parsing octave failed: %w", err)
 	}
 
-	return (uint8(octave)+2)*12 + pitchToVal[pitch], nil
+	calculated := (uint8(octave)+2)*12 + pitchToVal[pitch]
+	if calculated < 0 || calculated > 127 {
+		return 0, fmt.Errorf("note outside of midi range 0-127: %d", calculated)
+	}
+	return calculated, nil
 }
 
 var valToPitch = map[uint8]string{

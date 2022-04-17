@@ -26,7 +26,9 @@ midi_mappings:
       # analog (value needs to be a string, quotes are important)
       ABS_X: "{id: cc, cc: 0}"
       ABS_Y: "{id: pitch_bend, flip_axis: true}"
-      ABS_RX: "{id: cc, cc: 1}"
-      ABS_RY: "{id: cc, cc: 2, flip_axis: true}"
-      ABS_Z: "{id: cc, cc: 3}"
-      ABS_RZ: "{id: cc, cc: 4}"
+      ABS_RX: "{id: cc, cc: 1, cc_negative: 2}"
+      ABS_RY: "{id: cc, cc: 3, cc_negative: 4, flip_axis: true}"
+      ABS_Z: "{id: key, note: c0}"
+      ABS_RZ: "{id: key, note: c#0}"
+      ABS_HAT0X: "{id: key, note: c1, note_negative: c#1}"
+      ABS_HAT0Y: "{id: key, note: d1, note_negative: d#1}"
