@@ -182,7 +182,10 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		go func(dev *evdev.InputDevice) {
 			<-ctx.Done()
-			dev.Close()
+			err := dev.Close()
+			if err != nil {
+				fmt.Printf("[%s] device close failed: %v\n", dev.Path(), err)
+			}
 		}(dev)
 
 		absEvents := make(chan InputEvent, 64)
@@ -245,10 +248,13 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 			}
 			log.Printf("[%s] Reading input events", path)
 
+			err = dev.NonBlock()
+			if err != nil {
+				fmt.Printf("[%s] enabling non-blocking event reading mode failed: %v\n", path, err)
+			}
 			for {
 				event, err := dev.ReadOne()
 				if err != nil {
-					log.Printf("[%s] Reading input events error: %v", path, err)
 					break
 				}
 
@@ -274,6 +280,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 	go func() {
 		wg.Wait()
+		log.Printf("All handlers done, closing events channel")
 		close(events)
 	}()
 

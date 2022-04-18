@@ -1,7 +1,6 @@
 package midi
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -84,22 +83,11 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 	}
 }
 
-func (d *Device) ProcessEvents(ctx context.Context) {
-root:
-	for {
-		var ie input.InputEvent
-		select {
-		case <-ctx.Done():
-			break root
-		case ie = <-d.inputEvents:
-			break
-		}
-
+func (d *Device) ProcessEvents() {
+	for ie := range d.inputEvents {
 		if ie.Event.Type == evdev.EV_SYN {
 			continue
 		}
-
-		// d.logs <- logg.Debugf("incoming event: %+v", ie.Event.String())
 
 		switch ie.Event.Type {
 		case evdev.EV_KEY:
@@ -263,6 +251,7 @@ root:
 	for evcode := range d.noteTracker {
 		d.NoteOff(evcode)
 	}
+	d.logs <- logg.Debug("virtual midi device exited")
 }
 
 func (d *Device) NoteOn(evCode evdev.EvCode) {

@@ -7,7 +7,7 @@ require (
 	github.com/d2r2/go-i2c v0.0.0-20191123181816-73a8a799d6bc
 	github.com/d2r2/go-logger v0.0.0-20210606094344-60e9d1233e22
 	github.com/fsnotify/fsnotify v1.5.1
-	github.com/gethiox/go-evdev v0.0.0-20220417121451-e2fc723f6bc8
+	github.com/gethiox/go-evdev v0.0.0-20220418175509-ff1b76767a29
 	github.com/go-ini/ini v1.66.4
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/stretchr/testify v1.7.0

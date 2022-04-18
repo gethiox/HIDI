@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"hidi/internal/pkg/display"
 	"hidi/internal/pkg/hidi"
@@ -28,6 +32,7 @@ func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event, logs cha
 		}
 		midiEventsEmitted += 1
 	}
+	logs <- logg.Warning("Processing midi events stopped")
 }
 
 // asynchronous log processing for latency sensitive tasks
@@ -42,20 +47,42 @@ func processLogs(logger logger.PackageLog, logs <-chan logg.LogEntry) {
 			logger.Infof("> %s", l)
 		}
 	}
+	logger.Infof("Processing logs stopped")
 }
 
 func main() {
-	go func() {
-		fmt.Println(http.ListenAndServe("0.0.0.0:8080", nil))
-	}()
-
-	var grab, debug bool
+	var grab, debug, profile bool
 	var midiDevice int
 
+	flag.BoolVar(&profile, "profile", false, "runs internal web server for performance profiling")
 	flag.BoolVar(&grab, "grab", false, "grab input devices for exclusive usage, see README before use")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
+
+	if profile {
+		addr := "0.0.0.0:8080"
+		fmt.Printf("profiling enabled and hosted on %s\n", addr)
+		go func() {
+			fmt.Println(http.ListenAndServe(addr, nil))
+		}()
+	}
+
+	var sigs = make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		var counter int
+		for sig := range sigs {
+			if counter > 0 {
+				panic("force panic")
+			}
+			fmt.Printf("siganl received: %v\n", sig)
+			cancel()
+			counter++
+		}
+	}()
 
 	l := logger.NewPackageLogger("main", logger.DebugLevel)
 
@@ -89,12 +116,21 @@ func main() {
 	var logs = make(chan logg.LogEntry, 128)
 	var midiEvents = make(chan midi.Event)
 
+	fmt.Printf("DEBUG: runnning processLogs\n")
 	go processLogs(l, logs)
+	fmt.Printf("DEBUG: runnning processMidiEvents\n")
 	go processMidiEvents(ioDevice, midiEvents, logs)
 
 	var devices = make(map[*midi.Device]*midi.Device, 16)
-	go display.HandleDisplay(cfg, devices, &midiEventsEmitted)
+	fmt.Printf("DEBUG: runnning HandleDisplays\n")
+	go display.HandleDisplay(ctx, cfg, devices, &midiEventsEmitted)
 
-	runManager(cfg, logs, midiEvents, grab, devices)
-	// TODO: graceful handle ctrl-c termination
+	fmt.Printf("DEBUG: running runManager\n")
+	runManager(ctx, cfg, logs, midiEvents, grab, devices)
+
+	close(midiEvents)
+	time.Sleep(time.Second * 1)
+	close(logs)
+	time.Sleep(time.Second * 1)
+	fmt.Printf("exited\n")
 }

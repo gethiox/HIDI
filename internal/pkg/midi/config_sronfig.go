@@ -1,6 +1,7 @@
 package midi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -50,13 +51,14 @@ type YamlAnalogMapping struct {
 
 type DeviceConfig struct {
 	ConfigFile string
+	Name       string // factory or user
 	ID         input.InputID
 	Uniq       string
 	Config     Config
 }
 
 // readDeviceConfig parses yaml file and provide ready to use DeviceConfig
-func readDeviceConfig(path string) (DeviceConfig, error) {
+func readDeviceConfig(path, name string) (DeviceConfig, error) {
 	cfg := YamlDeviceConfig{}
 	fd, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
@@ -92,7 +94,7 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 					noteInt, err := strconv.Atoi(valueRaw)
 					if err == nil {
 						if noteInt < 0 || noteInt > 127 {
-							panic(fmt.Sprintf("note value outside of 0-127 range"))
+							return DeviceConfig{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, noteInt)
 						}
 						midiMapping[evcode] = byte(noteInt)
 						continue
@@ -100,20 +102,17 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 
 					note, err := StringToNote(valueRaw)
 					if err == nil {
-						if note < 0 || note > 127 {
-							panic(fmt.Sprintf("note value outside of 0-127 range"))
-						}
 						midiMapping[evcode] = note
 						continue
 					}
-					panic(fmt.Errorf("failed to parse note: %v", err))
+					return DeviceConfig{}, fmt.Errorf("[%s] %s: failed to parse note: %v", name, evcodeRaw, err)
 				case isAbs:
 					var mapping YamlAnalogMapping
 					evcode := evdev.ABSFromString[evcodeRaw]
 
 					err := yaml.Unmarshal([]byte(valueRaw), &mapping)
 					if err != nil {
-						panic(fmt.Sprintf("cannot unmarshal analog configuration for \"%s\" key: %v", evcodeRaw, err))
+						return DeviceConfig{}, fmt.Errorf("[%s] %s: cannot unmarshal analog configuration: %v", name, evcodeRaw, err)
 					}
 
 					var bidirectional bool
@@ -122,7 +121,7 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 						noteInt, err := strconv.Atoi(noteRaw)
 						if err == nil {
 							if noteInt < 0 || noteInt > 127 {
-								panic(fmt.Sprintf("note value outside of 0-127 range"))
+								return DeviceConfig{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, noteInt)
 							}
 							notes[i] = byte(noteInt)
 							if i == 1 {
@@ -133,9 +132,6 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 
 						note, err := StringToNote(noteRaw)
 						if err == nil {
-							if note < 0 || note > 127 {
-								panic(fmt.Sprintf("note value outside of 0-127 range"))
-							}
 							notes[i] = note
 							if i == 1 {
 								bidirectional = true
@@ -148,7 +144,7 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 						ccInt, err := strconv.Atoi(ccRaw)
 						if err == nil {
 							if ccInt < 0 || ccInt > 119 {
-								panic(fmt.Sprintf("cc value outside of 0-119 range"))
+								return DeviceConfig{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, ccInt)
 							}
 							cc[i] = byte(ccInt)
 							if i == 1 {
@@ -167,7 +163,7 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 						bidirectional: bidirectional,
 					}
 				default:
-					panic(fmt.Sprintf("unsupported value type of \"%s\" key: %s", evcodeRaw, valueRaw))
+					return DeviceConfig{}, fmt.Errorf("[%s] unsupported EvCode: %s", name, evcodeRaw)
 				}
 			}
 
@@ -182,20 +178,18 @@ func readDeviceConfig(path string) (DeviceConfig, error) {
 	for evcodeRaw, actionRaw := range cfg.ActionMapping {
 		evcode, ok := evdev.KEYFromString[evcodeRaw]
 		if !ok {
-			fmt.Printf("Warning: evcode not found: %v\n", evcodeRaw)
-			continue
+			return DeviceConfig{}, fmt.Errorf("[actions] unsupported EvCode: %s", evcodeRaw)
 		}
 		action, ok := NameToAction[actionRaw]
 		if !ok {
-			fmt.Printf("Warning: action not found: %v\n", actionRaw)
-			continue
+			return DeviceConfig{}, fmt.Errorf("[actions] unsupported action: %s", actionRaw)
 		}
-
 		actionMapping[evcode] = action
 	}
 
 	devConfig := DeviceConfig{
 		ConfigFile: path2.Base(path),
+		Name:       name,
 		ID: input.InputID{
 			Bus:     cfg.Identifier.Bus,
 			Vendor:  cfg.Identifier.Vendor,
@@ -259,10 +253,10 @@ func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (
 		return DeviceConfig{}, errors.New("default gamepad config not found")
 	}
 
-	return DeviceConfig{}, fmt.Errorf("shiet aaa")
+	return DeviceConfig{}, fmt.Errorf("unsupported device type config: %s", devType)
 }
 
-func loadDirectory(root string, configMap ConfigMap) error {
+func loadDirectory(root string, configMap ConfigMap, name string) error {
 	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
@@ -271,7 +265,7 @@ func loadDirectory(root string, configMap ConfigMap) error {
 		name := strings.ToLower(info.Name())
 
 		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-			devCfg, err := readDeviceConfig(path)
+			devCfg, err := readDeviceConfig(path, name)
 			if err != nil {
 				log.Printf("device config %s load failed: %s", name, err)
 				return nil
@@ -302,15 +296,16 @@ func LoadDeviceConfigs() (DeviceConfigs, error) {
 	pairs := []struct {
 		root      string
 		configMap ConfigMap
+		name      string
 	}{
-		{factoryGamepad, cfg.Factory.Gamepads},
-		{factoryKeyboard, cfg.Factory.Keyboards},
-		{userGamepad, cfg.User.Gamepads},
-		{userKeyboard, cfg.User.Keyboards},
+		{factoryGamepad, cfg.Factory.Gamepads, "factory"},
+		{factoryKeyboard, cfg.Factory.Keyboards, "factory"},
+		{userGamepad, cfg.User.Gamepads, "user"},
+		{userKeyboard, cfg.User.Keyboards, "user"},
 	}
 
 	for _, pair := range pairs {
-		err := loadDirectory(pair.root, pair.configMap)
+		err := loadDirectory(pair.root, pair.configMap, pair.name)
 		if err != nil {
 			return cfg, fmt.Errorf("loading \"%s\" directory failed: %w", pair.root, err)
 		}
@@ -319,7 +314,8 @@ func LoadDeviceConfigs() (DeviceConfigs, error) {
 	return cfg, nil
 }
 
-func DetectDeviceConfigChanges(logs chan logg.LogEntry) <-chan bool {
+func DetectDeviceConfigChanges(ctx context.Context, logs chan logg.LogEntry) <-chan bool {
+	// TODO: TODO ctx
 	var change = make(chan bool)
 
 	go func() {

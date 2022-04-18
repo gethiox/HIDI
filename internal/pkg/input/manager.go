@@ -2,6 +2,7 @@ package input
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/d2r2/go-logger"
@@ -26,6 +27,7 @@ func MonitorNewDevices(ctx context.Context) <-chan Device {
 	var newDevs []Device
 
 	go func() {
+		log.Printf("Monitor new devices enagged")
 	root:
 		for {
 			select {
@@ -78,6 +80,8 @@ func MonitorNewDevices(ctx context.Context) <-chan Device {
 			missingDevs = nil
 			time.Sleep(time.Second)
 		}
+		log.Printf("Monitor new devices disengaged")
+		close(devChan)
 	}()
 
 	return devChan

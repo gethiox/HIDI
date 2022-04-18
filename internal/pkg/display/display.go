@@ -1,6 +1,7 @@
 package display
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -28,7 +29,7 @@ func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, error
 	return lcd, nil
 }
 
-func HandleDisplay(cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
+func HandleDisplay(ctx context.Context, cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
 	if !cfg.Screen.Enabled {
 		return
 	}
@@ -39,79 +40,14 @@ func HandleDisplay(cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, m
 	}
 
 	var barChars = [][]byte{
-		{
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b11111,
-		}, {
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b11111,
-			0b11111,
-		}, {
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b11111,
-			0b11111,
-			0b11111,
-		}, {
-			0b00000,
-			0b00000,
-			0b00000,
-			0b00000,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-		}, {
-			0b00000,
-			0b00000,
-			0b00000,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-		}, {
-			0b00000,
-			0b00000,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-		}, {
-			0b00000,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-		}, {
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-			0b11111,
-		},
+		{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F}, // "▁"
+		{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F}, // "▂"
+		{0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F}, // "▃"
+		{0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F}, // "▄"
+		{0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F}, // "▅"
+		{0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F}, // "▆"
+		{0x00, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F}, // "▇"
+		{0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F}, // "█"
 	}
 
 	lcd.TestWriteCGRam()
@@ -136,7 +72,15 @@ func HandleDisplay(cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, m
 
 	ls := time.Now().Second()
 
+root:
 	for {
+		select {
+		case <-ctx.Done():
+			break root
+		default:
+			break
+		}
+
 		t := time.Now()
 		if t.Second() == ls {
 			time.Sleep(time.Millisecond * 10)
