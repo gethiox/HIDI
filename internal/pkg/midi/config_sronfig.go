@@ -315,7 +315,6 @@ func LoadDeviceConfigs() (DeviceConfigs, error) {
 }
 
 func DetectDeviceConfigChanges(ctx context.Context, logs chan logg.LogEntry) <-chan bool {
-	// TODO: TODO ctx
 	var change = make(chan bool)
 
 	go func() {
@@ -324,6 +323,14 @@ func DetectDeviceConfigChanges(ctx context.Context, logs chan logg.LogEntry) <-c
 		if err != nil {
 			return
 		}
+
+		go func() {
+			<-ctx.Done()
+			err := watcher.Close()
+			if err != nil {
+				log.Printf("closing watched failed: %v\n", err)
+			}
+		}()
 
 		for _, path := range []string{
 			factoryGamepad,
