@@ -62,6 +62,8 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 			}
 
 			absinfos[event] = absi
+
+			edev.NonBlock() // fix, TODO: remove it from this place somehow
 		}
 	}
 
@@ -239,14 +241,17 @@ func (d *Device) ProcessEvents() {
 		}
 	}
 
-	if len(d.noteTracker) > 0 {
-		log.Print("active midi notes cleanup")
+	if len(d.noteTracker) > 0 || len(d.analogNoteTracker) > 0 {
+		log.Printf("active midi notes cleanup [%s]", d.InputDevice.Name)
 	}
 
 	for evcode := range d.noteTracker {
 		d.NoteOff(evcode)
 	}
-	log.Print("virtual midi device exited")
+	for identifier := range d.analogNoteTracker {
+		d.AnalogNoteOff(identifier)
+	}
+	log.Printf("virtual midi device exited [%s]", d.InputDevice.Name)
 }
 
 func (d *Device) NoteOn(evCode evdev.EvCode) {

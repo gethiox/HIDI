@@ -239,18 +239,19 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		wg.Add(1)
 		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan InputEvent) {
 			path := dev.Path()
+			name, _ := dev.Name()
 			defer wg.Done()
 			defer close(absEvents)
 
 			if grab {
 				_ = dev.Grab()
-				log.Printf("[%s] Grabbing device for exclusive usage", path)
+				log.Printf("[%s] [%s] Grabbing device for exclusive usage", path, name)
 			}
-			log.Printf("[%s] Reading input events", path)
+			log.Printf("[%s] [%s] Reading input events", path, name)
 
 			err = dev.NonBlock()
 			if err != nil {
-				fmt.Printf("[%s] enabling non-blocking event reading mode failed: %v\n", path, err)
+				fmt.Printf("[%s] [%s] enabling non-blocking event reading mode failed: %v\n", path, name, err)
 			}
 			for {
 				event, err := dev.ReadOne()
@@ -271,10 +272,10 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				events <- outputEvent
 			}
 			if grab {
-				log.Printf("[%s] Ungrabbing device", path)
+				log.Printf("[%s] [%s] Ungrabbing device", path, name)
 				_ = dev.Ungrab()
 			}
-			log.Printf("[%s] Reading input events finished", path)
+			log.Printf("[%s] [%s] Reading input events finished", path, name)
 		}(dev, ht, h, absEvents)
 	}
 

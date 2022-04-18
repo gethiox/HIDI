@@ -71,8 +71,6 @@ func main() {
 	log.SetOutput(&myLittleLogger)
 	go myLittleLogger.ProcessLogs()
 
-	log.Printf("czo")
-
 	if profile {
 		addr := "0.0.0.0:8080"
 		log.Printf("profiling enabled and hosted on %s", addr)
