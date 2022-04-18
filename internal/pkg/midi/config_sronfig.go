@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"hidi/internal/pkg/input"
-	"hidi/internal/pkg/logg"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gethiox/go-evdev"
@@ -314,7 +313,7 @@ func LoadDeviceConfigs() (DeviceConfigs, error) {
 	return cfg, nil
 }
 
-func DetectDeviceConfigChanges(ctx context.Context, logs chan logg.LogEntry) <-chan bool {
+func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
 	var change = make(chan bool)
 
 	go func() {
@@ -328,7 +327,7 @@ func DetectDeviceConfigChanges(ctx context.Context, logs chan logg.LogEntry) <-c
 			<-ctx.Done()
 			err := watcher.Close()
 			if err != nil {
-				log.Printf("closing watched failed: %v\n", err)
+				log.Printf("closing watched failed: %v", err)
 			}
 		}()
 
@@ -348,7 +347,7 @@ func DetectDeviceConfigChanges(ctx context.Context, logs chan logg.LogEntry) <-c
 
 			name := strings.ToLower(event.Name)
 			if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") {
-				logs <- logg.Infof("config change detected: %s", event.Name)
+				log.Printf("config change detected: %s", event.Name)
 				change <- true
 			}
 		}

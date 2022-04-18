@@ -2,12 +2,12 @@ package midi
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
 
 	"hidi/internal/pkg/input"
-	"hidi/internal/pkg/logg"
 
 	"github.com/gethiox/go-evdev"
 )
@@ -23,7 +23,6 @@ type Device struct {
 	InputDevice input.Device
 	inputEvents <-chan input.InputEvent
 	midiEvents  chan<- Event
-	logs        chan<- logg.LogEntry
 
 	// TODO: move this to input.Device
 	// absinfos holds information about boundaries of analog information
@@ -44,10 +43,7 @@ type Device struct {
 	mapping   int
 }
 
-func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event,
-	logs chan<- logg.LogEntry) Device {
-
-	// var config Config
+func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event) Device {
 	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
 
 	if inputDevice.DeviceType == input.JoystickDevice {
@@ -60,7 +56,7 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 
 			absi, err := edev.AbsInfos()
 			if err != nil {
-				logs <- logg.Warning(fmt.Sprintf("Failed to fetch absinfos [%s]", inputDevice.Name))
+				log.Printf("Failed to fetch absinfos [%s]", inputDevice.Name)
 				absinfos[event] = make(map[evdev.EvCode]evdev.AbsInfo)
 				continue
 			}
@@ -74,7 +70,6 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 		InputDevice: inputDevice,
 		inputEvents: inputEvents,
 		midiEvents:  midiEvents,
-		logs:        logs,
 		absinfos:    absinfos,
 
 		noteTracker:       make(map[evdev.EvCode][2]byte, 32),
@@ -158,13 +153,13 @@ func (d *Device) ProcessEvents() {
 					continue
 				}
 
-				d.logs <- logg.Debug(fmt.Sprintf(
+				log.Printf(
 					"Unbinded Button: code: %3d (0x%02x) [%s], type: %2x [%s] value: %d (0x%x) [%s]",
 					ie.Event.Code, ie.Event.Code, evdev.KEYToString[ie.Event.Code],
 					ie.Event.Type, evdev.EVToString[ie.Event.Type],
 					ie.Event.Value, ie.Event.Value,
 					d.InputDevice.Name,
-				))
+				)
 			}
 		case evdev.EV_ABS:
 			analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
@@ -239,19 +234,19 @@ func (d *Device) ProcessEvents() {
 				}
 
 				d.midiEvents <- event
-				d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+				log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 			}
 		}
 	}
 
 	if len(d.noteTracker) > 0 {
-		d.logs <- logg.Debug("active midi notes cleanup")
+		log.Print("active midi notes cleanup")
 	}
 
 	for evcode := range d.noteTracker {
 		d.NoteOff(evcode)
 	}
-	d.logs <- logg.Debug("virtual midi device exited")
+	log.Print("virtual midi device exited")
 }
 
 func (d *Device) NoteOn(evCode evdev.EvCode) {
@@ -268,7 +263,7 @@ func (d *Device) NoteOn(evCode evdev.EvCode) {
 	d.noteTracker[evCode] = [2]byte{note, d.channel}
 	event := NoteEvent(NoteOn, d.channel, note, 64)
 	d.midiEvents <- event
-	d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+	log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 
 	for _, offset := range d.multiNote {
 		multiNote := noteCalculatored + offset
@@ -279,7 +274,7 @@ func (d *Device) NoteOn(evCode evdev.EvCode) {
 		// untracked notes
 		event = NoteEvent(NoteOn, d.channel, note, 64)
 		d.midiEvents <- event
-		d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+		log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 	}
 }
 
@@ -293,7 +288,7 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 	event := NoteEvent(NoteOff, channel, note, 0)
 	d.midiEvents <- event
 	delete(d.noteTracker, evCode)
-	d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+	log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 
 	for _, offset := range d.multiNote {
 		multiNote := int(note) + offset
@@ -303,7 +298,7 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 		newNote := uint8(multiNote)
 		event = NoteEvent(NoteOff, channel, newNote, 0)
 		d.midiEvents <- event
-		d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+		log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 	}
 }
 
@@ -317,7 +312,7 @@ func (d *Device) AnalogNoteOn(identifier string, note byte) {
 	d.analogNoteTracker[identifier] = [2]byte{note, d.channel}
 	event := NoteEvent(NoteOn, d.channel, note, 64)
 	d.midiEvents <- event
-	d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+	log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 }
 
 func (d *Device) AnalogNoteOff(identifier string) {
@@ -330,56 +325,56 @@ func (d *Device) AnalogNoteOff(identifier string) {
 	event := NoteEvent(NoteOff, channel, note, 0)
 	d.midiEvents <- event
 	delete(d.analogNoteTracker, identifier)
-	d.logs <- logg.Debug(fmt.Sprintf("%s [%s]", event.String(), d.InputDevice.Name))
+	log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 }
 
 func (d *Device) OctaveDown() {
 	d.octave--
-	d.logs <- logg.Info(fmt.Sprintf("octave down (%d) [%s]", d.octave, d.InputDevice.Name))
+	log.Printf("octave down (%d) [%s]", d.octave, d.InputDevice.Name)
 }
 
 func (d *Device) OctaveUp() {
 	d.octave++
-	d.logs <- logg.Info(fmt.Sprintf("octave up (%d) [%s]", d.octave, d.InputDevice.Name))
+	log.Printf("octave up (%d) [%s]", d.octave, d.InputDevice.Name)
 }
 
 func (d *Device) OctaveReset() {
 	d.octave = 0
-	d.logs <- logg.Info(fmt.Sprintf("octave reset (%d) [%s]", d.octave, d.InputDevice.Name))
+	log.Printf("octave reset (%d) [%s]", d.octave, d.InputDevice.Name)
 }
 
 func (d *Device) SemitoneDown() {
 	d.semitone--
-	d.logs <- logg.Info(fmt.Sprintf("semitone down (%d) [%s]", d.semitone, d.InputDevice.Name))
+	log.Printf("semitone down (%d) [%s]", d.semitone, d.InputDevice.Name)
 }
 
 func (d *Device) SemitoneUp() {
 	d.semitone++
-	d.logs <- logg.Info(fmt.Sprintf("semitone up (%d) [%s]", d.semitone, d.InputDevice.Name))
+	log.Printf("semitone up (%d) [%s]", d.semitone, d.InputDevice.Name)
 }
 
 func (d *Device) SemitoneReset() {
 	d.semitone = 0
-	d.logs <- logg.Info(fmt.Sprintf("semitone reset (%d) [%s]", d.semitone, d.InputDevice.Name))
+	log.Printf("semitone reset (%d) [%s]", d.semitone, d.InputDevice.Name)
 }
 
 func (d *Device) MappingDown() {
 	if d.mapping != 0 {
 		d.mapping--
 	}
-	d.logs <- logg.Info(fmt.Sprintf("mapping down (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name))
+	log.Printf("mapping down (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name)
 }
 
 func (d *Device) MappingUp() {
 	if d.mapping != len(d.config.KeyMappings)-1 {
 		d.mapping++
 	}
-	d.logs <- logg.Info(fmt.Sprintf("mapping up (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name))
+	log.Printf("mapping up (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name)
 }
 
 func (d *Device) MappingReset() {
 	d.mapping = 0
-	d.logs <- logg.Info(fmt.Sprintf("mapping reset (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name))
+	log.Printf("mapping reset (%s) [%s]", d.config.KeyMappings[d.mapping].Name, d.InputDevice.Name)
 }
 
 func (d *Device) ChannelDown() {
@@ -387,19 +382,19 @@ func (d *Device) ChannelDown() {
 		d.channel--
 	}
 
-	d.logs <- logg.Info(fmt.Sprintf("channel down (%2d) [%s]", d.channel+1, d.InputDevice.Name))
+	log.Printf("channel down (%2d) [%s]", d.channel+1, d.InputDevice.Name)
 }
 
 func (d *Device) ChannelUp() {
 	if d.channel != 15 {
 		d.channel++
 	}
-	d.logs <- logg.Info(fmt.Sprintf("channel up (%2d) [%s]", d.channel+1, d.InputDevice.Name))
+	log.Printf("channel up (%2d) [%s]", d.channel+1, d.InputDevice.Name)
 }
 
 func (d *Device) ChannelReset() {
 	d.channel = 0
-	d.logs <- logg.Info(fmt.Sprintf("channel reset (%2d) [%s]", d.channel+1, d.InputDevice.Name))
+	log.Printf("channel reset (%2d) [%s]", d.channel+1, d.InputDevice.Name)
 }
 
 func (d *Device) Multinote() {
@@ -409,13 +404,13 @@ func (d *Device) Multinote() {
 	}
 
 	if len(pressedNotes) == 0 {
-		d.logs <- logg.Info(fmt.Sprintf("Bruh, no pressed notes, multinote mode disengaged [%s]", d.InputDevice.Name))
+		log.Printf("Bruh, no pressed notes, multinote mode disengaged [%s]", d.InputDevice.Name)
 		d.multiNote = []int{}
 		return
 	}
 
 	if len(pressedNotes) == 1 {
-		d.logs <- logg.Info(fmt.Sprintf("Bruh, press more than one note, multinote mode disengaged [%s]", d.InputDevice.Name))
+		log.Printf("Bruh, press more than one note, multinote mode disengaged [%s]", d.InputDevice.Name)
 		d.multiNote = []int{}
 		return
 	}
@@ -446,7 +441,7 @@ func (d *Device) Multinote() {
 	}
 
 	d.multiNote = noteOffsets
-	d.logs <- logg.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v/[%s] [%s]", d.multiNote, intervals, d.InputDevice.Name))
+	log.Printf("Multinote mode engaged, intervals: %v/[%s] [%s]", d.multiNote, intervals, d.InputDevice.Name)
 }
 
 func (d *Device) Panic() {
@@ -457,5 +452,5 @@ func (d *Device) Panic() {
 		d.midiEvents <- NoteEvent(NoteOff, d.channel, note, 0)
 	}
 
-	d.logs <- logg.Info(fmt.Sprintf("Panic! [%s]", d.InputDevice.Name))
+	log.Printf("Panic! [%s]", d.InputDevice.Name)
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 	"time"
-
-	"github.com/d2r2/go-logger"
 )
 
 func fetchDevices() []Device {
@@ -19,7 +17,6 @@ func fetchDevices() []Device {
 }
 
 func MonitorNewDevices(ctx context.Context) <-chan Device {
-	l := logger.NewPackageLogger("input", logger.DebugLevel)
 	var devChan = make(chan Device)
 
 	var trackedDevs = make(map[PhysicalID]Device)
@@ -27,7 +24,7 @@ func MonitorNewDevices(ctx context.Context) <-chan Device {
 	var newDevs []Device
 
 	go func() {
-		log.Printf("Monitor new devices enagged")
+		log.Print("Monitor new devices enagged")
 	root:
 		for {
 			select {
@@ -57,17 +54,17 @@ func MonitorNewDevices(ctx context.Context) <-chan Device {
 			}
 
 			if len(newDevs) > 0 {
-				l.Infof("New Devices: %d", len(newDevs))
+				log.Printf("New Devices: %d", len(newDevs))
 				for _, d := range newDevs {
-					l.Infof("- %s", d.String())
+					log.Printf("- %s", d.String())
 					trackedDevs[d.PhysicalUUID()] = d
 				}
 			}
 
 			if len(missingDevs) > 0 {
-				l.Infof("Removed Devices: %d", len(missingDevs))
+				log.Printf("Removed Devices: %d", len(missingDevs))
 				for _, d := range missingDevs {
-					l.Infof("- %s", d.String())
+					log.Printf("- %s", d.String())
 					delete(trackedDevs, d.PhysicalUUID())
 				}
 			}
@@ -80,7 +77,7 @@ func MonitorNewDevices(ctx context.Context) <-chan Device {
 			missingDevs = nil
 			time.Sleep(time.Second)
 		}
-		log.Printf("Monitor new devices disengaged")
+		log.Print("Monitor new devices disengaged")
 		close(devChan)
 	}()
 

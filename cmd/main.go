@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -13,41 +14,47 @@ import (
 
 	"hidi/internal/pkg/display"
 	"hidi/internal/pkg/hidi"
-	"hidi/internal/pkg/logg"
 	"hidi/internal/pkg/midi"
-
-	"github.com/d2r2/go-logger"
-
-	"github.com/op/go-logging"
 )
 
 var midiEventsEmitted uint16 // counter for display info
 
-func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event, logs chan<- logg.LogEntry) {
+func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event) {
 	for ev := range midiEvents {
 		_, err := ioDevice.Write(ev)
 		if err != nil {
-			logs <- logg.Warning(fmt.Sprintf("failed to write midi event: %v", err))
+			log.Printf("failed to write midi event: %v", err)
 			continue
 		}
 		midiEventsEmitted += 1
 	}
-	logs <- logg.Warning("Processing midi events stopped")
+	log.Print("Processing midi events stopped")
 }
 
-// asynchronous log processing for latency sensitive tasks
-func processLogs(logger logger.PackageLog, logs <-chan logg.LogEntry) {
-	for l := range logs {
-		switch l.Level {
-		case logg.LevelDebug:
-			logger.Debugf("> %s", l)
-		case logg.LevelWarning:
-			logger.Warningf("> %s", l)
-		case logg.LevelInfo:
-			logger.Infof("> %s", l)
-		}
+type ChanneledLogger struct {
+	channel chan string
+}
+
+func NewBufferedLogWriter(size int) ChanneledLogger {
+	return ChanneledLogger{
+		channel: make(chan string, size),
 	}
-	logger.Infof("Processing logs stopped")
+}
+
+func (c *ChanneledLogger) Write(p []byte) (n int, err error) {
+	c.channel <- string(p)
+	return len(p), nil
+}
+
+func (c *ChanneledLogger) Close() {
+	close(c.channel)
+}
+
+func (c *ChanneledLogger) ProcessLogs() {
+	for entry := range c.channel {
+		fmt.Printf("%s", entry)
+	}
+	fmt.Println("Processing logs stopped")
 }
 
 func main() {
@@ -60,11 +67,17 @@ func main() {
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
 
+	myLittleLogger := NewBufferedLogWriter(128)
+	log.SetOutput(&myLittleLogger)
+	go myLittleLogger.ProcessLogs()
+
+	log.Printf("czo")
+
 	if profile {
 		addr := "0.0.0.0:8080"
-		fmt.Printf("profiling enabled and hosted on %s\n", addr)
+		log.Printf("profiling enabled and hosted on %s", addr)
 		go func() {
-			fmt.Println(http.ListenAndServe(addr, nil))
+			log.Print(http.ListenAndServe(addr, nil))
 		}()
 	}
 
@@ -78,29 +91,23 @@ func main() {
 			if counter > 0 {
 				panic("force panic")
 			}
-			fmt.Printf("siganl received: %v\n", sig)
+			log.Printf("siganl received: %v", sig)
 			cancel()
 			counter++
 		}
 	}()
 
-	l := logger.NewPackageLogger("main", logger.DebugLevel)
-
-	if debug {
-		logging.SetLevel(logging.DEBUG, "main")
-	}
-
 	cfg := hidi.LoadHIDIConfig("./config/hidi.config")
-	l.Debugf("HIDI config: %+v", cfg)
+	log.Printf("HIDI config: %+v", cfg)
 
 	ioDevices := midi.DetectDevices()
 	if len(ioDevices) == 0 {
-		l.Infof("There is no midi devices available, we're deeply sorry")
+		log.Print("There is no midi devices available, we're deeply sorry")
 		os.Exit(1)
 	}
 
 	if len(ioDevices) < midiDevice+1 {
-		l.Infof(
+		log.Printf(
 			"MIDI device with \"%d\" ID does not exist. There is %d MIDI devices available in total",
 			midiDevice, len(ioDevices),
 		)
@@ -109,28 +116,25 @@ func main() {
 
 	ioDevice, err := ioDevices[midiDevice].Open()
 	if err != nil {
-		l.Infof("Failed to open MIDI device: %v", err)
+		log.Printf("Failed to open MIDI device: %v", err)
 		os.Exit(1)
 	}
 
-	var logs = make(chan logg.LogEntry, 128)
 	var midiEvents = make(chan midi.Event)
 
-	fmt.Printf("DEBUG: runnning processLogs\n")
-	go processLogs(l, logs)
-	fmt.Printf("DEBUG: runnning processMidiEvents\n")
-	go processMidiEvents(ioDevice, midiEvents, logs)
+	log.Print("DEBUG: runnning processMidiEvents")
+	go processMidiEvents(ioDevice, midiEvents)
 
 	var devices = make(map[*midi.Device]*midi.Device, 16)
-	fmt.Printf("DEBUG: runnning HandleDisplays\n")
+	log.Print("DEBUG: runnning HandleDisplays")
 	go display.HandleDisplay(ctx, cfg, devices, &midiEventsEmitted)
 
-	fmt.Printf("DEBUG: running runManager\n")
-	runManager(ctx, cfg, logs, midiEvents, grab, devices)
+	log.Print("DEBUG: running runManager")
+	runManager(ctx, cfg, midiEvents, grab, devices)
 
 	close(midiEvents)
 	time.Sleep(time.Second * 1)
-	close(logs)
+	myLittleLogger.Close()
 	time.Sleep(time.Second * 1)
 	fmt.Printf("exited\n")
 }
