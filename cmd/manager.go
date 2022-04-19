@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"hidi/internal/pkg/hidi"
@@ -11,15 +12,18 @@ import (
 	"hidi/internal/pkg/midi"
 )
 
-func runManager(ctx context.Context, cfg hidi.HIDIConfig, midiEvents chan midi.Event, grab bool, devices map[*midi.Device]*midi.Device) {
+func runManager(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig, midiEvents chan midi.Event, grab bool, devices map[*midi.Device]*midi.Device) {
+	wg.Add(1)
+	defer wg.Done()
+
 	deviceConfigChange := midi.DetectDeviceConfigChanges(ctx)
 
-ultra:
+root:
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("ending run manager")
-			break ultra
+			break root
 		default:
 			break
 		}
@@ -43,9 +47,8 @@ ultra:
 			}
 		}()
 
-		newDevices := input.MonitorNewDevices(ctxConfigChange)
 	device:
-		for d := range newDevices {
+		for d := range input.MonitorNewDevices(ctxConfigChange, cfg) {
 			// TODO: inspect this code against possible race-condition
 
 			var inputEvents <-chan input.InputEvent

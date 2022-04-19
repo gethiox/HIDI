@@ -3,6 +3,7 @@ package display
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"hidi/internal/pkg/hidi"
@@ -29,7 +30,10 @@ func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, error
 	return lcd, nil
 }
 
-func HandleDisplay(ctx context.Context, cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
+func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
+	wg.Add(1)
+	defer wg.Done()
+
 	if !cfg.Screen.Enabled {
 		return
 	}

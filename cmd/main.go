@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,7 +21,12 @@ import (
 
 var midiEventsEmitted uint16 // counter for display info
 
-func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event) {
+//go:embed pony.txt
+var pony string
+
+func processMidiEvents(wg *sync.WaitGroup, ioDevice *os.File, midiEvents <-chan midi.Event) {
+	wg.Add(1)
+	defer wg.Done()
 	for ev := range midiEvents {
 		_, err := ioDevice.Write(ev)
 		if err != nil {
@@ -33,11 +40,13 @@ func processMidiEvents(ioDevice *os.File, midiEvents <-chan midi.Event) {
 
 type ChanneledLogger struct {
 	channel chan string
+	done    chan bool
 }
 
 func NewBufferedLogWriter(size int) ChanneledLogger {
 	return ChanneledLogger{
 		channel: make(chan string, size),
+		done:    make(chan bool),
 	}
 }
 
@@ -50,10 +59,15 @@ func (c *ChanneledLogger) Close() {
 	close(c.channel)
 }
 
+func (c *ChanneledLogger) Wait() {
+	<-c.done
+}
+
 func (c *ChanneledLogger) ProcessLogs() {
 	for entry := range c.channel {
 		fmt.Printf("%s", entry)
 	}
+	close(c.done)
 	fmt.Println("Processing logs stopped")
 }
 
@@ -87,7 +101,8 @@ func main() {
 		var counter int
 		for sig := range sigs {
 			if counter > 0 {
-				panic("force panic")
+				fmt.Println("Dirty exit")
+				os.Exit(1)
 			}
 			log.Printf("siganl received: %v", sig)
 			cancel()
@@ -120,19 +135,22 @@ func main() {
 
 	var midiEvents = make(chan midi.Event)
 
+	wg := sync.WaitGroup{}
+
 	log.Print("DEBUG: runnning processMidiEvents")
-	go processMidiEvents(ioDevice, midiEvents)
+	go processMidiEvents(&wg, ioDevice, midiEvents)
 
 	var devices = make(map[*midi.Device]*midi.Device, 16)
 	log.Print("DEBUG: runnning HandleDisplays")
-	go display.HandleDisplay(ctx, cfg, devices, &midiEventsEmitted)
+	go display.HandleDisplay(ctx, &wg, cfg, devices, &midiEventsEmitted)
 
 	log.Print("DEBUG: running runManager")
-	runManager(ctx, cfg, midiEvents, grab, devices)
+	runManager(ctx, &wg, cfg, midiEvents, grab, devices)
 
 	close(midiEvents)
-	time.Sleep(time.Second * 1)
+	wg.Wait()
+	time.Sleep(time.Millisecond * 200) // todo, pass context to every goroutin that may produce logs
 	myLittleLogger.Close()
-	time.Sleep(time.Second * 1)
-	fmt.Printf("exited\n")
+	myLittleLogger.Wait()
+	fmt.Println(pony)
 }

@@ -1,7 +1,5 @@
 package input
 
-// Related things to separate handlers that comes from /proc/bus/input/devices
-
 import (
 	"fmt"
 	"strings"
@@ -44,13 +42,15 @@ func (ht HandlerType) String() string {
 // DeviceInfo contains information of every reported event device
 // it is supposed to be created by unmarshal function only
 type DeviceInfo struct {
-	ID       InputID  // ID of the device
-	Name     string   // name of the device
-	Phys     string   // physical path to the device in the system hierarchy
-	Sysfs    string   // sysfs path
-	Uniq     string   // unique identification code for the device (if device has it)
-	Handlers []string // list of input handles associated with the device
-	Bitmaps  Bitmaps
+	ID    InputID // ID of the device
+	Name  string  // name of the device
+	Phys  string  // physical path to the device in the system hierarchy
+	Sysfs string  // sysfs path
+	Uniq  string  // unique identification code for the device (if device has it)
+
+	eventName    string
+	CapableTypes []evdev.EvType
+	Properties   []evdev.EvProp
 }
 
 type InputID struct {
@@ -60,29 +60,13 @@ type InputID struct {
 	Version uint16
 }
 
-type Bitmaps struct {
-	// BITS_TO_LONGS/__KERNEL_DIV_ROUND_UP calculation for keeping original lengths of bitmaps,
-	// kernel 5.14.15
-	PROP [(evdev.INPUT_PROP_CNT + 32 - 1) / 32]uint32 // 1   // device properties and quirks
-	EV   [(evdev.EV_CNT + 32 - 1) / 32]uint32         // 1   // types of events supported by the device
-	KEY  [(evdev.KEY_CNT + 32 - 1) / 32]uint32        // 24  // keys/buttons this device has
-	REL  [(evdev.REL_CNT + 32 - 1) / 32]uint32        // 1
-	ABS  [(evdev.ABS_CNT + 32 - 1) / 32]uint32        // 2
-	MSC  [(evdev.MSC_CNT + 32 - 1) / 32]uint32        // 1   // miscellaneous events supported by the device
-	LED  [(evdev.LED_CNT + 32 - 1) / 32]uint32        // 1   // leds present on the device
-	SND  [(evdev.SND_CNT + 32 - 1) / 32]uint32        // 1
-	FF   [(evdev.FF_CNT + 32 - 1) / 32]uint32         // 4
-	SW   [(evdev.SW_CNT + 32 - 1) / 32]uint32         // 1
+func (i *InputID) String() string {
+	return fmt.Sprintf("0x%4x 0x%4x 0x%4x 0x%4x", i.Bus, i.Vendor, i.Product, i.Version)
 }
 
 // Event returns event name, like "event0" for /dev/input/event0
 func (d *DeviceInfo) Event() string {
-	for _, handler := range d.Handlers {
-		if strings.HasPrefix(handler, "event") {
-			return handler
-		}
-	}
-	return ""
+	return d.eventName
 }
 
 // EventPath returns a /dev/input/event filepath for button presses
@@ -94,29 +78,73 @@ func (d *DeviceInfo) EventPath() string {
 	return fmt.Sprintf("/dev/input/%s", event)
 }
 
-func (d *DeviceInfo) HandlerType() HandlerType {
-	switch d.Bitmaps.EV[0] {
-	case 0x120013:
-		return DI_TYPE_STD_KBD
-	case 0x100013:
-		return DI_TYPE_NKRO_KBD
-	case 0x17, 0x12001f: // std, mouse
-		return DI_TYPE_MOUSE
-	case 0x13:
-		return DI_TYPE_SYSTEM
-	case 0x1f:
-		return DI_TYPE_MULTIMEDIA
+func has(list []evdev.EvType, elem ...evdev.EvType) bool {
+	toHave := map[evdev.EvType]bool{}
+	for _, e := range elem {
+		toHave[e] = false
+	}
+	have := map[evdev.EvType]bool{}
+	for _, e := range list {
+		have[e] = true
 	}
 
-	for _, h := range d.Handlers {
-		switch {
-		case strings.HasPrefix(h, "js"):
-			return DI_TYPE_JOYSTICK
-		case strings.HasPrefix(h, "mouse"):
-			return DI_TYPE_MOUSE
+	for e := range have {
+		if _, ok := toHave[e]; ok {
+			toHave[e] = true
 		}
 	}
 
+	for _, v := range toHave {
+		if !v {
+			return false
+		}
+	}
+	return true
+}
+
+func hasExactly(list []evdev.EvType, elem ...evdev.EvType) bool {
+	toHave := map[evdev.EvType]bool{}
+	for _, e := range elem {
+		toHave[e] = false
+	}
+	have := map[evdev.EvType]bool{}
+	for _, e := range list {
+		have[e] = true
+	}
+
+	for e := range have {
+		if _, ok := toHave[e]; ok {
+			toHave[e] = true
+		} else {
+			return false
+		}
+	}
+
+	for _, v := range toHave {
+		if !v {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *DeviceInfo) HandlerType() HandlerType {
+	switch {
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP):
+		return DI_TYPE_STD_KBD
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC, evdev.EV_REP):
+		return DI_TYPE_NKRO_KBD
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_MSC):
+		return DI_TYPE_MOUSE
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_ABS, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP):
+		return DI_TYPE_MOUSE
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC):
+		return DI_TYPE_SYSTEM
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_ABS, evdev.EV_MSC):
+		return DI_TYPE_MULTIMEDIA
+	case has(d.CapableTypes, evdev.EV_FF):
+		return DI_TYPE_JOYSTICK
+	}
 	return DI_TYPE_UNKNOWN
 }
 

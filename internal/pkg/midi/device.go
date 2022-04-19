@@ -156,11 +156,11 @@ func (d *Device) ProcessEvents() {
 				}
 
 				log.Printf(
-					"Unbinded Button: code: %3d (0x%02x) [%s], type: %2x [%s] value: %d (0x%x) [%s]",
+					"Unbinded Button: code: %3d (0x%02x) [%s], type: %2x [%s] value: %d (0x%x) [%s] [%s]",
 					ie.Event.Code, ie.Event.Code, evdev.KEYToString[ie.Event.Code],
 					ie.Event.Type, evdev.EVToString[ie.Event.Type],
 					ie.Event.Value, ie.Event.Value,
-					d.InputDevice.Name,
+					d.InputDevice.Name, ie.Source.Event(),
 				)
 			}
 		case evdev.EV_ABS:

@@ -10,7 +10,8 @@ import (
 
 type HIDIConfig struct {
 	HIDI struct {
-		EVThrottling time.Duration
+		EVThrottling  time.Duration
+		DiscoveryRate time.Duration
 	}
 
 	Screen struct {
@@ -42,6 +43,12 @@ func LoadHIDIConfig(path string) HIDIConfig {
 		panic(err)
 	}
 	c.HIDI.EVThrottling = time.Second / time.Duration(i)
+	discoveryRate, _ := hidi.GetKey("discovery_rate")
+	i, err = discoveryRate.Int()
+	if err != nil {
+		panic(err)
+	}
+	c.HIDI.DiscoveryRate = time.Second / time.Duration(i)
 
 	// [screen]
 	screen, _ := cfg.GetSection("screen")

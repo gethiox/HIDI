@@ -2,81 +2,140 @@ package input
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
+
+	"hidi/internal/pkg/hidi"
+
+	"github.com/gethiox/go-evdev"
 )
 
-func fetchDevices() []Device {
-	infos, err := GetHandlers()
-	if err != nil {
-		panic(err)
-	}
-
-	devices := Normalize(infos)
-	return devices
-}
-
-func MonitorNewDevices(ctx context.Context) <-chan Device {
-	var devChan = make(chan Device)
-
-	var trackedDevs = make(map[PhysicalID]Device)
-	var missingDevs []Device
-	var newDevs []Device
+func monitorNewHandlers(ctx context.Context, cfg hidi.HIDIConfig) <-chan []string {
+	var newHandlers = make(chan []string)
 
 	go func() {
-		log.Print("Monitor new devices enagged")
+		var previous = make(map[string]bool)
+
 	root:
 		for {
 			select {
 			case <-ctx.Done():
 				break root
-			default:
+			case <-time.After(cfg.HIDI.DiscoveryRate):
 				break
 			}
 
-			current := fetchDevices()
+			entries, err := os.ReadDir("/dev/input")
+			if err != nil {
+				panic(err)
+			}
 
-			for _, d := range current {
-				_, ok := trackedDevs[d.PhysicalUUID()]
-				if !ok {
-					newDevs = append(newDevs, d)
+			var events = make(map[string]bool, len(entries))
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasPrefix(e.Name(), "event") {
+					events[e.Name()] = true
 				}
 			}
 
-		outer:
-			for _, d := range trackedDevs {
-				for _, dd := range current {
-					if d.PhysicalUUID() == dd.PhysicalUUID() {
-						continue outer
-					}
-				}
-				missingDevs = append(missingDevs, d)
-			}
-
-			if len(newDevs) > 0 {
-				log.Printf("New Devices: %d", len(newDevs))
-				for _, d := range newDevs {
-					log.Printf("- %s", d.String())
-					trackedDevs[d.PhysicalUUID()] = d
+			var newEvents []string
+			for ev := range events {
+				if !previous[ev] {
+					newEvents = append(newEvents, ev)
 				}
 			}
 
-			if len(missingDevs) > 0 {
-				log.Printf("Removed Devices: %d", len(missingDevs))
-				for _, d := range missingDevs {
-					log.Printf("- %s", d.String())
-					delete(trackedDevs, d.PhysicalUUID())
+			var removedEvents []string
+			for ev := range previous {
+				if !events[ev] {
+					removedEvents = append(removedEvents, ev)
 				}
 			}
 
-			for _, d := range newDevs {
-				devChan <- d
+			for _, ev := range removedEvents {
+				delete(previous, ev)
+			}
+			for _, ev := range newEvents {
+				previous[ev] = true
 			}
 
-			newDevs = nil
-			missingDevs = nil
-			time.Sleep(time.Second)
+			if len(newEvents) > 0 {
+				log.Printf("sending new events: %+v", newEvents)
+				newHandlers <- newEvents
+			}
 		}
+		close(newHandlers)
+	}()
+	return newHandlers
+}
+
+func MonitorNewDevices(ctx context.Context, cfg hidi.HIDIConfig) <-chan Device {
+	var devChan = make(chan Device)
+
+	go func() {
+		log.Print("Monitor new devices engaged")
+
+		newEvents := monitorNewHandlers(ctx, cfg)
+		var events []string
+
+		log.Printf("merging proces engaged")
+	root:
+		for {
+			select {
+			case <-ctx.Done():
+				break root
+			case x := <-newEvents:
+				events = append(events, x...)
+				continue // new event handlers may appear between samplings
+			case <-time.After(time.Second * 2):
+				break
+			}
+			if len(events) == 0 {
+				continue
+			}
+
+			var deviceInfos []DeviceInfo
+			for _, ev := range events {
+				dPath := fmt.Sprintf("/dev/input/%s", ev)
+				d, err := evdev.Open(dPath)
+				if err != nil {
+					panic(err)
+				}
+
+				inputID, _ := d.InputID()
+				name, _ := d.Name()
+				phys, err := d.PhysicalLocation()
+				uniq, err := d.UniqueID()
+				capableTypes := d.CapableTypes()
+				properties := d.Properties()
+
+				deviceInfo := DeviceInfo{
+					ID: InputID{
+						Bus:     inputID.BusType,
+						Vendor:  inputID.Vendor,
+						Product: inputID.Product,
+						Version: inputID.Version,
+					},
+					Name:      name,
+					Phys:      phys,
+					Sysfs:     dPath,
+					Uniq:      uniq,
+					eventName: ev,
+
+					CapableTypes: capableTypes,
+					Properties:   properties,
+				}
+				deviceInfos = append(deviceInfos, deviceInfo)
+			}
+
+			for _, device := range Normalize(deviceInfos) {
+				devChan <- device
+			}
+			events = nil
+		}
+
 		log.Print("Monitor new devices disengaged")
 		close(devChan)
 	}()
