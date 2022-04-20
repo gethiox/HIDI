@@ -113,6 +113,11 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 				uniq = di.Uniq
 			}
 
+			v, ok := dev.Handlers[di.HandlerType()]
+			if ok {
+				panic(fmt.Errorf("handler already exist: %+v (want to overwrite by: %+v)", v, di))
+			}
+
 			dev.Handlers[di.HandlerType()] = di
 		}
 
@@ -245,13 +250,13 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 			if grab {
 				_ = dev.Grab()
-				log.Printf("[%s] [%s] Grabbing device for exclusive usage", path, name)
+				log.Printf("Grabbing device for exclusive usage [%s] [%s]", path, name)
 			}
-			log.Printf("[%s] [%s] Reading input events", path, name)
+			log.Printf("Reading input events [%s] [%s]", path, name)
 
 			err = dev.NonBlock()
 			if err != nil {
-				fmt.Printf("[%s] [%s] enabling non-blocking event reading mode failed: %v\n", path, name, err)
+				fmt.Printf("enabling non-blocking event reading mode failed: %v [%s] [%s]\n", err, path, name)
 			}
 			for {
 				event, err := dev.ReadOne()
@@ -272,10 +277,10 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				events <- outputEvent
 			}
 			if grab {
-				log.Printf("[%s] [%s] Ungrabbing device", path, name)
+				log.Printf("Ungrabbing device [%s] [%s]", path, name)
 				_ = dev.Ungrab()
 			}
-			log.Printf("[%s] [%s] Reading input events finished", path, name)
+			log.Printf("Reading input events finished [%s] [%s]", path, name)
 		}(dev, ht, h, absEvents)
 	}
 
