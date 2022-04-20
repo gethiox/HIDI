@@ -81,17 +81,25 @@ func MonitorNewDevices(ctx context.Context, cfg hidi.HIDIConfig) <-chan Device {
 		var events []string
 
 		log.Printf("merging proces engaged")
+		firstRun := true
+
 	root:
 		for {
-			select {
-			case <-ctx.Done():
-				break root
-			case x := <-newEvents:
-				events = append(events, x...)
-				continue // new event handlers may appear between samplings
-			case <-time.After(time.Second * 2):
-				break
+			if !firstRun {
+				select {
+				case <-ctx.Done():
+					break root
+				case x := <-newEvents:
+					events = append(events, x...)
+					continue // new event handlers may appear between samplings
+				case <-time.After(time.Second * 2):
+					break
+				}
+			} else {
+				events = append(events, <-newEvents...)
+				firstRun = false
 			}
+
 			if len(events) == 0 {
 				continue
 			}
