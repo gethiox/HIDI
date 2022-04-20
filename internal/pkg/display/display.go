@@ -14,20 +14,20 @@ import (
 	"github.com/d2r2/go-logger"
 )
 
-func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, error) {
+func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, *i2c.I2C, error) {
 	logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
 
 	lcdRaw, err := i2c.NewI2C(addr, bus)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	lcd, err := device.NewLcd(lcdRaw, lcdType)
 	if err != nil {
-		return nil, err
+		return nil, lcdRaw, err
 	}
 
-	return lcd, nil
+	return lcd, lcdRaw, nil
 }
 
 func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
@@ -38,8 +38,11 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig,
 		return
 	}
 
-	lcd, err := getDisplay(cfg.Screen.Address, cfg.Screen.Bus, cfg.Screen.LcdType)
+	lcd, bus, err := getDisplay(cfg.Screen.Address, cfg.Screen.Bus, cfg.Screen.LcdType)
 	if err != nil {
+		if bus != nil {
+			bus.Close()
+		}
 		return
 	}
 
@@ -146,4 +149,7 @@ root:
 			lcd.Write([]byte{byte(realVal)})
 		}
 	}
+	lcd.Clear()
+	lcd.BacklightOff()
+	bus.Close()
 }
