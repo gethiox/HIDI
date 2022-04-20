@@ -56,12 +56,12 @@ root:
 
 			appearedAt := time.Now()
 
-			log.Printf("[\"%s\"] Opening device...", d.Name)
+			log.Printf("Opening device... [\"%s\"]", d.Name)
 			for {
 				inputEvents, err = d.ProcessEvents(ctxConfigChange, grab, cfg.HIDI.EVThrottling)
 				if err != nil {
 					if time.Now().Sub(appearedAt) > time.Second*5 {
-						log.Printf("failed to open \"%s\" device on time, giving up", d.Name)
+						log.Printf("failed to open device on time, giving up [\"%s\"]", d.Name)
 						continue device
 					}
 					time.Sleep(time.Millisecond * 100)
@@ -69,21 +69,21 @@ root:
 				}
 				break
 			}
-			log.Printf("[\"%s\"] Device Opened!", d.Name)
+			log.Printf("Device Opened! [\"%s\"]", d.Name)
 
 			go func(dev input.Device) {
-				log.Printf("[\"%s\"] Loading config for keyboard...", dev.Name)
+				log.Printf("Loading config for keyboard... [\"%s\"]", dev.Name)
 				conf, err := configs.FindConfig(dev.ID, dev.DeviceType)
 
 				if err != nil {
 					panic(err)
 				}
-				log.Printf("[\"%s\"] Config loaded!", dev.Name)
+				log.Printf("Config loaded! [\"%s\"]", dev.Name)
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents)
 				devices[&midiDev] = &midiDev
-				log.Printf("[\"%s\"] Starting to process events", dev.Name)
+				log.Printf("Starting to process events [\"%s\"]", dev.Name)
 				midiDev.ProcessEvents()
-				log.Printf("[\"%s\"] Event processing finished", dev.Name)
+				log.Printf("Event processing finished [\"%s\"]", dev.Name)
 				delete(devices, &midiDev)
 			}(d)
 		}
