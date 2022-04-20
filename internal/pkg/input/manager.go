@@ -92,7 +92,7 @@ func MonitorNewDevices(ctx context.Context, cfg hidi.HIDIConfig) <-chan Device {
 				case x := <-newEvents:
 					events = append(events, x...)
 					continue // new event handlers may appear between samplings
-				case <-time.After(time.Second * 2):
+				case <-time.After(cfg.HIDI.StabilizationPeriod):
 					break
 				}
 			} else {

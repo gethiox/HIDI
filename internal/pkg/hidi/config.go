@@ -10,8 +10,9 @@ import (
 
 type HIDIConfig struct {
 	HIDI struct {
-		EVThrottling  time.Duration
-		DiscoveryRate time.Duration
+		EVThrottling        time.Duration
+		DiscoveryRate       time.Duration
+		StabilizationPeriod time.Duration
 	}
 
 	Screen struct {
