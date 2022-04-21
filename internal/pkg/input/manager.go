@@ -10,7 +10,7 @@ import (
 
 	"hidi/internal/pkg/hidi"
 
-	"github.com/gethiox/go-evdev"
+	"github.com/holoplot/go-evdev"
 )
 
 func monitorNewHandlers(ctx context.Context, cfg hidi.HIDIConfig) <-chan []string {

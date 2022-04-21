@@ -9,7 +9,7 @@ import (
 
 	"hidi/internal/pkg/input"
 
-	"github.com/gethiox/go-evdev"
+	"github.com/holoplot/go-evdev"
 )
 
 const (

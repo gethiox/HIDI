@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gethiox/go-evdev"
+	"github.com/holoplot/go-evdev"
 )
 
 type PhysicalID string

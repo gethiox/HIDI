@@ -1,7 +1,7 @@
 package midi
 
 import (
-	"github.com/gethiox/go-evdev"
+	"github.com/holoplot/go-evdev"
 )
 
 const (

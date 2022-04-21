@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gethiox/go-evdev"
+	"github.com/holoplot/go-evdev"
 )
 
 // Collects all separate device-info handlers together for building one logical handler

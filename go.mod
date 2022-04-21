@@ -7,8 +7,8 @@ require (
 	github.com/d2r2/go-i2c v0.0.0-20191123181816-73a8a799d6bc
 	github.com/d2r2/go-logger v0.0.0-20210606094344-60e9d1233e22
 	github.com/fsnotify/fsnotify v1.5.1
-	github.com/gethiox/go-evdev v0.0.0-20220420133905-a4792877a4da
 	github.com/go-ini/ini v1.66.4
+	github.com/holoplot/go-evdev v0.0.0-20220421121408-c80ef6a93985
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
 	github.com/stretchr/testify v1.7.0
