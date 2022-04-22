@@ -2,7 +2,7 @@
 
 This is development branch, there is no guarantee that everything works correctly.
 
-![no china usb midi](./docs/hidi-logo-small.png)
+![HIDI logo](./docs/hidi-logo.png)
 
 Flexible HID to MIDI translation layer  
 Ultimate successor of [keyboard2000](https://github.com/gethiox/keyboard2000)
