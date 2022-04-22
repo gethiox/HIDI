@@ -85,6 +85,10 @@ See `./hidi -h` for available optional arguments
   in that case.  
   Proper solution coming soon™
 - make sure `config` directory from this repository is present along with `hidi` binary (in the same directory)
+- Standard user may not have permission to read input devices directly for security reasons.
+  The best way of running this program in userspace is to give temporary privilege to `input` group with:  
+  `sudo -u your_username -g input ./hidi`  
+  Try to avoid running untrusted software directly with root privilege.
 - Just run by `./hidi`
 
 Have fun!
