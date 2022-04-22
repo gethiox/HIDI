@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"hidi/internal/pkg/midi"
+	"github.com/gethiox/HIDI/internal/pkg/midi"
 
 	device "github.com/d2r2/go-hd44780"
 	"github.com/d2r2/go-i2c"

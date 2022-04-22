@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"hidi/internal/pkg/input"
-	"hidi/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/input"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config"
 
 	"github.com/holoplot/go-evdev"
 )

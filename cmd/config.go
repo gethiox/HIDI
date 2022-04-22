@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"hidi/internal/pkg/display"
+	"github.com/gethiox/HIDI/internal/pkg/display"
 
 	"github.com/d2r2/go-hd44780"
 	"github.com/go-ini/ini"

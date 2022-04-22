@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"hidi/internal/pkg/input"
-	"hidi/internal/pkg/midi"
-	"hidi/internal/pkg/midi/config"
-	"hidi/internal/pkg/midi/config/validate"
+	"github.com/gethiox/HIDI/internal/pkg/input"
+	"github.com/gethiox/HIDI/internal/pkg/midi"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 )
 
 // runManager is the main program process, before exiting from that function it needs to ensure that

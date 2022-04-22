@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"hidi/internal/pkg/midi"
+	"github.com/gethiox/HIDI/internal/pkg/midi"
 
 	mmidi "github.com/moutend/go-midi"
 	mmidiev "github.com/moutend/go-midi/event"

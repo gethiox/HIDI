@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"hidi/internal/pkg/input"
-	"hidi/internal/pkg/midi/config/validate"
+	"github.com/gethiox/HIDI/internal/pkg/input"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 )
 
 const (

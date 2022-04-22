@@ -3,7 +3,7 @@ package midi
 import (
 	"testing"
 
-	"hidi/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config"
 
 	"github.com/stretchr/testify/assert"
 )

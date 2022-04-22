@@ -13,9 +13,9 @@ import (
 	"sync"
 	"syscall"
 
-	"hidi/internal/pkg/display"
-	"hidi/internal/pkg/midi"
-	"hidi/internal/pkg/midi/config/validate"
+	"github.com/gethiox/HIDI/internal/pkg/display"
+	"github.com/gethiox/HIDI/internal/pkg/midi"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 )
 
 var midiEventsEmitted, score uint // counter for display info

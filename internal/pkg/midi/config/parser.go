@@ -7,7 +7,7 @@ import (
 	path2 "path"
 	"strconv"
 
-	"hidi/internal/pkg/input"
+	"github.com/gethiox/HIDI/internal/pkg/input"
 
 	"github.com/holoplot/go-evdev"
 	"gopkg.in/yaml.v3"

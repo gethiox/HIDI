@@ -3,7 +3,7 @@ package midi
 import (
 	"fmt"
 
-	"hidi/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/config"
 )
 
 const (
