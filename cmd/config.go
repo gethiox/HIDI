@@ -1,26 +1,24 @@
-package hidi
+package main
 
 import (
 	"os"
 	"time"
 
+	"hidi/internal/pkg/display"
+
 	"github.com/d2r2/go-hd44780"
 	"github.com/go-ini/ini"
 )
 
-type HIDIConfig struct {
-	HIDI struct {
-		EVThrottling        time.Duration
-		DiscoveryRate       time.Duration
-		StabilizationPeriod time.Duration
-	}
+type HIDI struct {
+	EVThrottling        time.Duration
+	DiscoveryRate       time.Duration
+	StabilizationPeriod time.Duration
+}
 
-	Screen struct {
-		Enabled bool
-		LcdType hd44780.LcdType
-		Bus     int
-		Address uint8
-	}
+type HIDIConfig struct {
+	HIDI   HIDI
+	Screen display.ScreenConfig
 }
 
 func LoadHIDIConfig(path string) HIDIConfig {
@@ -51,12 +49,23 @@ func LoadHIDIConfig(path string) HIDIConfig {
 	}
 	c.HIDI.DiscoveryRate = time.Second / time.Duration(i)
 
+	stabilizationPeriod, _ := hidi.GetKey("stabilization_period")
+	i, err = stabilizationPeriod.Int()
+	if err != nil {
+		panic(err)
+	}
+	c.HIDI.StabilizationPeriod = time.Millisecond * time.Duration(i)
+
 	// [screen]
 	screen, _ := cfg.GetSection("screen")
 	screenSupport, _ := screen.GetKey("enabled")
 	screenType, _ := screen.GetKey("type")
 	screenAddress, _ := screen.GetKey("address")
 	screenBus, _ := screen.GetKey("bus")
+	message1, _ := screen.GetKey("exit_message1")
+	message2, _ := screen.GetKey("exit_message2")
+	message3, _ := screen.GetKey("exit_message3")
+	message4, _ := screen.GetKey("exit_message4")
 
 	b, err := screenSupport.Bool()
 	if err != nil {
@@ -84,6 +93,11 @@ func LoadHIDIConfig(path string) HIDIConfig {
 		panic(err)
 	}
 	c.Screen.Address = uint8(i)
+
+	c.Screen.ExitMessage[0] = message1.String()
+	c.Screen.ExitMessage[1] = message2.String()
+	c.Screen.ExitMessage[2] = message3.String()
+	c.Screen.ExitMessage[3] = message4.String()
 
 	return c
 }

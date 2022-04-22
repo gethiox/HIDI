@@ -1,30 +1,16 @@
-package midi
+package config
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"log"
 	"os"
 	path2 "path"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"hidi/internal/pkg/input"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/holoplot/go-evdev"
 	"gopkg.in/yaml.v3"
-)
-
-const (
-	factoryGamepad  = "./config/factory/gamepad"
-	factoryKeyboard = "./config/factory/keyboard"
-	userGamepad     = "./config/user/gamepad"
-	userKeyboard    = "./config/user/keyboard"
 )
 
 type YamlDeviceConfig struct {
@@ -40,12 +26,14 @@ type YamlDeviceConfig struct {
 }
 
 type YamlAnalogMapping struct {
-	ID           string `yaml:"id"`
-	CC           string `yaml:"cc"`
-	CCNegative   string `yaml:"cc_negative"`
-	Note         string `yaml:"note"`
-	NoteNegative string `yaml:"note_negative"`
-	FlipAxis     bool   `yaml:"flip_axis"`
+	ID             string `yaml:"id"`
+	CC             string `yaml:"cc"`
+	CCNegative     string `yaml:"cc_negative"`
+	Note           string `yaml:"note"`
+	NoteNegative   string `yaml:"note_negative"`
+	Action         string `yaml:"action"`
+	ActionNegative string `yaml:"action_negative"`
+	FlipAxis       bool   `yaml:"flip_axis"`
 }
 
 type DeviceConfig struct {
@@ -115,8 +103,28 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 					}
 
 					var bidirectional bool
+
+					var actions [2]Action
+					for i, actionRaw := range []string{mapping.Action, mapping.ActionNegative} {
+						if actionRaw == "" {
+							continue
+						}
+						action, ok := NameToAction[actionRaw]
+						if !ok {
+							return DeviceConfig{}, fmt.Errorf("[%s] %s: action not supported: %s", name, evcodeRaw, actionRaw)
+						}
+						actions[i] = action
+						if i == 1 {
+							bidirectional = true
+						}
+					}
+
 					var notes [2]byte
 					for i, noteRaw := range []string{mapping.Note, mapping.NoteNegative} {
+						if noteRaw == "" {
+							continue
+						}
+
 						noteInt, err := strconv.Atoi(noteRaw)
 						if err == nil {
 							if noteInt < 0 || noteInt > 127 {
@@ -153,13 +161,15 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 					}
 
 					analogMapping[evcode] = Analog{
-						id:            NameToAnalogID[mapping.ID],
-						cc:            cc[0],
-						ccNeg:         cc[1],
-						note:          notes[0],
-						noteNeg:       notes[1],
-						flipAxis:      mapping.FlipAxis,
-						bidirectional: bidirectional,
+						ID:            NameToAnalogID[mapping.ID],
+						CC:            cc[0],
+						CCNeg:         cc[1],
+						Note:          notes[0],
+						NoteNeg:       notes[1],
+						Action:        actions[0],
+						ActionNeg:     actions[1],
+						FlipAxis:      mapping.FlipAxis,
+						Bidirectional: bidirectional,
 					}
 				default:
 					return DeviceConfig{}, fmt.Errorf("[%s] unsupported EvCode: %s", name, evcodeRaw)
@@ -203,155 +213,4 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 		},
 	}
 	return devConfig, nil
-}
-
-type ConfigMap map[input.InputID]DeviceConfig
-
-type DeviceConfigs struct {
-	Factory struct {
-		Keyboards ConfigMap
-		Gamepads  ConfigMap
-	}
-	User struct {
-		Keyboards ConfigMap
-		Gamepads  ConfigMap
-	}
-}
-
-func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (DeviceConfig, error) {
-	// check user first
-	switch devType {
-	case input.KeyboardDevice:
-		cfg, ok := c.User.Keyboards[id]
-		if ok {
-			return cfg, nil
-		}
-		cfg, ok = c.Factory.Keyboards[id]
-		if ok {
-			return cfg, nil
-		}
-		cfg, ok = c.Factory.Keyboards[input.InputID{}] // picking default config
-		if ok {
-			return cfg, nil
-		}
-		return DeviceConfig{}, errors.New("default keyboard config not found")
-
-	case input.JoystickDevice:
-		cfg, ok := c.User.Gamepads[id]
-		if ok {
-			return cfg, nil
-		}
-		cfg, ok = c.Factory.Gamepads[id]
-		if ok {
-			return cfg, nil
-		}
-		cfg, ok = c.Factory.Gamepads[input.InputID{}] // picking default config
-		if ok {
-			return cfg, nil
-		}
-		return DeviceConfig{}, errors.New("default gamepad config not found")
-	}
-
-	return DeviceConfig{}, fmt.Errorf("unsupported device type config: %s", devType)
-}
-
-func loadDirectory(root string, configMap ConfigMap, name string) error {
-	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
-		if info.IsDir() {
-			return nil
-		}
-
-		name := strings.ToLower(info.Name())
-
-		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-			devCfg, err := readDeviceConfig(path, name)
-			if err != nil {
-				log.Printf("device config %s load failed: %s", name, err)
-				return nil
-			}
-			configMap[devCfg.ID] = devCfg
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("walk failed: %w", err)
-	}
-	return nil
-}
-
-func LoadDeviceConfigs() (DeviceConfigs, error) {
-	cfg := DeviceConfigs{
-		Factory: struct{ Keyboards, Gamepads ConfigMap }{
-			Keyboards: make(ConfigMap),
-			Gamepads:  make(ConfigMap),
-		},
-		User: struct{ Keyboards, Gamepads ConfigMap }{
-			Keyboards: make(ConfigMap),
-			Gamepads:  make(ConfigMap),
-		},
-	}
-
-	pairs := []struct {
-		root      string
-		configMap ConfigMap
-		name      string
-	}{
-		{factoryGamepad, cfg.Factory.Gamepads, "factory"},
-		{factoryKeyboard, cfg.Factory.Keyboards, "factory"},
-		{userGamepad, cfg.User.Gamepads, "user"},
-		{userKeyboard, cfg.User.Keyboards, "user"},
-	}
-
-	for _, pair := range pairs {
-		err := loadDirectory(pair.root, pair.configMap, pair.name)
-		if err != nil {
-			return cfg, fmt.Errorf("loading \"%s\" directory failed: %w", pair.root, err)
-		}
-	}
-
-	return cfg, nil
-}
-
-func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
-	var change = make(chan bool)
-
-	go func() {
-		defer close(change)
-		watcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			return
-		}
-
-		go func() {
-			<-ctx.Done()
-			err := watcher.Close()
-			if err != nil {
-				log.Printf("closing watched failed: %v", err)
-			}
-		}()
-
-		for _, path := range []string{
-			factoryGamepad,
-			factoryKeyboard,
-			userGamepad,
-			userKeyboard,
-		} {
-			err = watcher.Add(path)
-		}
-
-		for event := range watcher.Events {
-			if event.Op != fsnotify.Write {
-				continue
-			}
-
-			name := strings.ToLower(event.Name)
-			if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") {
-				log.Printf("config change detected: %s", event.Name)
-				change <- true
-			}
-		}
-	}()
-
-	return change
 }

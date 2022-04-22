@@ -1,4 +1,4 @@
-package midi
+package config
 
 import (
 	"github.com/holoplot/go-evdev"
@@ -23,6 +23,7 @@ const (
 	AnalogPitchBend AnalogType = "pitch_bend"
 	AnalogCC        AnalogType = "cc"
 	AnalogKeySim    AnalogType = "key"
+	AnalogActionSim AnalogType = "action"
 )
 
 var NameToAction = map[string]Action{
@@ -44,17 +45,19 @@ var NameToAnalogID = map[string]AnalogType{
 	string(AnalogPitchBend): AnalogPitchBend,
 	string(AnalogCC):        AnalogCC,
 	string(AnalogKeySim):    AnalogKeySim,
+	string(AnalogActionSim): AnalogActionSim,
 }
 
 type Action string
 type AnalogType string
 
 type Analog struct {
-	id            AnalogType
-	cc, ccNeg     byte
-	note, noteNeg byte
-	flipAxis      bool
-	bidirectional bool
+	ID                AnalogType
+	CC, CCNeg         byte
+	Note, NoteNeg     byte
+	Action, ActionNeg Action
+	FlipAxis          bool
+	Bidirectional     bool
 }
 
 type KeyMapping struct {

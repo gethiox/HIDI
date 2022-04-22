@@ -12,22 +12,33 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	"hidi/internal/pkg/display"
-	"hidi/internal/pkg/hidi"
 	"hidi/internal/pkg/midi"
+	"hidi/internal/pkg/midi/config/validate"
 )
 
-var midiEventsEmitted uint16 // counter for display info
+var midiEventsEmitted, score uint // counter for display info
 
 //go:embed pony.txt
 var pony string
 
-func processMidiEvents(wg *sync.WaitGroup, ioDevice *os.File, midiEvents <-chan midi.Event) {
-	wg.Add(1)
+func processMidiEvents(ctx context.Context, wg *sync.WaitGroup, ioDevice *os.File, midiEvents, otherMidiEvents <-chan midi.Event) {
 	defer wg.Done()
-	for ev := range midiEvents {
+	var ev midi.Event
+root:
+	for {
+		select {
+		case <-ctx.Done():
+			break root
+		case ev = <-midiEvents:
+			if ev[0]&0b11110000 == midi.NoteOn {
+				score += 1
+			}
+		case ev = <-otherMidiEvents:
+			break
+		}
+
 		_, err := ioDevice.Write(ev)
 		if err != nil {
 			log.Printf("failed to write midi event: %v", err)
@@ -57,9 +68,6 @@ func (c *ChanneledLogger) Write(p []byte) (n int, err error) {
 
 func (c *ChanneledLogger) Close() {
 	close(c.channel)
-}
-
-func (c *ChanneledLogger) Wait() {
 	<-c.done
 }
 
@@ -68,16 +76,24 @@ func (c *ChanneledLogger) ProcessLogs() {
 		fmt.Printf("%s", entry)
 	}
 	close(c.done)
-	fmt.Println("Processing logs stopped")
+}
+
+func monitorConfChanges(ctx context.Context, wg *sync.WaitGroup, c <-chan validate.NotifyMessage, events chan midi.Event) {
+	defer wg.Done()
+	for d := range c {
+		p := NewPlayer(d.Data)
+		p.Play(events, ctx, d.Bpm)
+	}
 }
 
 func main() {
-	var grab, debug, profile bool
+	var grab, debug, profile, noPony bool
 	var midiDevice int
 
 	flag.BoolVar(&profile, "profile", false, "runs internal web server for performance profiling")
 	flag.BoolVar(&grab, "grab", false, "grab input devices for exclusive usage, see README before use")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	flag.BoolVar(&noPony, "nopony", false, "oh my... You can disable me if you want to, I.. I don't really mind. I'm fine")
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
 
@@ -85,11 +101,19 @@ func main() {
 	log.SetOutput(&myLittleLogger)
 	go myLittleLogger.ProcessLogs()
 
+	// this wait-group has to be propagated everywhere where usual logging appear
+	wg := sync.WaitGroup{}
+
+	var server *http.Server
+
 	if profile {
 		addr := "0.0.0.0:8080"
 		log.Printf("profiling enabled and hosted on %s", addr)
+		server = &http.Server{Addr: addr, Handler: nil}
+		wg.Add(1)
 		go func() {
-			log.Print(http.ListenAndServe(addr, nil))
+			log.Printf("profiling server exited: %v", server.ListenAndServe())
+			wg.Done()
 		}()
 	}
 
@@ -97,7 +121,9 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		var counter int
 		for sig := range sigs {
 			if counter > 0 {
@@ -106,11 +132,17 @@ func main() {
 			}
 			log.Printf("siganl received: %v", sig)
 			cancel()
+			if server != nil {
+				err := server.Close()
+				if err != nil {
+					log.Printf("failed to close server: %v", err)
+				}
+			}
 			counter++
 		}
 	}()
 
-	cfg := hidi.LoadHIDIConfig("./config/hidi.config")
+	cfg := LoadHIDIConfig("./config/hidi.config")
 	log.Printf("HIDI config: %+v", cfg)
 
 	ioDevices := midi.DetectDevices()
@@ -134,23 +166,32 @@ func main() {
 	}
 
 	var midiEvents = make(chan midi.Event)
+	var otherMidiEvents = make(chan midi.Event)
 
-	wg := sync.WaitGroup{}
+	confNotifier := make(chan validate.NotifyMessage)
+	wg.Add(1)
+	go monitorConfChanges(ctx, &wg, confNotifier, otherMidiEvents)
 
-	log.Print("DEBUG: runnning processMidiEvents")
-	go processMidiEvents(&wg, ioDevice, midiEvents)
-
+	wg.Add(1)
+	eventCtx, cancelEvents := context.WithCancel(context.Background())
+	go processMidiEvents(eventCtx, &wg, ioDevice, midiEvents, otherMidiEvents)
 	var devices = make(map[*midi.Device]*midi.Device, 16)
-	log.Print("DEBUG: runnning HandleDisplays")
-	go display.HandleDisplay(ctx, &wg, cfg, devices, &midiEventsEmitted)
+	wg.Add(1)
+	go display.HandleDisplay(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
 
-	log.Print("DEBUG: running runManager")
-	runManager(ctx, &wg, cfg, midiEvents, grab, devices)
+	runManager(ctx, cfg, midiEvents, grab, devices, confNotifier)
 
+	cancelEvents()
+	log.Printf("waiting...")
+	// closing logger can be safely invoked only when all internally running goroutines (that may emit logs) are done
+	close(confNotifier)
+	close(sigs)
+	close(otherMidiEvents)
 	close(midiEvents)
 	wg.Wait()
-	time.Sleep(time.Millisecond * 200) // todo, pass context to every goroutin that may produce logs
 	myLittleLogger.Close()
-	myLittleLogger.Wait()
-	fmt.Println(pony)
+
+	if !noPony {
+		fmt.Printf(pony, score)
+	}
 }

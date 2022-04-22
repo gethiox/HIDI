@@ -3,10 +3,11 @@ package display
 import (
 	"context"
 	"fmt"
+	"log"
+	"os/user"
 	"sync"
 	"time"
 
-	"hidi/internal/pkg/hidi"
 	"hidi/internal/pkg/midi"
 
 	device "github.com/d2r2/go-hd44780"
@@ -30,15 +31,13 @@ func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, *i2c.
 	return lcd, lcdRaw, nil
 }
 
-func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig, devices map[*midi.Device]*midi.Device, midiEventCounter *uint16) {
-	wg.Add(1)
+func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, devices map[*midi.Device]*midi.Device, midiEventCounter, score *uint) {
 	defer wg.Done()
-
-	if !cfg.Screen.Enabled {
+	if !cfg.Enabled {
 		return
 	}
 
-	lcd, bus, err := getDisplay(cfg.Screen.Address, cfg.Screen.Bus, cfg.Screen.LcdType)
+	lcd, bus, err := getDisplay(cfg.Address, cfg.Bus, cfg.LcdType)
 	if err != nil {
 		if bus != nil {
 			bus.Close()
@@ -57,7 +56,7 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig,
 		{0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F}, // "█"
 	}
 
-	lcd.TestWriteCGRam()
+	// lcd.TestWriteCGRam()
 
 	for i, char := range barChars {
 		var location = uint8(i) & 0x7
@@ -71,32 +70,26 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg hidi.HIDIConfig,
 
 	lastMidiEventsEmitted := *midiEventCounter
 
-	var graph []uint16
+	var graph []uint
 	var graphPointer int
 	for i := 0; i < 20; i++ {
 		graph = append(graph, 0)
 	}
 
-	ls := time.Now().Second()
+	var lastProcessingDuration time.Duration
 
 root:
 	for {
 		select {
 		case <-ctx.Done():
 			break root
-		default:
+		case <-time.After(time.Second - lastProcessingDuration):
 			break
 		}
-
-		t := time.Now()
-		if t.Second() == ls {
-			time.Sleep(time.Millisecond * 10)
-			continue
-		}
-		ls = t.Second()
+		start := time.Now()
 
 		var devCount = len(devices)
-		var eventsPerSecond uint16
+		var eventsPerSecond uint
 
 		if lastMidiEventsEmitted > *midiEventCounter {
 			eventsPerSecond = (0xffff - lastMidiEventsEmitted) + *midiEventCounter
@@ -118,7 +111,6 @@ root:
 			handlerCount += len(midiDev.InputDevice.Handlers)
 		}
 
-		lcd.Home()
 		lcd.SetPosition(0, 0)
 		fmt.Fprintf(lcd, "devices: %11d", devCount)
 		lcd.SetPosition(1, 0)
@@ -126,7 +118,8 @@ root:
 		lcd.SetPosition(2, 0)
 		fmt.Fprintf(lcd, "events/s: %10d", eventsPerSecond)
 		lcd.SetPosition(3, 0)
-		var maxGraph uint16
+
+		var maxGraph uint
 		for _, graphVal := range graph {
 			if graphVal > maxGraph {
 				maxGraph = graphVal
@@ -148,8 +141,31 @@ root:
 
 			lcd.Write([]byte{byte(realVal)})
 		}
+		lastProcessingDuration = time.Now().Sub(start)
 	}
+
+	// heartLeft := []byte{0x06, 0x0F, 0x1F, 0x1F, 0x0F, 0x07, 0x03, 0x01}
+	// heartRight := []byte{0x0C, 0x1E, 0x1F, 0x1F, 0x1E, 0x1C, 0x18, 0x10}
+
+	log.Printf("closing display")
 	lcd.Clear()
-	lcd.BacklightOff()
+	if !cfg.HaveExitMessage() {
+		usr, _ := user.Current()
+		lcd.SetPosition(0, 0)
+		fmt.Fprintf(lcd, "                    ")
+		lcd.SetPosition(1, 0)
+		fmt.Fprintf(lcd, " thanks for playing ")
+		lcd.SetPosition(2, 0)
+		fmt.Fprintf(lcd, fmt.Sprintf(" with HIDI, %s!", usr.Username))
+		lcd.SetPosition(3, 0)
+		fmt.Fprintf(lcd, fmt.Sprintf("  (score: %d) ", *score))
+	} else {
+		for i, msg := range cfg.ExitMessage {
+			lcd.SetPosition(i, 0)
+			fmt.Fprintf(lcd, msg[:20])
+		}
+	}
+
 	bus.Close()
+	log.Printf("display closed")
 }

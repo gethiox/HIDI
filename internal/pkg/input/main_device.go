@@ -173,6 +173,11 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
+type timerSrimer struct {
+	timer  time.Timer
+	evcode evdev.EvCode
+}
+
 func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.Duration) (<-chan InputEvent, error) {
 	var events = make(chan InputEvent)
 
@@ -195,49 +200,77 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		absEvents := make(chan InputEvent, 64)
 		go func(absEvents chan InputEvent) {
-			lastEvent := make(map[evdev.EvCode]InputEvent)
-			throttledLock := sync.RWMutex{}
-			throttled := make(map[evdev.EvCode]bool)
-			throttledTimer := make(map[evdev.EvCode]<-chan time.Time)
+			// lastEvent := make(map[evdev.EvCode]InputEvent)
+			// throttledLock := sync.RWMutex{}
+			// throttled := make(map[evdev.EvCode]bool)
+			// throttledTimer := make(map[evdev.EvCode]<-chan time.Time)
+			//
+			// go func(throttledTimer map[evdev.EvCode]<-chan time.Time) {
+			// 	for {
+			// 		doneTimers := make([]evdev.EvCode, 8)
+			// 		throttledLock.Lock()
+			//
+			// 		for evcode, timer := range throttledTimer {
+			// 			_, ok := <-timer
+			// 			if !ok {
+			// 				continue
+			// 			}
+			// 			events <- lastEvent[evcode]
+			// 			throttled[evcode] = false
+			// 			doneTimers = append(doneTimers, evcode)
+			// 		}
+			// 		for _, evCode := range doneTimers {
+			// 			delete(throttledTimer, evCode)
+			// 		}
+			// 		throttledLock.Unlock()
+			//
+			// 		time.Sleep(absThrottle * 4)
+			// 	}
+			//
+			// }(throttledTimer)
+			//
+			// for ev := range absEvents {
+			// 	throttledLock.RLock()
+			// 	if throttled[ev.Event.Code] {
+			// 		throttledLock.RUnlock()
+			// 		lastEvent[ev.Event.Code] = ev
+			// 		continue
+			// 	}
+			// 	throttledLock.RUnlock()
+			//
+			// 	events <- ev
+			// 	throttledLock.Lock()
+			// 	throttled[ev.Event.Code] = true
+			// 	throttledLock.Unlock()
+			// 	throttledTimer[ev.Event.Code] = time.After(absThrottle)
+			// }
 
-			go func(throttledTimer map[evdev.EvCode]<-chan time.Time) {
-				for {
-					doneTimers := make([]evdev.EvCode, 8)
-					throttledLock.Lock()
+			var timers = make(chan timerSrimer, 64)
+			var lastValue = make(map[evdev.EvCode]InputEvent)
+			var lastSent = make(map[evdev.EvCode]time.Time)
+			// var timerMap = make(map[evdev.EvCode]time.Timer)
 
-					for evcode, timer := range throttledTimer {
-						_, ok := <-timer
-						if !ok {
-							continue
-						}
-						events <- lastEvent[evcode]
-						throttled[evcode] = false
-						doneTimers = append(doneTimers, evcode)
-					}
-					for _, evCode := range doneTimers {
-						delete(throttledTimer, evCode)
-					}
-					throttledLock.Unlock()
-
-					time.Sleep(absThrottle / 10)
+			go func() {
+				for timer := range timers {
+					go func(timer timerSrimer) {
+						<-timer.timer.C
+						events <- lastValue[timer.evcode]
+					}(timer)
 				}
-
-			}(throttledTimer)
+			}()
 
 			for ev := range absEvents {
-				throttledLock.RLock()
-				if throttled[ev.Event.Code] {
-					throttledLock.RUnlock()
-					lastEvent[ev.Event.Code] = ev
-					continue
+				t, ok := lastSent[ev.Event.Code]
+				if ok {
+					now := time.Now()
+					if now.Sub(t) > absThrottle {
+						events <- ev
+						continue
+					}
+
 				}
-				throttledLock.RUnlock()
 
 				events <- ev
-				throttledLock.Lock()
-				throttled[ev.Event.Code] = true
-				throttledLock.Unlock()
-				throttledTimer[ev.Event.Code] = time.After(absThrottle)
 			}
 		}(absEvents)
 

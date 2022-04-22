@@ -3,6 +3,8 @@ package midi
 import (
 	"testing"
 
+	"hidi/internal/pkg/midi/config"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -172,7 +174,7 @@ func TestStringToNote(t *testing.T) {
 		{string: "G8", expected: 127},
 	} {
 		t.Run(tc.string, func(t *testing.T) {
-			note, err := StringToNote(tc.string)
+			note, err := config.StringToNote(tc.string)
 			assert.Equal(t, nil, err)
 			assert.Equal(t, tc.expected, note)
 		})
@@ -190,7 +192,7 @@ func TestStringToNoteFail(t *testing.T) {
 		"BLAH junk text c-2",
 	} {
 		t.Run(tc, func(t *testing.T) {
-			note, err := StringToNote(tc)
+			note, err := config.StringToNote(tc)
 			assert.Equal(t, byte(0), note)
 			assert.NotEqual(t, nil, err)
 		})

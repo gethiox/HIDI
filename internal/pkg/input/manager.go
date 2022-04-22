@@ -8,24 +8,28 @@ import (
 	"strings"
 	"time"
 
-	"hidi/internal/pkg/hidi"
-
 	"github.com/holoplot/go-evdev"
 )
 
-func monitorNewHandlers(ctx context.Context, cfg hidi.HIDIConfig) <-chan []string {
+func monitorNewHandlers(ctx context.Context, discoveryRate time.Duration) <-chan []string {
 	var newHandlers = make(chan []string)
 
 	go func() {
 		var previous = make(map[string]bool)
+		log.Printf("monitoring nev event handlers")
 
+		firstRun := true
 	root:
 		for {
-			select {
-			case <-ctx.Done():
-				break root
-			case <-time.After(cfg.HIDI.DiscoveryRate):
-				break
+			if !firstRun {
+				select {
+				case <-ctx.Done():
+					break root
+				case <-time.After(discoveryRate):
+					break
+				}
+			} else {
+				firstRun = false
 			}
 
 			entries, err := os.ReadDir("/dev/input")
@@ -71,13 +75,13 @@ func monitorNewHandlers(ctx context.Context, cfg hidi.HIDIConfig) <-chan []strin
 	return newHandlers
 }
 
-func MonitorNewDevices(ctx context.Context, cfg hidi.HIDIConfig) <-chan Device {
+func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate time.Duration) <-chan Device {
 	var devChan = make(chan Device)
 
 	go func() {
 		log.Print("Monitor new devices engaged")
 
-		newEvents := monitorNewHandlers(ctx, cfg)
+		newEvents := monitorNewHandlers(ctx, discoveryRate)
 		var events []string
 
 		log.Printf("merging proces engaged")
@@ -92,7 +96,7 @@ func MonitorNewDevices(ctx context.Context, cfg hidi.HIDIConfig) <-chan Device {
 				case x := <-newEvents:
 					events = append(events, x...)
 					continue // new event handlers may appear between samplings
-				case <-time.After(cfg.HIDI.StabilizationPeriod):
+				case <-time.After(stabilizationPeriod):
 					break
 				}
 			} else {

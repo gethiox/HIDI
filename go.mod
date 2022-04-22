@@ -10,6 +10,7 @@ require (
 	github.com/go-ini/ini v1.66.4
 	github.com/holoplot/go-evdev v0.0.0-20220421121408-c80ef6a93985
 	github.com/kr/pretty v0.1.0 // indirect
+	github.com/moutend/go-midi v0.3.1
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect

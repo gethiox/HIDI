@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"hidi/internal/pkg/input"
+	"hidi/internal/pkg/midi/config"
 
 	"github.com/holoplot/go-evdev"
 )
@@ -19,7 +20,7 @@ const (
 )
 
 type Device struct {
-	config      Config
+	config      config.Config
 	InputDevice input.Device
 	inputEvents <-chan input.InputEvent
 	midiEvents  chan<- Event
@@ -34,7 +35,7 @@ type Device struct {
 	// and modify state on the fly (changing octave, channel etc.), NoteOff events will be emitted correctly anyway.
 	noteTracker       map[evdev.EvCode][2]byte // 1: note, 2: channel
 	analogNoteTracker map[string][2]byte       // 1: note, 2: channel
-	actionTracker     map[Action]bool
+	actionTracker     map[config.Action]bool
 	octave            int8
 	semitone          int8
 	channel           uint8
@@ -43,7 +44,7 @@ type Device struct {
 	mapping   int
 }
 
-func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event) Device {
+func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event) Device {
 	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
 
 	if inputDevice.DeviceType == input.JoystickDevice {
@@ -63,12 +64,12 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 
 			absinfos[event] = absi
 
-			edev.NonBlock() // fix, TODO: remove it from this place somehow
+			edev.NonBlock() // hotfix, TODO: remove it
 		}
 	}
 
 	return Device{
-		config:      config.Config,
+		config:      cfg.Config,
 		InputDevice: inputDevice,
 		inputEvents: inputEvents,
 		midiEvents:  midiEvents,
@@ -76,11 +77,49 @@ func NewDevice(inputDevice input.Device, config DeviceConfig, inputEvents <-chan
 
 		noteTracker:       make(map[evdev.EvCode][2]byte, 32),
 		analogNoteTracker: make(map[string][2]byte, 32),
-		actionTracker:     make(map[Action]bool, 16),
+		actionTracker:     make(map[config.Action]bool, 16),
 	}
 }
 
 func (d *Device) ProcessEvents() {
+	var actionMap = map[config.Action]func(){
+		config.Panic:        d.Panic,
+		config.MappingUp:    d.MappingUp,
+		config.MappingDown:  d.MappingDown,
+		config.OctaveUp:     d.OctaveUp,
+		config.OctaveDown:   d.OctaveDown,
+		config.SemitoneUp:   d.SemitoneUp,
+		config.SemitoneDown: d.SemitoneDown,
+		config.ChannelUp:    d.ChannelUp,
+		config.ChannelDown:  d.ChannelDown,
+		config.Multinote:    func() {}, // on key release only
+	}
+
+	invokeAction := func(action config.Action) {
+		if f, ok := actionMap[action]; ok {
+			f()
+		}
+	}
+
+	checkDoubleActions := func() (executed bool) {
+		if len(d.actionTracker) > 1 {
+			switch {
+			case d.actionTracker[config.MappingUp] && d.actionTracker[config.MappingDown]:
+				d.MappingReset()
+			case d.actionTracker[config.OctaveUp] && d.actionTracker[config.OctaveDown]:
+				d.OctaveReset()
+			case d.actionTracker[config.SemitoneUp] && d.actionTracker[config.SemitoneDown]:
+				d.SemitoneReset()
+			case d.actionTracker[config.ChannelUp] && d.actionTracker[config.ChannelDown]:
+				d.ChannelReset()
+			default:
+				return false
+			}
+			return true
+		}
+		return false
+	}
+
 	for ie := range d.inputEvents {
 		if ie.Event.Type == evdev.EV_SYN {
 			continue
@@ -88,6 +127,10 @@ func (d *Device) ProcessEvents() {
 
 		switch ie.Event.Type {
 		case evdev.EV_KEY:
+			if ie.Event.Value == EV_KEY_REPEAT {
+				break
+			}
+
 			_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
 			action, actionOk := d.config.ActionMapping[ie.Event.Code]
 
@@ -103,46 +146,12 @@ func (d *Device) ProcessEvents() {
 				switch ie.Event.Value {
 				case EV_KEY_PRESS:
 					d.actionTracker[action] = true
-					if len(d.actionTracker) > 1 {
-						switch {
-						case d.actionTracker[MappingUp] && d.actionTracker[MappingDown]:
-							d.MappingReset()
-						case d.actionTracker[OctaveUp] && d.actionTracker[OctaveDown]:
-							d.OctaveReset()
-						case d.actionTracker[SemitoneUp] && d.actionTracker[SemitoneDown]:
-							d.SemitoneReset()
-						case d.actionTracker[ChannelUp] && d.actionTracker[ChannelDown]:
-							d.ChannelReset()
-						}
-						break
+					if !checkDoubleActions() {
+						invokeAction(action)
 					}
-
-					switch action {
-					case Panic:
-						d.Panic()
-					case MappingUp:
-						d.MappingUp()
-					case MappingDown:
-						d.MappingDown()
-					case OctaveUp:
-						d.OctaveUp()
-					case OctaveDown:
-						d.OctaveDown()
-					case SemitoneUp:
-						d.SemitoneUp()
-					case SemitoneDown:
-						d.SemitoneDown()
-					case ChannelUp:
-						d.ChannelUp()
-					case ChannelDown:
-						d.ChannelDown()
-					}
-					// TODO:
-					// case Mapping:
-					// case Channel:
 				case EV_KEY_RELEASE:
 					switch action {
-					case Multinote:
+					case config.Multinote:
 						d.Multinote()
 					}
 					delete(d.actionTracker, action)
@@ -184,7 +193,7 @@ func (d *Device) ProcessEvents() {
 					value = float64(ie.Event.Value) / math.Abs(float64(max))
 				}
 
-				if analog.flipAxis {
+				if analog.FlipAxis {
 					if canBeNegative {
 						value = -value
 					} else {
@@ -193,29 +202,51 @@ func (d *Device) ProcessEvents() {
 				}
 
 				var event Event
-				switch analog.id {
-				case AnalogCC:
-					if analog.bidirectional {
+				switch analog.ID {
+				case config.AnalogCC:
+					log.Printf("cc: value: %.1f, can negative: %v, bidirect: %v", value, canBeNegative, analog.Bidirectional)
+
+					var adjustedValue float64
+					var target byte
+
+					switch {
+					case canBeNegative && analog.Bidirectional:
+						adjustedValue = math.Abs(value)
 						if value < 0 {
-							event = ControlChangeEvent(d.channel, analog.ccNeg, byte(int(float64(127)*math.Abs(value))))
+							target = analog.CCNeg
 						} else {
-							event = ControlChangeEvent(d.channel, analog.cc, byte(int(float64(127)*value)))
+							target = analog.CC
 						}
-					} else {
-						event = ControlChangeEvent(d.channel, analog.cc, byte(int(float64(127)*value)))
+					case canBeNegative && !analog.Bidirectional:
+						adjustedValue = (value + 1) / 2
+						target = analog.CC
+					case !canBeNegative && analog.Bidirectional:
+						adjustedValue = math.Abs(value*2 - 1)
+						if value < 0.5 {
+							target = analog.CCNeg
+						} else {
+							target = analog.CC
+						}
+					case !canBeNegative && !analog.Bidirectional:
+						adjustedValue = value
+						target = analog.CC
+					default:
+						panic("ouu")
 					}
-				case AnalogPitchBend:
+
+					event = ControlChangeEvent(d.channel, target, byte(int(float64(127)*adjustedValue)))
+				case config.AnalogPitchBend:
 					if canBeNegative {
 						event = PitchBendEvent(d.channel, value)
 					} else {
 						event = PitchBendEvent(d.channel, value*2-1.0)
 					}
-				case AnalogKeySim:
+				case config.AnalogKeySim:
 					identifier := fmt.Sprintf("%d", ie.Event.Code) // for tracking purpose
-					note := analog.note
+					note := analog.Note
 
-					if analog.bidirectional && value < 0 {
-						note = analog.noteNeg
+					if analog.Bidirectional && value < 0 {
+						note = analog.NoteNeg
 						identifier = fmt.Sprintf("%d_neg", ie.Event.Code)
 					}
 
@@ -231,12 +262,32 @@ func (d *Device) ProcessEvents() {
 						d.AnalogNoteOff(fmt.Sprintf("%d_neg", ie.Event.Code))
 					}
 					continue
+				case config.AnalogActionSim:
+					action := analog.Action
+					if analog.Bidirectional && value < 0 {
+						action = analog.ActionNeg
+					}
+
+					if checkDoubleActions() {
+						continue
+					}
+
+					v := math.Abs(value)
+					if v > 0.5 {
+						invokeAction(action)
+						d.actionTracker[action] = true
+					} else {
+						delete(d.actionTracker, analog.Action)
+						delete(d.actionTracker, analog.ActionNeg)
+					}
+
+					continue
 				default:
-					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.id))
+					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.ID))
 				}
 
 				d.midiEvents <- event
-				log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
+				// log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 			}
 		}
 	}
