@@ -76,6 +76,7 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, de
 		graph = append(graph, 0)
 	}
 
+	var counterMaxValue uint = 0 - 1
 	var lastProcessingDuration time.Duration
 
 root:
@@ -92,7 +93,7 @@ root:
 		var eventsPerSecond uint
 
 		if lastMidiEventsEmitted > *midiEventCounter {
-			eventsPerSecond = (0xffff - lastMidiEventsEmitted) + *midiEventCounter
+			eventsPerSecond = (counterMaxValue - lastMidiEventsEmitted) + *midiEventCounter // handling counter overflow
 		} else {
 			eventsPerSecond = *midiEventCounter - lastMidiEventsEmitted
 		}
