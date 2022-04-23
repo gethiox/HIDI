@@ -75,7 +75,7 @@ Have you some improvement/feature idea not listed here? Feel free to leave it in
 Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
 
 # Requirements
-- **Application is designed to be run under a Linux machine**, 
+- Machine with Linux
 - the most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
   However, there are no limits, it can be run on practically all Linux-supported platforms, including x86-64.
 - In the case of Pi Zero, thing like USB HAT may be useful
@@ -86,6 +86,7 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 - **Keyboards**, **gamepads** :)
 
 # Building
+Make sure you have `go >= 1.18` installed  
 Just run `go run build.go`  
 By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage
 

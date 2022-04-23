@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 type target struct {
@@ -24,11 +25,15 @@ func (t *target) String() string {
 }
 
 func build(target target) {
-	os.Setenv("GOOS", target.goos)
-	os.Setenv("GOARCH", target.goarch)
-	os.Setenv("GOARM", target.goarm)
-
 	var binaryPath = fmt.Sprintf("./builds/HIDI-%s", target.String())
+
+	var envVars = []string{
+		fmt.Sprintf("GOOS=%s", target.goos),
+		fmt.Sprintf("GOARCH=%s", target.goarch),
+	}
+	if target.goarm != "" {
+		envVars = append(envVars, fmt.Sprintf("GOARM=%s", target.goarm))
+	}
 
 	var targetFiles []string
 	files, err := os.ReadDir("cmd")
@@ -48,6 +53,8 @@ func build(target target) {
 	params = append(params, targetFiles...)
 
 	cmd := exec.Command("go", params...)
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, envVars...)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -100,7 +107,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	for _, target := range targets {
-		build(target)
+	wg := sync.WaitGroup{}
+	for _, t := range targets {
+		wg.Add(1)
+		go func(target target) {
+			defer wg.Done()
+			build(target)
+		}(t)
 	}
+	wg.Wait()
 }
