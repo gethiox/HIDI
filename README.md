@@ -61,6 +61,7 @@ Missing features of 1.0 release scope:
 # Nice to have
 - Utilize mouse's relative input
 - Gamepad analog deadzones and adjustable transform curve
+- Localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
 
 ## Wishlist (far future)
 I think these things are possible to achieve. With enough interest and support I may be motivated to
