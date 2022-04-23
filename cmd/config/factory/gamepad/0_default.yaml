@@ -8,6 +8,7 @@ identifier:
 action_mapping:
   BTN_SELECT: "channel_down"
   BTN_START: "channel_up"
+  BTN_MODE: "panic"
   BTN_TL: "cc_learning"
 
 midi_mappings:
@@ -17,12 +18,14 @@ midi_mappings:
       BTN_B: 1
       BTN_X: 2
       BTN_Y: 3
-
-      BTN_THUMBL: 4 # Left-analog press
-      BTN_THUMBR: 5 # Right-analog press
-      BTN_TL: 6 # Left bumper
-      BTN_TR: 7 # Right bumper
-      BTN_MODE: 8 # xbox-logo
+      BTN_C: 4
+      BTN_Z: 6
+      BTN_TL2: 7
+      BTN_TR2: 8
+      BTN_THUMBL: 9
+      BTN_THUMBR: 10
+      BTN_TL: 11
+      BTN_TR: 12
 
       # analog (value needs to be a string, quotes are important)
       ABS_X: "{type: cc, cc: 0}"

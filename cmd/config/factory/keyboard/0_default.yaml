@@ -19,8 +19,6 @@ action_mapping:
   KEY_F8: "channel_up"
 
   KEY_F9: "multinote"
-  KEY_F10: "channel"
-  KEY_F11: "mapping"
 
 midi_mappings:
   - "Piano":

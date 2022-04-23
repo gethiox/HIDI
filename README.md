@@ -121,14 +121,20 @@ It depends on the complexity of given feature and overall integrity with the res
 
 ### Bugs
 
-If you faced a bug or instability, feel free to open the issue and provide some basic information like error messages
-and logs. In the case of problems with your HID devices, please provide the full content of `/proc/bus/input/devices` file.
+If you faced a bug, instability or general problems with starting application, feel free to open issue
+and provide some basic information like error messages and logs.  
+In the case of problems with your HID devices, please provide the full content of `/proc/bus/input/devices` file.
 
 ### Code
 
 Feel free to contribute fixes, improvements and little features to the codebase. I do not have any
 guide for that for now. In some places my code may be convoluted and not easy to understand (mostly `cmd` directory),
 but besides of that, applying changes shoult be pretty straight-forward.
+
+### Configurations
+
+If your keyboard doesn't work correctly with default mappings, create `Factory` configuration that covers your device type.  
+For more information, see [guide](cmd/config/user/README.md)
 
 ### My little questions
 

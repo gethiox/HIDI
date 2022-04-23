@@ -11,9 +11,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/gethiox/HIDI/internal/pkg/display"
-
 	"github.com/d2r2/go-hd44780"
+	"github.com/gethiox/HIDI/internal/pkg/display"
 	"github.com/go-ini/ini"
 )
 
