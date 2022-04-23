@@ -95,7 +95,7 @@ See `-h` flag for available optional arguments
   **Warning**: If you're starting application with your directly connected keyboard it may be impossible to terminate it
   in that case  
   Proper solution coming soon™
-- Standard user may not have permission to read input devices directly for security reasons
+- Standard user may not have permission to read input devices directly for security reasons  
   The best way of running this program in userspace is to give temporary privilege to `input` group with:  
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege
