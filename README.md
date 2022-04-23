@@ -17,6 +17,9 @@ HIDI is a translation layer between HID devices like keyboards or gamepads and h
 This way you can play on your **computer keyboard as MIDI device**, use gamepad analog sticks to control
 pitch-bend and CC. As many devices as you want, simultaneously.
 
+Because it's just a standard MIDI device **you can use it with both PC/DAW environment
+and hardware synthesizers**.
+
 Easy to use, easy to customize, and it has many quality of life features, carefully crafted with love to provide
 the best user experience possible.
 
@@ -31,11 +34,11 @@ the best user experience possible.
 - **The best possible implementation of note emission**, user can freely change device state on the fly 
   (octave, semitone, mapping, channel) even while still pressing keyboard keys, due to careful design
   notes will be not interrupted, will be released correctly on key release and only new key presses will emit
-  notes respectively to the new internal state. This is very pleasant feature when performing in realtime. 
+  notes respectively to the new internal state.
 - NKRO keyboards support (if it can be enabled in hardware by some key-sequence)
-- You can connect as many HID devices as you have free USB slots. 
+- You can connect as many HID devices as you have free USB slots
 - **All devices are loaded/unloaded completely dynamically**
-- Application will reload configuration when new one will appear, or existing one was changed.
+- Application will reload configuration when new one will appear or existing one was changed.  
   Very useful when user want to craft their own configuration, thanks to that he can test his modifications
   in realtime without unnecessary interruption like restarting application
 
@@ -46,14 +49,15 @@ the best user experience possible.
 - greatly improved speed of application start and termination
 - Fixed input device grabbing for exclusive usage
 - CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
-- Precompiled builds for various targets
+- Precompiled builds for various platforms
 - Embedded config directory, if config directory doesn't exist, application will create default one
 - Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
 - Support for optional HD44780 screens (16x2, 20x4) for displaying statistics  
 
 # TODO
-- improve throttling logic to the best possible solution
-- proper logging with multi-level debug option
+Missing features of 1.0 release scope:
+- Improve throttling logic to the best possible solution
+- Proper logging with multi-level debug option
 - Polish default configurations for keyboard and gamepad
 
 # Nice to have
@@ -75,10 +79,10 @@ Have you some improvement/feature idea not listed here? Feel free to leave it in
 Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
 
 # Requirements
-- Machine with Linux
-- the most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
+- Dedicated machine with Linux
+- Yhe most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.  
   However, there are no limits, it can be run on practically all Linux-supported platforms, including x86-64.
-- In the case of Pi Zero, thing like USB HAT may be useful
+- In the case of Pi Zero, USB HAT may be useful
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work just fine). Here is my recommendation:
   ![no china usb midi](./docs/no-china-usb-midi.png)
