@@ -1,0 +1,5 @@
+All files under "factory" directory will be automatically updated when
+newer factory configurations are available in next HIDI releases.
+New configurations are stored inside a binary.
+
+For custom device configurations, make use of "user" directory.
