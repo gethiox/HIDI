@@ -56,14 +56,19 @@ the best user experience possible.
 - Polish default configurations for keyboard and gamepad
 
 # Nice to have
-- Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Utilize mouse's relative input
 - Gamepad analog deadzones and adjustable transform curve
 
 ## Wishlist (far future)
-- Fully featured DAW controller plugins
+I think these things are possible to achieve. With enough interest and support I may be motivated to
+implement these features.
+
+- Arpeggiator and note latch MIDI effects, MIDI clock sync
+- Fully featured DAW control plugins
 - MIDI sequencer
 - OpenRGB support - useful for both DAW controller and MIDI sequencer
+
+Have you some improvement/feature idea not listed here? Feel free to leave it in `Discussions` section!
 
 # License
 Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
