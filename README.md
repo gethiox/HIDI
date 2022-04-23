@@ -84,6 +84,7 @@ If you wish to build this project manually, just run `go run build.go`,
 By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage. 
 
 # Usage
+Just place binary on your platform and run by `./binary_name`
 See `./hidi -h` for available optional arguments
 
 - If necessary, add permission for execution with `chmod +x hidi`
@@ -99,6 +100,5 @@ See `./hidi -h` for available optional arguments
   The best way of running this program in userspace is to give temporary privilege to `input` group with:  
   `sudo -u your_username -g input ./hidi`  
   Try to avoid running untrusted software directly with root privilege.
-- Just run by `./hidi`
 
 Have fun!
