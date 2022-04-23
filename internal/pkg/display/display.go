@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os/user"
 	"sync"
 	"time"
 
@@ -29,6 +28,16 @@ func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, *i2c.
 	}
 
 	return lcd, lcdRaw, nil
+}
+
+func loadCustomCharacters(lcd *device.Lcd, characters [][]byte) {
+	for i, char := range characters {
+		var location = uint8(i) & 0x7
+
+		lcd.Command(device.CMD_CGRAM_Set | (location << 3))
+		lcd.Write(char)
+	}
+
 }
 
 func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, devices map[*midi.Device]*midi.Device, midiEventCounter, score *uint) {
@@ -56,14 +65,7 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, de
 		{0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F}, // "█"
 	}
 
-	// lcd.TestWriteCGRam()
-
-	for i, char := range barChars {
-		var location = uint8(i) & 0x7
-
-		lcd.Command(device.CMD_CGRAM_Set | (location << 3))
-		lcd.Write(char)
-	}
+	loadCustomCharacters(lcd, barChars)
 
 	lcd.BacklightOn()
 	lcd.Clear()
@@ -76,17 +78,12 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, de
 		graph = append(graph, 0)
 	}
 
-	var counterMaxValue uint = 0 - 1
+	var x, y uint = 0, 1
+	var counterMaxValue = x - y
 	var lastProcessingDuration time.Duration
 
 root:
 	for {
-		select {
-		case <-ctx.Done():
-			break root
-		case <-time.After((time.Duration(cfg.UpdateRate) * time.Second) - lastProcessingDuration):
-			break
-		}
 		start := time.Now()
 
 		var devCount = len(devices)
@@ -117,7 +114,7 @@ root:
 		lcd.SetPosition(1, 0)
 		fmt.Fprintf(lcd, "handlers: %10d", handlerCount)
 		lcd.SetPosition(2, 0)
-		fmt.Fprintf(lcd, "events/s: %10d", eventsPerSecond)
+		fmt.Fprintf(lcd, "events: %12d", eventsPerSecond)
 		lcd.SetPosition(3, 0)
 
 		var maxGraph uint
@@ -143,23 +140,32 @@ root:
 			lcd.Write([]byte{byte(realVal)})
 		}
 		lastProcessingDuration = time.Now().Sub(start)
-	}
 
-	// heartLeft := []byte{0x06, 0x0F, 0x1F, 0x1F, 0x0F, 0x07, 0x03, 0x01}
-	// heartRight := []byte{0x0C, 0x1E, 0x1F, 0x1F, 0x1E, 0x1C, 0x18, 0x10}
+		select {
+		case <-ctx.Done():
+			break root
+		case <-time.After((time.Duration(cfg.UpdateRate) * time.Second) - lastProcessingDuration):
+			break
+		}
+	}
 
 	log.Printf("closing display")
 	lcd.Clear()
 	if !cfg.HaveExitMessage() {
-		usr, _ := user.Current()
+		heart := []byte{0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00}
+		randomChar := []byte{0x06, 0x0C, 0x1B, 0x13, 0x10, 0x00, 0x00, 0x00}
+
+		loadCustomCharacters(lcd, [][]byte{heart, randomChar})
+
 		lcd.SetPosition(0, 0)
 		fmt.Fprintf(lcd, "                    ")
 		lcd.SetPosition(1, 0)
 		fmt.Fprintf(lcd, " thanks for playing ")
 		lcd.SetPosition(2, 0)
-		fmt.Fprintf(lcd, fmt.Sprintf(" with HIDI, %s!", usr.Username))
+		fmt.Fprintf(lcd, "    %s with HIDI %s  ", string(1), string(0))
 		lcd.SetPosition(3, 0)
-		fmt.Fprintf(lcd, fmt.Sprintf("  (score: %d) ", *score))
+		msg := fmt.Sprintf("(score: %d)", *score)
+		fmt.Fprintf(lcd, fmt.Sprintf("%*s", -20, fmt.Sprintf("%*s", (20+len(msg))/2, msg)))
 	} else {
 		for i, msg := range cfg.ExitMessage {
 			lcd.SetPosition(i, 0)
