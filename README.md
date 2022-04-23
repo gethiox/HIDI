@@ -78,10 +78,8 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 - **Keyboards**, **gamepads** :)
 
 # Building
-If you wish to build this project manually, you just have to run `build.sh` script in this repository.  
-It compiles a binary for ARM processors by default, to target different platforms you have to tweak
-`GOARCH` and `GOARM` environment variables respectively.
-
+If you wish to build this project manually, just run `go run build.go`,  
+By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage. 
 
 # Usage
 See `./hidi -h` for available optional arguments
