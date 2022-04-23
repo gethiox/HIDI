@@ -47,6 +47,8 @@ the best user experience possible.
 - new "cc_learning" action for easier analog input CC learning
 - CC learn mode - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks.  
 - Precompiled builds for various targets
+- Embedded config directory, if config directory doesn't exist, application will create default one
+- automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact.
 
 # TODO
 - improve throttling logic to the best possible solution
@@ -93,7 +95,6 @@ See `./hidi -h` for available optional arguments
   **Warning**: If you're starting application with your directly connected keyboard it may be impossible to terminate it
   in that case.  
   Proper solution coming soon™
-- make sure `config` directory from this repository is present along with `hidi` binary (in the same directory)
 - Standard user may not have permission to read input devices directly for security reasons.
   The best way of running this program in userspace is to give temporary privilege to `input` group with:  
   `sudo -u your_username -g input ./hidi`  

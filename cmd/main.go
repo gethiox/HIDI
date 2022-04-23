@@ -97,6 +97,8 @@ func main() {
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
 
+	createConfigDirectory()
+
 	myLittleLogger := NewBufferedLogWriter(128)
 	log.SetOutput(&myLittleLogger)
 	go myLittleLogger.ProcessLogs()
