@@ -112,4 +112,4 @@ See `-h` flag for available optional arguments
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege
 
-Have fun!
+If you like my project and had a lot of fun with it, consider supporting it by `Sponsor` GitHub button
