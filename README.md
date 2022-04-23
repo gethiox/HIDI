@@ -124,7 +124,8 @@ It depends on the complexity of given feature and overall integrity with the res
 
 If you faced a bug, instability or general problems with starting application, feel free to open issue
 and provide some basic information like error messages and logs.  
-In the case of problems with your HID devices, please provide the full content of `/proc/bus/input/devices` file.
+In the case of problems with your specific HID devices,
+please provide the full content of `/proc/bus/input/devices` file.
 
 ### Code
 
