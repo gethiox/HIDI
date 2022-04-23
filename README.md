@@ -1,16 +1,14 @@
+## Warning
+**This is development branch, there is no guarantee that everything works correctly**
+
 # HIDI
 
 Flexible HID to MIDI translation layer
 
-**This is development branch, there is no guarantee that everything works correctly**
-
-![HIDI logo](./docs/hidi-logo-small.png)
-
+Demo video:  
+[![Beta Demo](./docs/hidi-demo-thumbnail.png)](https://www.youtube.com/watch?v=luA-u8MfgAs)  
 Ultimate successor of [keyboard2000](https://github.com/gethiox/keyboard2000)
 and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
-
-Demo video:  
-[![Beta Demo](./docs/hidi-demo-thumbnail.png)](https://www.youtube.com/watch?v=luA-u8MfgAs)
 
 # What it is for?
 HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface.  
