@@ -90,7 +90,7 @@ See `-h` flag for available optional arguments
 - If you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
   to avoid program termination on connection loss, just type `tmux` to run multiplexer, `ctr+b -> d` to leave tmux
   running in the backgroud, `tmux a` to re-enter your session
-- During application use you probably don't want to propagate keyboard events into your system
+- During application use you probably don't want to propagate keyboard events into your system  
   To avoid that use `-grab` parameter  
   **Warning**: If you're starting application with your directly connected keyboard it may be impossible to terminate it
   in that case  
