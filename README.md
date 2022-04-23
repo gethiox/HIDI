@@ -111,4 +111,37 @@ See `-h` flag for available optional arguments
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege
 
+# Contributing
+Any kind of help is highly appreciated!  
+
+### Features
+
+You can propose features and improvements. There is no guarantee that I'm going to implement it right-away.
+It depends on the complexity of given feature and overall integrity with the rest of application.
+
+### Bugs
+
+If you faced a bug or instability, feel free to open the issue and provide some basic information like error messages
+and logs. In the case of problems with your HID devices, please provide the full content of `/proc/bus/input/devices` file.
+
+### Code
+
+Feel free to contribute fixes, improvements and little features to the codebase. I do not have any
+guide for that for now. In some places my code may be convoluted and not easy to understand (mostly `cmd` directory),
+but besides of that, applying changes shoult be pretty straight-forward.
+
+### My little questions
+
+I have a few unanswered questions that might improve overall user experience:
+- Enabling N-Key Rollover keyboard mode from the OS side. Currently, NKRO is supported for devices that have ability
+  to enforce that with key combination. If you may have an idea how to do that, please lave your answer
+  [here](https://unix.stackexchange.com/questions/675933/keyboard-input-n-key-rollover).
+- Find a platform that provides two USB controllers, at least one with gadget mode support.  
+  This way user could avoid to have dedicated USB midi interface when using with PC and just connect device directly
+  as MIDI gadget. The less wires the better.
+
+If you know something about it, let me know.
+
+# Support
+
 If you like my project and had a lot of fun with it, consider supporting it by `Sponsor` GitHub button
