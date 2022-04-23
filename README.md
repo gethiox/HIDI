@@ -44,6 +44,7 @@ the best user experience possible.
 - Graceful app termination
 - greatly improved speed of application start and termination
 - Added input device grabbing for exclusive usage
+- new "cc_learning" action for easier analog input CC learning
 
 # TODO
 - improve throttling logic to the best possible solution

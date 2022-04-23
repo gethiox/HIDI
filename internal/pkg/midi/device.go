@@ -43,8 +43,9 @@ type Device struct {
 	semitone int8
 	channel  uint8
 	// warning: currently lazy implementation
-	multiNote []int // list of additional note intervals (offsets)
-	mapping   int
+	multiNote  []int // list of additional note intervals (offsets)
+	mapping    int
+	ccLearning bool
 }
 
 func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event) Device {
@@ -86,7 +87,7 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 }
 
 func (d *Device) ProcessEvents() {
-	var actionMap = map[config.Action]func(){
+	var actionsPress = map[config.Action]func(){
 		config.Panic:        d.Panic,
 		config.MappingUp:    d.MappingUp,
 		config.MappingDown:  d.MappingDown,
@@ -97,10 +98,21 @@ func (d *Device) ProcessEvents() {
 		config.ChannelUp:    d.ChannelUp,
 		config.ChannelDown:  d.ChannelDown,
 		config.Multinote:    func() {}, // on key release only
+		config.Learning:     d.CCLearningOn,
 	}
 
-	invokeAction := func(action config.Action) {
-		if f, ok := actionMap[action]; ok {
+	var actionsRelease = map[config.Action]func(){
+		config.Learning: d.CCLearningOff,
+	}
+
+	invokeActionPress := func(action config.Action) {
+		if f, ok := actionsPress[action]; ok {
+			f()
+		}
+	}
+
+	invokeActionRelease := func(action config.Action) {
+		if f, ok := actionsRelease[action]; ok {
 			f()
 		}
 	}
@@ -139,26 +151,27 @@ func (d *Device) ProcessEvents() {
 			action, actionOk := d.config.ActionMapping[ie.Event.Code]
 
 			switch {
-			case noteOk:
-				switch ie.Event.Value {
-				case EV_KEY_PRESS:
-					d.NoteOn(ie.Event.Code)
-				case EV_KEY_RELEASE:
-					d.NoteOff(ie.Event.Code)
-				}
 			case actionOk:
 				switch ie.Event.Value {
 				case EV_KEY_PRESS:
 					d.actionTracker[action] = true
 					if !checkDoubleActions() {
-						invokeAction(action)
+						invokeActionPress(action)
 					}
 				case EV_KEY_RELEASE:
 					switch action {
 					case config.Multinote:
 						d.Multinote()
 					}
+					invokeActionRelease(action)
 					delete(d.actionTracker, action)
+				}
+			case noteOk:
+				switch ie.Event.Value {
+				case EV_KEY_PRESS:
+					d.NoteOn(ie.Event.Code)
+				case EV_KEY_RELEASE:
+					d.NoteOff(ie.Event.Code)
 				}
 			default:
 				switch {
@@ -205,8 +218,11 @@ func (d *Device) ProcessEvents() {
 					}
 				}
 
-				var event Event
-				switch analog.ID {
+				if d.ccLearning && !(value < -0.5 || value > 0.5) {
+					continue
+				}
+
+				switch analog.MappingType {
 				case config.AnalogCC:
 					log.Printf("cc: value: %.1f, can negative: %v, bidirect: %v", value, canBeNegative, analog.Bidirectional)
 
@@ -256,12 +272,11 @@ func (d *Device) ProcessEvents() {
 					default:
 						panic("ouu")
 					}
-					continue
 				case config.AnalogPitchBend:
 					if canBeNegative {
-						event = PitchBendEvent(d.channel, value)
+						d.midiEvents <- PitchBendEvent(d.channel, value)
 					} else {
-						event = PitchBendEvent(d.channel, value*2-1.0)
+						d.midiEvents <- PitchBendEvent(d.channel, value*2-1.0)
 					}
 				case config.AnalogKeySim:
 					identifier := fmt.Sprintf("%d", ie.Event.Code) // for tracking purpose
@@ -283,7 +298,6 @@ func (d *Device) ProcessEvents() {
 						d.AnalogNoteOff(fmt.Sprintf("%d", ie.Event.Code))
 						d.AnalogNoteOff(fmt.Sprintf("%d_neg", ie.Event.Code))
 					}
-					continue
 				case config.AnalogActionSim:
 					action := analog.Action
 					if analog.Bidirectional && value < 0 {
@@ -296,20 +310,15 @@ func (d *Device) ProcessEvents() {
 
 					v := math.Abs(value)
 					if v > 0.5 {
-						invokeAction(action)
+						invokeActionPress(action)
 						d.actionTracker[action] = true
 					} else {
 						delete(d.actionTracker, analog.Action)
 						delete(d.actionTracker, analog.ActionNeg)
 					}
-
-					continue
 				default:
-					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.ID))
+					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType))
 				}
-
-				d.midiEvents <- event
-				// log.Printf("%s [%s]", event.String(), d.InputDevice.Name)
 			}
 		}
 	}
@@ -531,6 +540,15 @@ func (d *Device) Panic() {
 	}
 
 	log.Printf("Panic! [%s]", d.InputDevice.Name)
+}
+
+func (d *Device) CCLearningOn() {
+	d.ccLearning = true
+	log.Printf("CC learning mode enabled [%s]", d.InputDevice.Name)
+}
+func (d *Device) CCLearningOff() {
+	d.ccLearning = false
+	log.Printf("CC learning mode disabled [%s]", d.InputDevice.Name)
 }
 
 func DetectDevices() []IODevice {

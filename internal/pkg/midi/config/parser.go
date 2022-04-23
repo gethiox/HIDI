@@ -25,8 +25,8 @@ type YamlDeviceConfig struct {
 	KeyMappings   []map[string]map[string]string `yaml:"midi_mappings"`
 }
 
-type YamlAnalogMapping struct {
-	ID             string `yaml:"id"`
+type YamlCustomMapping struct {
+	MappingType    string `yaml:"type"`
 	CC             string `yaml:"cc"`
 	CCNegative     string `yaml:"cc_negative"`
 	Note           string `yaml:"note"`
@@ -94,7 +94,7 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 					}
 					return DeviceConfig{}, fmt.Errorf("[%s] %s: failed to parse note: %v", name, evcodeRaw, err)
 				case isAbs:
-					var mapping YamlAnalogMapping
+					var mapping YamlCustomMapping
 					evcode := evdev.ABSFromString[evcodeRaw]
 
 					err := yaml.Unmarshal([]byte(valueRaw), &mapping)
@@ -109,10 +109,12 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 						if actionRaw == "" {
 							continue
 						}
-						action, ok := NameToAction[actionRaw]
-						if !ok {
+
+						action := Action(actionRaw)
+						if !SupportedActions[action] {
 							return DeviceConfig{}, fmt.Errorf("[%s] %s: action not supported: %s", name, evcodeRaw, actionRaw)
 						}
+
 						actions[i] = action
 						if i == 1 {
 							bidirectional = true
@@ -146,24 +148,31 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 							continue
 						}
 					}
-					var cc [2]byte
+					var ccs [2]byte
 					for i, ccRaw := range []string{mapping.CC, mapping.CCNegative} {
 						ccInt, err := strconv.Atoi(ccRaw)
-						if err == nil {
-							if ccInt < 0 || ccInt > 119 {
-								return DeviceConfig{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, ccInt)
-							}
-							cc[i] = byte(ccInt)
-							if i == 1 {
-								bidirectional = true
-							}
+						if err != nil {
+							continue
+						}
+
+						if ccInt < 0 || ccInt > 119 {
+							return DeviceConfig{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, ccInt)
+						}
+						ccs[i] = byte(ccInt)
+						if i == 1 {
+							bidirectional = true
 						}
 					}
 
+					mappingType := MappingType(mapping.MappingType)
+					if !SupportedMappingTypes[mappingType] {
+						return DeviceConfig{}, fmt.Errorf("[%s] %s: mapping type not supported: %s", name, evcodeRaw, mapping.MappingType)
+					}
+
 					analogMapping[evcode] = Analog{
-						ID:            NameToAnalogID[mapping.ID],
-						CC:            cc[0],
-						CCNeg:         cc[1],
+						MappingType:   mappingType,
+						CC:            ccs[0],
+						CCNeg:         ccs[1],
 						Note:          notes[0],
 						NoteNeg:       notes[1],
 						Action:        actions[0],
@@ -189,9 +198,9 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 		if !ok {
 			return DeviceConfig{}, fmt.Errorf("[actions] unsupported EvCode: %s", evcodeRaw)
 		}
-		action, ok := NameToAction[actionRaw]
-		if !ok {
-			return DeviceConfig{}, fmt.Errorf("[actions] unsupported action: %s", actionRaw)
+		action := Action(actionRaw)
+		if !SupportedActions[action] {
+			return DeviceConfig{}, fmt.Errorf("[actions] unsupported action: %s", action)
 		}
 		actionMapping[evcode] = action
 	}

@@ -17,42 +17,44 @@ const (
 	Channel      Action = "channel"   // given with number parameter 1-16
 	Multinote    Action = "multinote" // holding this button and pressing midi keys sets multinote mode
 	Panic        Action = "panic"
+	Learning     Action = "cc_learning"
 )
 
 const (
-	AnalogPitchBend AnalogType = "pitch_bend"
-	AnalogCC        AnalogType = "cc"
-	AnalogKeySim    AnalogType = "key"
-	AnalogActionSim AnalogType = "action"
+	AnalogPitchBend MappingType = "pitch_bend"
+	AnalogCC        MappingType = "cc"
+	AnalogKeySim    MappingType = "key"
+	AnalogActionSim MappingType = "action"
 )
 
-var NameToAction = map[string]Action{
-	string(MappingUp):    MappingUp,
-	string(MappingDown):  MappingDown,
-	string(Mapping):      Mapping,
-	string(OctaveUp):     OctaveUp,
-	string(OctaveDown):   OctaveDown,
-	string(SemitoneUp):   SemitoneUp,
-	string(SemitoneDown): SemitoneDown,
-	string(ChannelUp):    ChannelUp,
-	string(ChannelDown):  ChannelDown,
-	string(Channel):      Channel,
-	string(Multinote):    Multinote,
-	string(Panic):        Panic,
+var SupportedActions = map[Action]bool{
+	MappingUp:    true,
+	MappingDown:  true,
+	Mapping:      true,
+	OctaveUp:     true,
+	OctaveDown:   true,
+	SemitoneUp:   true,
+	SemitoneDown: true,
+	ChannelUp:    true,
+	ChannelDown:  true,
+	Channel:      true,
+	Multinote:    true,
+	Panic:        true,
+	Learning:     true,
 }
 
-var NameToAnalogID = map[string]AnalogType{
-	string(AnalogPitchBend): AnalogPitchBend,
-	string(AnalogCC):        AnalogCC,
-	string(AnalogKeySim):    AnalogKeySim,
-	string(AnalogActionSim): AnalogActionSim,
+var SupportedMappingTypes = map[MappingType]bool{
+	AnalogPitchBend: true,
+	AnalogCC:        true,
+	AnalogKeySim:    true,
+	AnalogActionSim: true,
 }
 
 type Action string
-type AnalogType string
+type MappingType string
 
 type Analog struct {
-	ID                AnalogType
+	MappingType       MappingType
 	CC, CCNeg         byte
 	Note, NoteNeg     byte
 	Action, ActionNeg Action
