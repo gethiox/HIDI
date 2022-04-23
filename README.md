@@ -43,9 +43,8 @@ the best user experience possible.
 - Monitoring of input handlers is now a magnitude more efficient
 - Graceful app termination
 - greatly improved speed of application start and termination
-- Added input device grabbing for exclusive usage
-- new "cc_learning" action for easier analog input CC learning
-- CC learn mode - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks.  
+- Fixed input device grabbing for exclusive usage
+- CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks.  
 - Precompiled builds for various targets
 - Embedded config directory, if config directory doesn't exist, application will create default one
 - automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact.
