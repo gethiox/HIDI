@@ -46,11 +46,11 @@ the best user experience possible.
 - Added input device grabbing for exclusive usage
 - new "cc_learning" action for easier analog input CC learning
 - CC learn mode - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks.  
+- Precompiled builds for various targets
 
 # TODO
 - improve throttling logic to the best possible solution
 - proper logging with multi-level debug option
-- Precompiled builds targeted for more platforms
 - Polish default configurations for keyboard and gamepad
 
 # Nice to have
