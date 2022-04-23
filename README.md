@@ -61,6 +61,7 @@ Missing features of 1.0 release scope:
 # Nice to have
 - Utilize mouse's relative input
 - Gamepad analog deadzones and adjustable transform curve
+- configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
 - Localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
 
 ## Wishlist (far future)

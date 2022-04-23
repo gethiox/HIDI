@@ -3,7 +3,7 @@ of factory configurations.
 Make sure all sections have proper, space-based indentation.
 
 - `identifier` section is responsible for matching with your device,
-  please include proper bus, vendor, product and version values
+  please include proper `bus`, `vendor`, `product` and `version` values
 - `uniq` may be useful for user configuration only, when user wants to distinguish devices of the same type
   (device must report that value correctly, most devices doesn't have one, especially keyboards)
 - `action_mapping` - self-explanatory, currently supported actions:
