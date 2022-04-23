@@ -133,7 +133,10 @@ but besides of that, applying changes shoult be pretty straight-forward.
 
 ### Configurations
 
-If your keyboard doesn't work correctly with default mappings, create `Factory` configuration that covers your device type.  
+If your keyboard doesn't work correctly with default mappings, create `Factory` configuration for your device type.   
+Make sure it has proper values in `Identifier` section and loads correctly, also make sure that all default
+mappings are working (Piano, Chromatic, Control - this one covers all keyboard keys with unique notes).
+After that, you can create pull request if you wish to share it with the project.  
 For more information, see [guide](cmd/config/user/README.md)
 
 ### My little questions
