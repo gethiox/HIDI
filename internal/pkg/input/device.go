@@ -200,76 +200,39 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		absEvents := make(chan InputEvent, 64)
 		go func(absEvents chan InputEvent) {
-			// lastEvent := make(map[evdev.EvCode]InputEvent)
-			// throttledLock := sync.RWMutex{}
-			// throttled := make(map[evdev.EvCode]bool)
-			// throttledTimer := make(map[evdev.EvCode]<-chan time.Time)
-			//
-			// go func(throttledTimer map[evdev.EvCode]<-chan time.Time) {
-			// 	for {
-			// 		doneTimers := make([]evdev.EvCode, 8)
-			// 		throttledLock.Lock()
-			//
-			// 		for evcode, timer := range throttledTimer {
-			// 			_, ok := <-timer
-			// 			if !ok {
-			// 				continue
-			// 			}
-			// 			events <- lastEvent[evcode]
-			// 			throttled[evcode] = false
-			// 			doneTimers = append(doneTimers, evcode)
-			// 		}
-			// 		for _, evCode := range doneTimers {
-			// 			delete(throttledTimer, evCode)
-			// 		}
-			// 		throttledLock.Unlock()
-			//
-			// 		time.Sleep(absThrottle * 4)
-			// 	}
-			//
-			// }(throttledTimer)
-			//
-			// for ev := range absEvents {
-			// 	throttledLock.RLock()
-			// 	if throttled[ev.Event.Code] {
-			// 		throttledLock.RUnlock()
-			// 		lastEvent[ev.Event.Code] = ev
-			// 		continue
-			// 	}
-			// 	throttledLock.RUnlock()
-			//
-			// 	events <- ev
-			// 	throttledLock.Lock()
-			// 	throttled[ev.Event.Code] = true
-			// 	throttledLock.Unlock()
-			// 	throttledTimer[ev.Event.Code] = time.After(absThrottle)
-			// }
-
+			var locks = make(map[evdev.EvCode]*sync.RWMutex)
 			var timers = make(chan timerSrimer, 64)
-			var lastValue = make(map[evdev.EvCode]InputEvent)
+			var lastEvent = make(map[evdev.EvCode]InputEvent)
 			var lastSent = make(map[evdev.EvCode]time.Time)
 			// var timerMap = make(map[evdev.EvCode]time.Timer)
+
+			for _, abs := range evdev.ABSFromString {
+				locks[abs] = &sync.RWMutex{}
+			}
 
 			go func() {
 				for timer := range timers {
 					go func(timer timerSrimer) {
 						<-timer.timer.C
-						events <- lastValue[timer.evcode]
+						locks[timer.evcode].RLock()
+						events <- lastEvent[timer.evcode]
+						locks[timer.evcode].RUnlock()
 					}(timer)
 				}
 			}()
 
 			for ev := range absEvents {
-				t, ok := lastSent[ev.Event.Code]
+				last, ok := lastSent[ev.Event.Code]
 				if ok {
 					now := time.Now()
-					if now.Sub(t) > absThrottle {
+					if now.Sub(last) > absThrottle {
 						events <- ev
 						continue
 					}
-
+					locks[ev.Event.Code].Lock()
+					lastEvent[ev.Event.Code] = ev
+					locks[ev.Event.Code].Unlock()
 				}
-
 				events <- ev
 			}
 		}(absEvents)
@@ -295,6 +258,10 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				event, err := dev.ReadOne()
 				if err != nil {
 					break
+				}
+
+				if event.Type == evdev.EV_KEY && event.Value == 2 { // repeat
+					continue
 				}
 
 				outputEvent := InputEvent{
