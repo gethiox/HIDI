@@ -174,7 +174,7 @@ func (d *Device) PhysicalUUID() PhysicalID {
 }
 
 type timerSrimer struct {
-	timer  time.Timer
+	timer  *time.Timer
 	evcode evdev.EvCode
 }
 
@@ -222,18 +222,27 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 			}()
 
 			for ev := range absEvents {
+				now := time.Now()
 				last, ok := lastSent[ev.Event.Code]
 				if ok {
-					now := time.Now()
 					if now.Sub(last) > absThrottle {
 						events <- ev
-						continue
+						timers <- timerSrimer{
+							timer:  time.NewTimer(absThrottle),
+							evcode: ev.Event.Code,
+						}
 					}
 					locks[ev.Event.Code].Lock()
+					lastSent[ev.Event.Code] = now
 					lastEvent[ev.Event.Code] = ev
 					locks[ev.Event.Code].Unlock()
+					continue
 				}
 				events <- ev
+				locks[ev.Event.Code].Lock()
+				lastSent[ev.Event.Code] = now
+				lastEvent[ev.Event.Code] = ev
+				locks[ev.Event.Code].Unlock()
 			}
 		}(absEvents)
 

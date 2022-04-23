@@ -62,6 +62,7 @@ func LoadHIDIConfig(path string) HIDIConfig {
 	screenType, _ := screen.GetKey("type")
 	screenAddress, _ := screen.GetKey("address")
 	screenBus, _ := screen.GetKey("bus")
+	updateRate, _ := screen.GetKey("update_rate")
 	message1, _ := screen.GetKey("exit_message1")
 	message2, _ := screen.GetKey("exit_message2")
 	message3, _ := screen.GetKey("exit_message3")
@@ -93,6 +94,12 @@ func LoadHIDIConfig(path string) HIDIConfig {
 		panic(err)
 	}
 	c.Screen.Address = uint8(i)
+
+	i, err = updateRate.Int()
+	if err != nil {
+		panic(err)
+	}
+	c.Screen.UpdateRate = i
 
 	c.Screen.ExitMessage[0] = message1.String()
 	c.Screen.ExitMessage[1] = message2.String()

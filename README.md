@@ -45,6 +45,7 @@ the best user experience possible.
 - greatly improved speed of application start and termination
 - Added input device grabbing for exclusive usage
 - new "cc_learning" action for easier analog input CC learning
+- CC learn mode - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks.  
 
 # TODO
 - improve throttling logic to the best possible solution
@@ -53,14 +54,14 @@ the best user experience possible.
 - Polish default configurations for keyboard and gamepad
 
 # Nice to have
-- Arpeggiator and other MIDI effects, MIDI clock sync
-- CC learn mode - gamepads without deadzones are pretty sensitive and hard to learn CC with it in effect.  
-  Some action could be used to temporarily disable all input events in the range of -0.5 - 0.5 value 
-- Utilize Mouse's relative input somehow
+- Arpeggiator and note latch MIDI effects, MIDI clock sync
+- Utilize mouse's relative input
 - Gamepad analog deadzones and adjustable transform curve
 
 ## Wishlist (far future)
-- MIDI sequencer, OpenRGB support  
+- Fully featured DAW controller plugins
+- MIDI sequencer
+- OpenRGB support - useful for both DAW controller and MIDI sequencer
 
 # License
 Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)

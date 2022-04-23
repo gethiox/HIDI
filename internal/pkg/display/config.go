@@ -7,6 +7,7 @@ type ScreenConfig struct {
 	LcdType     hd44780.LcdType
 	Bus         int
 	Address     uint8
+	UpdateRate  int
 	ExitMessage [4]string
 }
 

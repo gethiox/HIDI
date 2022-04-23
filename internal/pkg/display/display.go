@@ -83,7 +83,7 @@ root:
 		select {
 		case <-ctx.Done():
 			break root
-		case <-time.After(time.Second - lastProcessingDuration):
+		case <-time.After((time.Duration(cfg.UpdateRate) * time.Second) - lastProcessingDuration):
 			break
 		}
 		start := time.Now()
