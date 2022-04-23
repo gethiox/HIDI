@@ -137,7 +137,7 @@ I have a few unanswered questions that might improve overall user experience:
   to enforce that with key combination. If you may have an idea how to do that, please lave your answer
   [here](https://unix.stackexchange.com/questions/675933/keyboard-input-n-key-rollover).
 - Find a platform that provides two USB controllers, at least one with gadget mode support.  
-  This way user could avoid to have dedicated USB midi interface when using with PC and just connect device directly
+  This way user could avoid to have dedicated USB midi interface when using HIDI with PC and just connect device directly
   as MIDI gadget. The less wires the better.
 
 If you know something about it, let me know.
