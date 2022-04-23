@@ -129,7 +129,7 @@ In the case of problems with your HID devices, please provide the full content o
 
 Feel free to contribute fixes, improvements and little features to the codebase. I do not have any
 guide for that for now. In some places my code may be convoluted and not easy to understand (mostly `cmd` directory),
-but besides of that, applying changes shoult be pretty straight-forward.
+but besides of that, applying changes should be pretty straight-forward.
 
 ### Configurations
 
