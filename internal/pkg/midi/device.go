@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
@@ -36,9 +37,11 @@ type Device struct {
 	noteTracker       map[evdev.EvCode][2]byte // 1: note, 2: channel
 	analogNoteTracker map[string][2]byte       // 1: note, 2: channel
 	actionTracker     map[config.Action]bool
-	octave            int8
-	semitone          int8
-	channel           uint8
+	ccZeroed          map[byte]bool // 1: positive, 2: negative
+
+	octave   int8
+	semitone int8
+	channel  uint8
 	// warning: currently lazy implementation
 	multiNote []int // list of additional note intervals (offsets)
 	mapping   int
@@ -78,6 +81,7 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		noteTracker:       make(map[evdev.EvCode][2]byte, 32),
 		analogNoteTracker: make(map[string][2]byte, 32),
 		actionTracker:     make(map[config.Action]bool, 16),
+		ccZeroed:          make(map[byte]bool, 32),
 	}
 }
 
@@ -207,34 +211,52 @@ func (d *Device) ProcessEvents() {
 					log.Printf("cc: value: %.1f, can negative: %v, bidirect: %v", value, canBeNegative, analog.Bidirectional)
 
 					var adjustedValue float64
-					var target byte
 
 					switch {
 					case canBeNegative && analog.Bidirectional:
 						adjustedValue = math.Abs(value)
 						if value < 0 {
-							target = analog.CCNeg
+							d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+							if !d.ccZeroed[analog.CC] {
+								d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
+								d.ccZeroed[analog.CC] = true
+							}
+							d.ccZeroed[analog.CCNeg] = false
 						} else {
-							target = analog.CC
+							d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+							if !d.ccZeroed[analog.CCNeg] {
+								d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
+								d.ccZeroed[analog.CCNeg] = true
+							}
+							d.ccZeroed[analog.CC] = false
 						}
 					case canBeNegative && !analog.Bidirectional:
 						adjustedValue = (value + 1) / 2
-						target = analog.CC
+						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
 					case !canBeNegative && analog.Bidirectional:
 						adjustedValue = math.Abs(value*2 - 1)
 						if value < 0.5 {
-							target = analog.CCNeg
+							d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+							if !d.ccZeroed[analog.CC] {
+								d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
+								d.ccZeroed[analog.CC] = true
+							}
+							d.ccZeroed[analog.CCNeg] = false
 						} else {
-							target = analog.CC
+							d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+							if !d.ccZeroed[analog.CCNeg] {
+								d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
+								d.ccZeroed[analog.CCNeg] = true
+							}
+							d.ccZeroed[analog.CC] = false
 						}
 					case !canBeNegative && !analog.Bidirectional:
 						adjustedValue = value
-						target = analog.CC
+						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
 					default:
 						panic("ouu")
 					}
-
-					event = ControlChangeEvent(d.channel, target, byte(int(float64(127)*adjustedValue)))
+					continue
 				case config.AnalogPitchBend:
 					if canBeNegative {
 						event = PitchBendEvent(d.channel, value)
@@ -509,4 +531,37 @@ func (d *Device) Panic() {
 	}
 
 	log.Printf("Panic! [%s]", d.InputDevice.Name)
+}
+
+func DetectDevices() []IODevice {
+	fd, err := os.Open("/dev/snd")
+	if err != nil {
+		panic(err)
+	}
+	entries, err := fd.ReadDir(0)
+	if err != nil {
+		panic(err)
+	}
+
+	var devices = make([]IODevice, 0)
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		if strings.HasPrefix(entry.Name(), "midi") {
+			devices = append(devices, IODevice{path: fmt.Sprintf("/dev/snd/%s", entry.Name())})
+		}
+	}
+
+	return devices
+}
+
+type IODevice struct {
+	path string
+}
+
+func (d *IODevice) Open() (*os.File, error) {
+	return os.OpenFile(d.path, os.O_RDWR|os.O_SYNC, 0)
 }
