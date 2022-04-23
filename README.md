@@ -48,7 +48,8 @@ the best user experience possible.
 - CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
 - Precompiled builds for various targets
 - Embedded config directory, if config directory doesn't exist, application will create default one
-- automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
+- Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
+- Support for optional HD44780 screens (16x2, 20x4) for displaying statistics  
 
 # TODO
 - improve throttling logic to the best possible solution
