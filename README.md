@@ -84,10 +84,10 @@ Just run `go run build.go`,
 By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage. 
 
 # Usage
-Just place binary on your platform and run by `./HIDI-(...)`  
+Just place binary on your platform and run by `./HIDI`  
 See `-h` flag for available optional arguments
 
-- If necessary, add permission for execution with `chmod +x hidi`
+- If necessary, add permission for execution with `chmod +x HIDI`
 - If you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
   to avoid program termination on connection loss, just type `tmux` to run multiplexer, `ctr+b -> d` to leave tmux
   running in the backgroud, `tmux a` to re-enter your session. **tmux > screen**
@@ -98,7 +98,7 @@ See `-h` flag for available optional arguments
   Proper solution coming soon™
 - Standard user may not have permission to read input devices directly for security reasons.
   The best way of running this program in userspace is to give temporary privilege to `input` group with:  
-  `sudo -u your_username -g input ./hidi`  
+  `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege.
 
 Have fun!
