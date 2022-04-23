@@ -80,12 +80,12 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 - **Keyboards**, **gamepads** :)
 
 # Building
-If you wish to build this project manually, just run `go run build.go`,  
+Just run `go run build.go`,  
 By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage. 
 
 # Usage
-Just place binary on your platform and run by `./binary_name`
-See `./hidi -h` for available optional arguments
+Just place binary on your platform and run by `./HIDI-(...)`  
+See `-h` flag for available optional arguments
 
 - If necessary, add permission for execution with `chmod +x hidi`
 - If you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
