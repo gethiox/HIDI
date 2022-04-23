@@ -1,10 +1,11 @@
 # HIDI
 
-This is development branch, there is no guarantee that everything works correctly
+Flexible HID to MIDI translation layer
+
+**This is development branch, there is no guarantee that everything works correctly**
 
 ![HIDI logo](./docs/hidi-logo-small.png)
 
-Flexible HID to MIDI translation layer  
 Ultimate successor of [keyboard2000](https://github.com/gethiox/keyboard2000)
 and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 
