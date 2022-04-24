@@ -198,10 +198,18 @@ func main() {
 	wg.Add(1)
 	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
 	dd1, dd2 := FanOut(dd)
-	wg.Add(1)
-	go display.HandleDisplay(&wg, cfg.Screen, dd1)
+
+	if cfg.Screen.Enabled {
+		wg.Add(1)
+		go display.HandleDisplay(&wg, cfg.Screen, dd1)
+	} else {
+		go func() {
+			for range dd1 {
+			}
+		}()
+	}
+
 	go func(dd <-chan display.DisplayData) {
-		time.Sleep(time.Second)
 		view, err := g.View(ViewLCD)
 		if err != nil {
 			panic(err)
@@ -215,18 +223,16 @@ func main() {
 		}
 	}(dd2)
 
-	// go display.HandleDisplay(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
-
 	runManager(ctx, cfg, midiEvents, grab, devices, confNotifier)
 
 	cancelEvents()
 	log.Info(fmt.Sprintf("waiting..."))
-	// closing logger can be safely invoked only when all internally running goroutines (that may emit logs) are done
 	close(confNotifier)
 	close(sigs)
 	close(otherMidiEvents)
 	close(midiEvents)
 
+	// closing logger can be safely invoked only when all internally running goroutines (that may emit logs) are done
 	wg.Wait()
 	close(log2.Messages)
 

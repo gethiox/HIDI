@@ -22,7 +22,7 @@ func GenerateDisplayData(ctx context.Context, wg *sync.WaitGroup, cfg display.Sc
 
 		lastMidiEventsEmitted := *midiEventCounter
 
-		var graph = make([]uint, 20)
+		var graph [20]uint
 
 		var graphPointer int
 		var min, x uint = 0, 1
