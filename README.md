@@ -22,9 +22,9 @@ and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 
 ![Linux](https://img.shields.io/badge/OS-Linux-blue)
 ![go version](https://img.shields.io/github/go-mod/go-version/gethiox/HIDI)
+[![reference](https://img.shields.io/badge/godoc-reference-blue)](https://godoc.org/github.com/gethiox/HIDI)
+[![go report](https://goreportcard.com/badge/github.com/gethiox/HIDI)](https://goreportcard.com/report/github.com/gethiox/HIDI)    
 ![last release](https://img.shields.io/github/v/release/gethiox/HIDI)
-[![GoDoc reference example](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/gethiox/HIDI)
-[![GoReportCard example](https://goreportcard.com/badge/github.com/gethiox/HIDI)](https://goreportcard.com/report/github.com/gethiox/HIDI)  
 ![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 ![downloads latest](https://img.shields.io/github/downloads/gethiox/HIDI/latest/total)
 
