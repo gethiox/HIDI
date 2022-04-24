@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,13 +65,13 @@ func build(target target) error {
 	err = cmd.Run()
 
 	if err != nil {
-		fmt.Printf("build failed: %s (%v)\n", binaryPath, err)
-		fmt.Println("--- stdout ---")
-		fmt.Println(stdout.String())
-		fmt.Println("--- stderr ---")
-		fmt.Println(stderr.String())
-	} else {
-		fmt.Printf("build succesful!: %s\n", binaryPath)
+		log.Printf("build failed: %s (%v)\n", binaryPath, err)
+		log.Printf("--- stdout ---\n")
+		log.Printf(stdout.String())
+		log.Printf("--------------\n")
+		log.Printf("--- stderr ---")
+		log.Printf(stderr.String())
+		log.Printf("--------------\n")
 	}
 	return err
 }
@@ -94,20 +95,24 @@ func main() {
 
 	if list {
 		for i, target := range targets {
-			fmt.Printf("%d: %s\n", i, target.String())
+			log.Printf("%d: %s\n", i, target.String())
 		}
 		os.Exit(0)
 	}
 
 	if selection >= 0 {
 		if selection > len(targets)-1 {
-			fmt.Printf("selection out of range: %d\n", selection)
+			log.Printf("selection out of range: %d\n", selection)
 			os.Exit(1)
 		}
-		err := build(targets[selection])
+		target := targets[selection]
+		log.Printf("building target...       %s", target.String())
+		err := build(target)
 		if err != nil {
+			log.Printf("building target failed:  %s", target.String())
 			os.Exit(1)
 		}
+		log.Printf("building target success: %s", target.String())
 		os.Exit(0)
 	}
 
@@ -127,11 +132,19 @@ func main() {
 	}()
 
 	wgBuild := sync.WaitGroup{}
+	log.Printf("engaging parallel building for %d targets\n", len(targets))
 	for _, t := range targets {
 		wgBuild.Add(1)
 		go func(target target) {
 			defer wgBuild.Done()
-			results <- build(target)
+			log.Printf("building target...       %s", target.String())
+			err := build(target)
+			results <- err
+			if err != nil {
+				log.Printf("building target failed:  %s", target.String())
+			} else {
+				log.Printf("building target success: %s", target.String())
+			}
 		}(t)
 	}
 	wgBuild.Wait()
