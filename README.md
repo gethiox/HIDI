@@ -1,6 +1,16 @@
 ## Warning
 **This is development branch, there is no guarantee that everything works correctly**
 
+## In progress
+These are things that I want to make before 1.0 release:
+- [ ] Proper logging with multi-level debug option
+  - [x] serialized logs in entire application
+  - [x] gocui cli view for logging, device statistics and virtual LCD information
+  - [ ] log deserialization
+  - [ ] pretty print for logs
+- [ ] Improve throttling logic to the best possible solution
+- [ ] General code cleanup
+
 # HIDI
 
 Flexible HID to MIDI translation layer
@@ -52,16 +62,6 @@ the best user experience possible.
 - Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
 - Support for optional HD44780 screens (16x2, 20x4) for displaying statistics  
 - Relatively good default configurations for keyboards and gamepads
-
-## In progress
-These are things that I want to make before 1.0 release:
-- [ ] Proper logging with multi-level debug option  
-  - [x] serialized logs in entire application
-  - [x] gocui cli view for logging, device statistics and virtual LCD information
-  - [ ] log deserialization
-  - [ ] pretty print for logs
-- [ ] Improve throttling logic to the best possible solution
-- [ ] General code cleanup
 
 # Nice to have
 - Utilize mouse's relative input
