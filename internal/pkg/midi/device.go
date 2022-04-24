@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -87,7 +88,8 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 	}
 }
 
-func (d *Device) ProcessEvents() {
+func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
+	defer wg.Done()
 	var actionsPress = map[config.Action]func(){
 		config.Panic:        d.Panic,
 		config.MappingUp:    d.MappingUp,

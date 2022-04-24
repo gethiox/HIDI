@@ -89,7 +89,8 @@ root:
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents)
 				devices[&midiDev] = &midiDev
 				log.Info(fmt.Sprintf("Starting to process events [\"%s\"]", dev.Name))
-				midiDev.ProcessEvents()
+				wg.Add(1)
+				midiDev.ProcessEvents(&wg)
 				log.Info(fmt.Sprintf("Event processing finished [\"%s\"]", dev.Name))
 				delete(devices, &midiDev)
 			}(d)
