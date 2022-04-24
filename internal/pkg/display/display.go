@@ -3,19 +3,20 @@ package display
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
-	"github.com/gethiox/HIDI/internal/pkg/midi"
-
 	device "github.com/d2r2/go-hd44780"
 	"github.com/d2r2/go-i2c"
-	"github.com/d2r2/go-logger"
+	shittyLogger "github.com/d2r2/go-logger"
+	"github.com/gethiox/HIDI/internal/pkg/logger"
+	"github.com/gethiox/HIDI/internal/pkg/midi"
 )
 
+var log = logger.GetLogger()
+
 func getDisplay(addr uint8, bus int, lcdType device.LcdType) (*device.Lcd, *i2c.I2C, error) {
-	logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
+	shittyLogger.ChangePackageLogLevel("i2c", shittyLogger.InfoLevel)
 
 	lcdRaw, err := i2c.NewI2C(addr, bus)
 	if err != nil {
@@ -149,7 +150,8 @@ root:
 		}
 	}
 
-	log.Printf("closing display")
+	log.Info(fmt.Sprintf("closing display"))
+
 	lcd.Clear()
 	if !cfg.HaveExitMessage() {
 		heart := []byte{0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00}
@@ -174,5 +176,5 @@ root:
 	}
 
 	bus.Close()
-	log.Printf("display closed")
+	log.Info(fmt.Sprintf("display closed"))
 }

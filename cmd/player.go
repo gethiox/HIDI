@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/midi"
-
+	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 	mmidi "github.com/moutend/go-midi"
 	mmidiev "github.com/moutend/go-midi/event"
 )
@@ -65,5 +66,13 @@ root:
 
 	for n, ch := range p.enabledNotes {
 		events <- midi.NoteEvent(midi.NoteOff, ch, n, 0)
+	}
+}
+
+func monitorConfChanges(ctx context.Context, wg *sync.WaitGroup, c <-chan validate.NotifyMessage, events chan midi.Event) {
+	defer wg.Done()
+	for d := range c {
+		p := NewPlayer(d.Data)
+		p.Play(events, ctx, d.Bpm)
 	}
 }

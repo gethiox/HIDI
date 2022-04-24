@@ -2,7 +2,7 @@ package config
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,7 +22,7 @@ func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
 			<-ctx.Done()
 			err := watcher.Close()
 			if err != nil {
-				log.Printf("closing watched failed: %v", err)
+				log.Info(fmt.Sprintf("closing watched failed: %v", err))
 			}
 		}()
 
@@ -42,7 +42,7 @@ func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
 
 			name := strings.ToLower(event.Name)
 			if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") {
-				log.Printf("config change detected: %s", event.Name)
+				log.Info(fmt.Sprintf("config change detected: %s", event.Name))
 				change <- true
 			}
 		}

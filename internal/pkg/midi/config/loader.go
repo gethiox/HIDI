@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -122,7 +121,7 @@ func loadDirectory(root string, configMap ConfigMap) (err error, fails, success 
 		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 			devCfg, err := readDeviceConfig(path, name)
 			if err != nil {
-				log.Printf("device config %s load failed: %s", name, err)
+				log.Info(fmt.Sprintf("device config %s load failed: %s", name, err))
 				fails++
 				return nil
 			}

@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
-
 	"github.com/holoplot/go-evdev"
 	"gopkg.in/yaml.v3"
 )

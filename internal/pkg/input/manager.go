@@ -3,7 +3,6 @@ package input
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -16,7 +15,7 @@ func monitorNewHandlers(ctx context.Context, discoveryRate time.Duration) <-chan
 
 	go func() {
 		var previous = make(map[string]bool)
-		log.Printf("monitoring nev event handlers")
+		log.Info(fmt.Sprintf("monitoring nev event handlers"))
 
 		firstRun := true
 	root:
@@ -66,7 +65,7 @@ func monitorNewHandlers(ctx context.Context, discoveryRate time.Duration) <-chan
 			}
 
 			if len(newEvents) > 0 {
-				log.Printf("sending new events: %+v", newEvents)
+				log.Info(fmt.Sprintf("sending new events: %+v", newEvents))
 				newHandlers <- newEvents
 			}
 		}
@@ -79,12 +78,12 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 	var devChan = make(chan Device)
 
 	go func() {
-		log.Print("Monitor new devices engaged")
+		log.Info("Monitor new devices engaged")
 
 		newEvents := monitorNewHandlers(ctx, discoveryRate)
 		var events []string
 
-		log.Printf("merging proces engaged")
+		log.Info(fmt.Sprintf("merging proces engaged"))
 		firstRun := true
 
 	root:
@@ -130,10 +129,10 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 						Product: inputID.Product,
 						Version: inputID.Version,
 					},
-					Name:      name,
-					Phys:      phys,
+					Name:      strings.Trim(name, "\x00"), // TODO: fix in go-evdev
+					Phys:      strings.Trim(phys, "\x00"), // TODO: fix in go-evdev
 					Sysfs:     dPath,
-					Uniq:      uniq,
+					Uniq:      strings.Trim(uniq, "\x00"), // TODO: fix in go-evdev
 					eventName: ev,
 
 					CapableTypes: capableTypes,
@@ -148,7 +147,7 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 			events = nil
 		}
 
-		log.Print("Monitor new devices disengaged")
+		log.Info("Monitor new devices disengaged")
 		close(devChan)
 	}()
 

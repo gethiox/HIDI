@@ -3,7 +3,7 @@ package input
 import (
 	"context"
 	"fmt"
-	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -250,14 +250,15 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan InputEvent) {
 			path := dev.Path()
 			name, _ := dev.Name()
+			name = strings.Trim(name, "\x00") // TODO: fix in go-evdev
 			defer wg.Done()
 			defer close(absEvents)
 
 			if grab {
 				_ = dev.Grab()
-				log.Printf("Grabbing device for exclusive usage [%s] [%s]", path, name)
+				log.Info(fmt.Sprintf("Grabbing device for exclusive usage [%s] [%s]", path, name))
 			}
-			log.Printf("Reading input events [%s] [%s]", path, name)
+			log.Info(fmt.Sprintf("Reading input events [%s] [%s]", path, name))
 
 			err = dev.NonBlock()
 			if err != nil {
@@ -286,16 +287,16 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				events <- outputEvent
 			}
 			if grab {
-				log.Printf("Ungrabbing device [%s] [%s]", path, name)
+				log.Info(fmt.Sprintf("Ungrabbing device [%s] [%s]", path, name))
 				_ = dev.Ungrab()
 			}
-			log.Printf("Reading input events finished [%s] [%s]", path, name)
+			log.Info(fmt.Sprintf("Reading input events finished [%s] [%s]", path, name))
 		}(dev, ht, h, absEvents)
 	}
 
 	go func() {
 		wg.Wait()
-		log.Printf("All handlers done, closing events channel")
+		log.Info(fmt.Sprintf("All handlers done, closing events channel"))
 		close(events)
 	}()
 

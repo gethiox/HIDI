@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"time"
 
@@ -127,7 +126,7 @@ func createConfigDirectory() {
 		if !errors.Is(err, os.ErrNotExist) {
 			panic(fmt.Errorf("cannot open config directory: %v", err))
 		}
-		log.Printf("config not exist\n")
+		log.Info(fmt.Sprint("config not exist\n"))
 
 		// create config subdirectories and files
 		err = fs.WalkDir(templateConfig, "config", func(path string, d fs.DirEntry, err error) error {
@@ -155,7 +154,7 @@ func createConfigDirectory() {
 				panic(err)
 			}
 
-			log.Printf("Created \"%s\" file\n", path)
+			log.Info(fmt.Sprint("Created \"%s\" file\n", path))
 			return nil
 		})
 
@@ -217,10 +216,10 @@ func createConfigDirectory() {
 			}
 
 			if bytes.Equal(data, newData) {
-				log.Printf("File \"%s\" not changed\n", path)
+				log.Info(fmt.Sprint("File \"%s\" not changed\n", path))
 				return nil
 			}
-			log.Printf("File \"%s\" changed, replacing data...\n", path)
+			log.Info(fmt.Sprint("File \"%s\" changed, replacing data...\n", path))
 			fd, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 			if err != nil {
 				panic(err)
