@@ -22,7 +22,7 @@ Easy to use, easy to customize, and it has many quality of life features, carefu
 the best user experience possible.
 
 - Any number of **customized MIDI mappings**, switchable by dedicated key
-  Piano, Chromatic and Control (every key with unique midi note) provided as default configuration
+  Piano, Chromatic and Control (every key with unique midi note, useful for DAW control) provided as default configuration
 - Gamepad analog input to **control CC, pitch-bend** and note/action emulation
 - Several actions like **octave** control (F1-F2), **semitone** (F3-F4), **mapping** (F5-F6), **channel** (F7-F8),
   **multi-note** (f9)
@@ -71,7 +71,7 @@ implement these features.
 - Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Fully featured DAW control plugins
 - MIDI sequencer
-- OpenRGB support - useful for both DAW controller and MIDI sequencer
+- [OpenRGB](https://openrgb.org/) support - useful for both DAW controller and MIDI sequencer
 
 Have you some improvement/feature idea not listed here? Feel free to leave it in `Discussions` section!
 
@@ -154,5 +154,7 @@ I have a few unanswered questions that might improve overall user experience:
 If you know something about it, let me know.
 
 # Support
+
+[![Stargazers over time](https://starchart.cc/gethiox/HIDI.svg)](https://starchart.cc/gethiox/HIDI)
 
 If you like my project and had a lot of fun with it, consider supporting it by `Sponsor` GitHub button
