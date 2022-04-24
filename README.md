@@ -20,6 +20,14 @@ Demo video:
 Ultimate successor of [keyboard2000](https://github.com/gethiox/keyboard2000)
 and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 
+![Linux](https://img.shields.io/badge/OS-Linux-blue)
+![go version](https://img.shields.io/github/go-mod/go-version/gethiox/HIDI)
+![last release](https://img.shields.io/github/v/release/gethiox/HIDI)
+[![GoDoc reference example](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/gethiox/HIDI)
+[![GoReportCard example](https://goreportcard.com/badge/github.com/gethiox/HIDI)](https://goreportcard.com/report/github.com/gethiox/HIDI)  
+![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
+![downloads latest](https://img.shields.io/github/downloads/gethiox/HIDI/latest/total)
+
 # What it is for?
 HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface.  
 This way you can play on your **computer keyboard as MIDI device**, use gamepad analog sticks to control
@@ -160,7 +168,5 @@ I have a few unanswered questions that might improve overall user experience:
 If you know something about it, let me know.
 
 # Support
-
-[![Stargazers over time](https://starchart.cc/gethiox/HIDI.svg)](https://starchart.cc/gethiox/HIDI)
 
 If you like my project and had a lot of fun with it, consider supporting it by `Sponsor` GitHub button
