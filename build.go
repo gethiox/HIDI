@@ -24,7 +24,7 @@ func (t *target) String() string {
 	}
 }
 
-func build(target target) {
+func build(target target) error {
 	var binaryPath = fmt.Sprintf("./builds/HIDI-%s", target.String())
 
 	var envVars = []string{
@@ -72,6 +72,7 @@ func build(target target) {
 	} else {
 		fmt.Printf("build succesful!: %s\n", binaryPath)
 	}
+	return err
 }
 
 var targets = []target{
@@ -103,17 +104,42 @@ func main() {
 			fmt.Printf("selection out of range: %d\n", selection)
 			os.Exit(1)
 		}
-		build(targets[selection])
+		err := build(targets[selection])
+		if err != nil {
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 
-	wg := sync.WaitGroup{}
+	var results = make(chan error)
+	var ok bool
+
+	wgResults := sync.WaitGroup{}
+	wgResults.Add(1)
+	go func() {
+		defer wgResults.Done()
+		for err := range results {
+			if err != nil {
+				return
+			}
+		}
+		ok = true
+	}()
+
+	wgBuild := sync.WaitGroup{}
 	for _, t := range targets {
-		wg.Add(1)
+		wgBuild.Add(1)
 		go func(target target) {
-			defer wg.Done()
-			build(target)
+			defer wgBuild.Done()
+			results <- build(target)
 		}(t)
 	}
-	wg.Wait()
+	wgBuild.Wait()
+	close(results)
+	wgResults.Wait()
+
+	if !ok {
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
