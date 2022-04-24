@@ -52,10 +52,16 @@ the best user experience possible.
 - Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
 - Support for optional HD44780 screens (16x2, 20x4) for displaying statistics  
 
+## In progress
+- Proper logging with multi-level debug option  
+  [x] - serialized logs in entire application
+  [x] - gocui cli view for logging, device statistics and virtual LCD information
+  [ ] - log deserialization
+  [ ] - pretty print for logs
+
 # TODO
 Missing features of 1.0 release scope:
 - Improve throttling logic to the best possible solution
-- Proper logging with multi-level debug option
 - Polish default configurations for keyboard and gamepad
 
 # Nice to have
