@@ -54,21 +54,21 @@ the best user experience possible.
 - Relatively good default configurations for keyboards and gamepads
 
 ## In progress
-- Proper logging with multi-level debug option  
+These are things that I want to make before 1.0 release:
+- [ ] Proper logging with multi-level debug option  
   - [x] serialized logs in entire application
   - [x] gocui cli view for logging, device statistics and virtual LCD information
   - [ ] log deserialization
   - [ ] pretty print for logs
-
-# TODO
-Missing features of 1.0 release scope:
-- Improve throttling logic to the best possible solution
+- [ ] Improve throttling logic to the best possible solution
+- [ ] General code cleanup
 
 # Nice to have
 - Utilize mouse's relative input
 - Gamepad analog deadzones and adjustable transform curve
 - configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
 - Localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
+- Automated tests
 
 ## Wishlist (far future)
 I think these things are possible to achieve. With enough interest and support I may be motivated to
