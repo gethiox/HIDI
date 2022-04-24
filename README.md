@@ -51,6 +51,7 @@ the best user experience possible.
 - Embedded config directory, if config directory doesn't exist, application will create default one
 - Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
 - Support for optional HD44780 screens (16x2, 20x4) for displaying statistics  
+- Relatively good default configurations for keyboards and gamepads
 
 ## In progress
 - Proper logging with multi-level debug option  
@@ -62,7 +63,6 @@ the best user experience possible.
 # TODO
 Missing features of 1.0 release scope:
 - Improve throttling logic to the best possible solution
-- Polish default configurations for keyboard and gamepad
 
 # Nice to have
 - Utilize mouse's relative input
