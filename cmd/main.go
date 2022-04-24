@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gethiox/HIDI/internal/pkg/cli"
 	"github.com/gethiox/HIDI/internal/pkg/display"
 	log2 "github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
@@ -52,6 +51,21 @@ root:
 	log.Info("Processing midi events stopped")
 }
 
+func FanOut[T any](input <-chan T) (<-chan T, <-chan T) {
+	var output1 = make(chan T, 1)
+	var output2 = make(chan T, 1)
+
+	go func() {
+		for v := range input {
+			output1 <- v
+			output2 <- v
+		}
+		close(output1)
+		close(output2)
+	}()
+	return output1, output2
+}
+
 func main() {
 	var grab, profile, noPony bool
 	var midiDevice, debug int
@@ -72,7 +86,7 @@ func main() {
 	flag.IntVar(&midiDevice, "mididevice", 0, "select N-th midi device, default: 0 (first)")
 	flag.Parse()
 
-	g, err := cli.GetCli()
+	g, err := GetCli()
 	if err != nil {
 		panic(err)
 	}
@@ -86,13 +100,13 @@ func main() {
 
 	go func() {
 		for {
-			g.Update(cli.Layout)
-			time.Sleep(time.Millisecond * 10)
+			g.Update(Layout) // high impact on performance/cpu usugae, especially in combination with hw display handler
+			time.Sleep(time.Millisecond * 100)
 		}
 	}()
 
 	time.Sleep(time.Millisecond * 500) // waiting for view init TODO: fix
-	f, err := cli.NewFeeder(g, cli.ViewLogs)
+	f, err := NewFeeder(g, ViewLogs)
 	if err != nil {
 		panic(err)
 	}
@@ -180,8 +194,28 @@ func main() {
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	go processMidiEvents(eventCtx, &wg, ioDevice, midiEvents, otherMidiEvents)
 	var devices = make(map[*midi.Device]*midi.Device, 16)
+
 	wg.Add(1)
-	go display.HandleDisplay(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
+	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
+	dd1, dd2 := FanOut(dd)
+	wg.Add(1)
+	go display.HandleDisplay(&wg, cfg.Screen, dd1)
+	go func(dd <-chan display.DisplayData) {
+		time.Sleep(time.Second)
+		view, err := g.View(ViewLCD)
+		if err != nil {
+			panic(err)
+		}
+
+		for data := range dd {
+			view.Clear()
+			for _, s := range data.Lines {
+				view.Write([]byte(s))
+			}
+		}
+	}(dd2)
+
+	// go display.HandleDisplay(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
 
 	runManager(ctx, cfg, midiEvents, grab, devices, confNotifier)
 

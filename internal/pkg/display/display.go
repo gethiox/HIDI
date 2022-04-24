@@ -1,16 +1,13 @@
 package display
 
 import (
-	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	device "github.com/d2r2/go-hd44780"
 	"github.com/d2r2/go-i2c"
 	shittyLogger "github.com/d2r2/go-logger"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
-	"github.com/gethiox/HIDI/internal/pkg/midi"
 )
 
 var log = logger.GetLogger()
@@ -41,12 +38,39 @@ func loadCustomCharacters(lcd *device.Lcd, characters [][]byte) {
 
 }
 
-func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, devices map[*midi.Device]*midi.Device, midiEventCounter, score *uint) {
-	defer wg.Done()
-	if !cfg.Enabled {
-		return
-	}
+var conversionMap = map[rune]byte{
+	'▁': 0,
+	'▂': 1,
+	'▃': 2,
+	'▄': 3,
+	'▅': 4,
+	'▆': 5,
+	'▇': 6,
+	'█': 7,
+	'❤': 0,
+	'░': 1,
+}
 
+func replaceCharsForDisplay(s string) string {
+	var ns string
+	for _, r := range s {
+		n, ok := conversionMap[r]
+		if ok {
+			ns += string(n)
+		} else {
+			ns += string(r)
+		}
+	}
+	return ns
+}
+
+type DisplayData struct {
+	Lines   [4]string
+	LastMsg bool // inform LCD about loading exit message to load differrent custom character set
+}
+
+func HandleDisplay(wg *sync.WaitGroup, cfg ScreenConfig, dd <-chan DisplayData) {
+	defer wg.Done()
 	lcd, bus, err := getDisplay(cfg.Address, cfg.Bus, cfg.LcdType)
 	if err != nil {
 		if bus != nil {
@@ -71,108 +95,26 @@ func HandleDisplay(ctx context.Context, wg *sync.WaitGroup, cfg ScreenConfig, de
 	lcd.BacklightOn()
 	lcd.Clear()
 
-	lastMidiEventsEmitted := *midiEventCounter
-
-	var graph []uint
-	var graphPointer int
-	for i := 0; i < 20; i++ {
-		graph = append(graph, 0)
-	}
-
-	var x, y uint = 0, 1
-	var counterMaxValue = x - y
-	var lastProcessingDuration time.Duration
-
-root:
-	for {
-		start := time.Now()
-
-		var devCount = len(devices)
-		var eventsPerSecond uint
-
-		if lastMidiEventsEmitted > *midiEventCounter {
-			eventsPerSecond = (counterMaxValue - lastMidiEventsEmitted) + *midiEventCounter // handling counter overflow
+	for data := range dd {
+		if !data.LastMsg {
+			for i, s := range data.Lines {
+				fixed := replaceCharsForDisplay(s)
+				lcd.SetPosition(i, 0)
+				lcd.Write([]byte(fixed))
+			}
 		} else {
-			eventsPerSecond = *midiEventCounter - lastMidiEventsEmitted
-		}
-		lastMidiEventsEmitted = *midiEventCounter
-
-		graph[graphPointer] = eventsPerSecond
-		if graphPointer < 19 {
-			graphPointer++
-		} else {
-			graphPointer = 0
-		}
-
-		var handlerCount int
-
-		for _, midiDev := range devices {
-			handlerCount += len(midiDev.InputDevice.Handlers)
-		}
-
-		lcd.SetPosition(0, 0)
-		fmt.Fprintf(lcd, "devices: %11d", devCount)
-		lcd.SetPosition(1, 0)
-		fmt.Fprintf(lcd, "handlers: %10d", handlerCount)
-		lcd.SetPosition(2, 0)
-		fmt.Fprintf(lcd, "events: %12d", eventsPerSecond)
-		lcd.SetPosition(3, 0)
-
-		var maxGraph uint
-		for _, graphVal := range graph {
-			if graphVal > maxGraph {
-				maxGraph = graphVal
+			loadCustomCharacters(lcd, [][]byte{
+				{0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00},
+				{0x06, 0x0C, 0x1B, 0x13, 0x10, 0x00, 0x00, 0x00},
+			})
+			lcd.Clear()
+			for i, s := range data.Lines {
+				fixed := replaceCharsForDisplay(s)
+				lcd.SetPosition(i, 0)
+				lcd.Write([]byte(fixed))
 			}
 		}
-		if maxGraph < 8 {
-			maxGraph = 8
-		}
 
-		for i := 0; i < 20; i++ {
-			index := (graphPointer + i) % 20
-			graphVal := graph[index]
-			if graphVal == 0 {
-				lcd.Write([]byte{' '})
-				continue
-			}
-
-			realVal := float64(graphVal) / (float64(maxGraph) + 1) * 7
-
-			lcd.Write([]byte{byte(realVal)})
-		}
-		lastProcessingDuration = time.Now().Sub(start)
-
-		select {
-		case <-ctx.Done():
-			break root
-		case <-time.After((time.Duration(cfg.UpdateRate) * time.Second) - lastProcessingDuration):
-			break
-		}
-	}
-
-	log.Info(fmt.Sprintf("closing display"))
-
-	lcd.Clear()
-	if !cfg.HaveExitMessage() {
-		heart := []byte{0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00}
-		randomChar := []byte{0x06, 0x0C, 0x1B, 0x13, 0x10, 0x00, 0x00, 0x00}
-
-		loadCustomCharacters(lcd, [][]byte{heart, randomChar})
-
-		lcd.SetPosition(0, 0)
-		fmt.Fprintf(lcd, "                    ")
-		lcd.SetPosition(1, 0)
-		fmt.Fprintf(lcd, " thanks for playing ")
-		lcd.SetPosition(2, 0)
-		fmt.Fprintf(lcd, "    %s with HIDI %s  ", string(1), string(0))
-		lcd.SetPosition(3, 0)
-		msg := fmt.Sprintf("(score: %d)", *score)
-		fmt.Fprintf(lcd, fmt.Sprintf("%*s", -20, fmt.Sprintf("%*s", (20+len(msg))/2, msg)))
-	} else {
-		for i, msg := range cfg.ExitMessage {
-			lcd.SetPosition(i, 0)
-			fmt.Fprintf(lcd, msg[:20])
-		}
 	}
 
 	bus.Close()

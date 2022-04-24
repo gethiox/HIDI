@@ -10,6 +10,7 @@ require (
 	github.com/go-ini/ini v1.66.4
 	github.com/holoplot/go-evdev v0.0.0-20220421121408-c80ef6a93985
 	github.com/jroimartin/gocui v0.5.0
+	github.com/logrusorgru/aurora v2.0.3+incompatible
 	github.com/moutend/go-midi v0.3.1
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/zap v1.21.0
