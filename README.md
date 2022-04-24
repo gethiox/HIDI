@@ -54,10 +54,10 @@ the best user experience possible.
 
 ## In progress
 - Proper logging with multi-level debug option  
-  [x] - serialized logs in entire application
-  [x] - gocui cli view for logging, device statistics and virtual LCD information
-  [ ] - log deserialization
-  [ ] - pretty print for logs
+  - [x] serialized logs in entire application
+  - [x] gocui cli view for logging, device statistics and virtual LCD information
+  - [ ] log deserialization
+  - [ ] pretty print for logs
 
 # TODO
 Missing features of 1.0 release scope:
