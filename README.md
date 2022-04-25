@@ -171,4 +171,5 @@ If you know something about it, let me know.
 
 # Support
 
-If you like my project and had a lot of fun with it, consider supporting it by `Sponsor` GitHub button
+If you like my project, appreciate my time and effort and most importantly you had a lot of fun with it,
+consider supporting it by `Sponsor` GitHub button
