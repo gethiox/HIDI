@@ -96,7 +96,7 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 
 # Requirements
 - Dedicated machine with Linux
-- Yhe most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.  
+- The most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
   However, there are no limits, it can be run on practically all Linux-supported platforms, including x86-64.
 - In the case of Pi Zero, USB HAT may be useful
 - **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
@@ -139,24 +139,26 @@ it depends on my free time and free will as well.
 
 ### Bugs
 
-If you faced a bug, instability or general problems with starting application, feel free to open issue
-and provide some basic information like error messages and logs.  
+If you faced a bug, instability or general problems with application, feel free to open issue
+and provide some information like error messages and logs.  
 In the case of problems with your specific HID devices,
 please provide the full content of `/proc/bus/input/devices` file.
 
 ### Code
 
 Feel free to contribute fixes, improvements and little features to the codebase. I do not have any
-guide for that for now. In some places my code may be convoluted and not easy to understand (mostly `cmd` directory),
+guide for now. In some places my code may be convoluted and not easy to understand (mostly `cmd` directory),
 but besides of that, applying changes should be pretty straight-forward.
 
 ### Configurations
 
-If your keyboard doesn't work correctly with default mappings, create `Factory` configuration for your device type.   
-Make sure it has proper values in `Identifier` section and loads correctly, also make sure that all default
-mappings are working (Piano, Chromatic, Control - this one covers all keyboard keys with unique notes).
-After that, you can create pull request if you wish to share it with the project.  
+If your keyboard doesn't work correctly with default mappings, create `Factory` configuration for your device type.
+Make sure it has proper values in `Identifier` section and loads correctly.  
 For more information, see [guide](cmd/config/user/README.md)
+
+You can create pull request if you wish to share it with the project. But before that,
+make sure that all default mappings are working
+(Piano, Chromatic, Control - this one covers all keyboard keys with unique notes).    
 
 ### My little questions
 
