@@ -57,7 +57,7 @@ func Layout(g *gocui.Gui) error {
 		// }
 	}
 
-	if v, err := g.SetView(ViewOverview, maxX-68, 0, maxX-1, 10); err != nil {
+	if v, err := g.SetView(ViewOverview, maxX-69, 0, maxX-1, 10); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
@@ -67,7 +67,7 @@ func Layout(g *gocui.Gui) error {
 		v.Frame = true
 	}
 
-	x := maxX - 68 - 22
+	x := maxX - 69 - 22
 
 	if v, err := g.SetView(ViewLCD, x, 0, x+21, 5); err != nil {
 		if err != gocui.ErrUnknownView {

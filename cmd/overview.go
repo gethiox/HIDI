@@ -68,6 +68,12 @@ func logVeiw(g *gocui.Gui, logLevel int) {
 	if err != nil {
 		panic(err)
 	}
+
+	_, y := feeder.view.Size()
+	for i := 0; i < y; i++ {
+		feeder.view.Write([]byte("\n"))
+	}
+
 	for msg := range logger.Messages {
 		feeder.Write(msg)
 	}
