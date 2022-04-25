@@ -29,7 +29,7 @@ and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 ![downloads latest](https://img.shields.io/github/downloads/gethiox/HIDI/latest/total)
 ![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 
-# What it is for?
+# Purpose
 HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface.  
 This way you can play on your **computer keyboard as MIDI device**, use gamepad analog sticks to control
 pitch-bend and CC. As many devices as you want, simultaneously.
