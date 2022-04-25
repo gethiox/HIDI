@@ -6,8 +6,9 @@ These are things that I want to make before 1.0 release:
 - [ ] Proper logging with multi-level debug option
   - [x] serialized logs in entire application
   - [x] gocui cli view for logging, device statistics and virtual LCD information
-  - [ ] log deserialization
-  - [ ] pretty print for logs
+  - [x] log deserialization
+  - [x] pretty print for logs
+  - [ ] output colorization
 - [ ] Improve throttling logic to the best possible solution
 - [ ] General code cleanup
 
