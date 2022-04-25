@@ -112,21 +112,11 @@ func main() {
 	}()
 
 	time.Sleep(time.Millisecond * 500) // waiting for view init TODO: fix
-	f, err := NewFeeder(g, ViewLogs, logLevel)
-	if err != nil {
-		panic(err)
-	}
 
 	createConfigDirectory()
 
 	// this wait-group has to be propagated everywhere where usual logging appear
 	wg := sync.WaitGroup{}
-
-	go func() {
-		for msg := range logger.Messages {
-			f.Write(msg)
-		}
-	}()
 
 	var server *http.Server
 
@@ -200,6 +190,9 @@ func main() {
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	go processMidiEvents(eventCtx, &wg, ioDevice, midiEvents, otherMidiEvents)
 	var devices = make(map[*midi.Device]*midi.Device, 16)
+
+	go logVeiw(g, logLevel)
+	go overviewView(g, devices)
 
 	wg.Add(1)
 	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
