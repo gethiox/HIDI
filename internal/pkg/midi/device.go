@@ -49,6 +49,9 @@ type Device struct {
 	multiNote  []int // list of additional note intervals (offsets)
 	mapping    int
 	ccLearning bool
+
+	actionsPress   map[config.Action]func()
+	actionsRelease map[config.Action]func()
 }
 
 func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event) Device {
@@ -75,7 +78,7 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		}
 	}
 
-	return Device{
+	d := Device{
 		config:      cfg.Config,
 		InputDevice: inputDevice,
 		inputEvents: inputEvents,
@@ -87,15 +90,8 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		actionTracker:     make(map[config.Action]bool, 16),
 		ccZeroed:          make(map[byte]bool, 32),
 	}
-}
-func (d *Device) log(msg string, fields ...zap.Field) {
-	fields = append(fields, zap.String("device_name", d.InputDevice.Name))
-	log.Info(msg, fields...)
-}
 
-func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
-	defer wg.Done()
-	var actionsPress = map[config.Action]func(){
+	d.actionsPress = map[config.Action]func(){
 		config.Panic:        d.Panic,
 		config.MappingUp:    d.MappingUp,
 		config.MappingDown:  d.MappingDown,
@@ -108,41 +104,49 @@ func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 		config.Multinote:    func() {}, // on key release only
 		config.Learning:     d.CCLearningOn,
 	}
-
-	var actionsRelease = map[config.Action]func(){
+	d.actionsRelease = map[config.Action]func(){
 		config.Learning: d.CCLearningOff,
 	}
+	return d
+}
+func (d *Device) log(msg string, fields ...zap.Field) {
+	fields = append(fields, zap.String("device_name", d.InputDevice.Name))
+	log.Info(msg, fields...)
+}
 
-	invokeActionPress := func(action config.Action) {
-		if f, ok := actionsPress[action]; ok {
-			f()
-		}
+func (d *Device) invokeActionPress(action config.Action) {
+	if f, ok := d.actionsPress[action]; ok {
+		f()
 	}
+}
 
-	invokeActionRelease := func(action config.Action) {
-		if f, ok := actionsRelease[action]; ok {
-			f()
-		}
+func (d *Device) invokeActionRelease(action config.Action) {
+	if f, ok := d.actionsRelease[action]; ok {
+		f()
 	}
+}
 
-	checkDoubleActions := func() (executed bool) {
-		if len(d.actionTracker) > 1 {
-			switch {
-			case d.actionTracker[config.MappingUp] && d.actionTracker[config.MappingDown]:
-				d.MappingReset()
-			case d.actionTracker[config.OctaveUp] && d.actionTracker[config.OctaveDown]:
-				d.OctaveReset()
-			case d.actionTracker[config.SemitoneUp] && d.actionTracker[config.SemitoneDown]:
-				d.SemitoneReset()
-			case d.actionTracker[config.ChannelUp] && d.actionTracker[config.ChannelDown]:
-				d.ChannelReset()
-			default:
-				return false
-			}
-			return true
+func (d *Device) checkDoubleActions() bool {
+	if len(d.actionTracker) > 1 {
+		switch {
+		case d.actionTracker[config.MappingUp] && d.actionTracker[config.MappingDown]:
+			d.MappingReset()
+		case d.actionTracker[config.OctaveUp] && d.actionTracker[config.OctaveDown]:
+			d.OctaveReset()
+		case d.actionTracker[config.SemitoneUp] && d.actionTracker[config.SemitoneDown]:
+			d.SemitoneReset()
+		case d.actionTracker[config.ChannelUp] && d.actionTracker[config.ChannelDown]:
+			d.ChannelReset()
+		default:
+			return false
 		}
-		return false
+		return true
 	}
+	return false
+}
+
+func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
+	defer wg.Done()
 
 	for ie := range d.inputEvents {
 		if ie.Event.Type == evdev.EV_SYN {
@@ -155,179 +159,9 @@ func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 
 		switch ie.Event.Type {
 		case evdev.EV_KEY:
-			_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
-			action, actionOk := d.config.ActionMapping[ie.Event.Code]
-
-			switch {
-			case actionOk:
-				switch ie.Event.Value {
-				case EV_KEY_PRESS:
-					d.actionTracker[action] = true
-					if !checkDoubleActions() {
-						invokeActionPress(action)
-					}
-				case EV_KEY_RELEASE:
-					switch action {
-					case config.Multinote:
-						d.Multinote()
-					}
-					invokeActionRelease(action)
-					delete(d.actionTracker, action)
-				}
-			case noteOk:
-				switch ie.Event.Value {
-				case EV_KEY_PRESS:
-					d.NoteOn(ie.Event.Code)
-				case EV_KEY_RELEASE:
-					d.NoteOff(ie.Event.Code)
-				}
-			default:
-				switch {
-				case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_RELEASE:
-					continue
-				case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_REPEAT:
-					continue
-				}
-
-				d.log(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()),
-					zap.String("handler_event", ie.Source.Event()),
-				)
-			}
+			d.handleKEYEvent(ie)
 		case evdev.EV_ABS:
-			analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
-
-			switch {
-			case analogOk:
-				// converting integer value to float
-				// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
-				var value float64
-				var canBeNegative bool
-				min := d.absinfos[ie.Source.Event()][ie.Event.Code].Minimum
-				max := d.absinfos[ie.Source.Event()][ie.Event.Code].Maximum
-				if min < 0 {
-					canBeNegative = true
-				}
-
-				if ie.Event.Value < 0 {
-					value = float64(ie.Event.Value) / math.Abs(float64(min))
-				} else {
-					value = float64(ie.Event.Value) / math.Abs(float64(max))
-				}
-
-				if analog.FlipAxis {
-					if canBeNegative {
-						value = -value
-					} else {
-						value = 1.0 - value
-					}
-				}
-
-				if d.ccLearning && !(value < -0.5 || value > 0.5) {
-					continue
-				}
-
-				switch analog.MappingType {
-				case config.AnalogCC:
-					var adjustedValue float64
-
-					switch {
-					case canBeNegative && analog.Bidirectional:
-						adjustedValue = math.Abs(value)
-						if value < 0 {
-							d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
-							if !d.ccZeroed[analog.CC] {
-								d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
-								d.ccZeroed[analog.CC] = true
-							}
-							d.ccZeroed[analog.CCNeg] = false
-						} else {
-							d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-							if !d.ccZeroed[analog.CCNeg] {
-								d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
-								d.ccZeroed[analog.CCNeg] = true
-							}
-							d.ccZeroed[analog.CC] = false
-						}
-					case canBeNegative && !analog.Bidirectional:
-						adjustedValue = (value + 1) / 2
-						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-					case !canBeNegative && analog.Bidirectional:
-						adjustedValue = math.Abs(value*2 - 1)
-						if value < 0.5 {
-							d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
-							if !d.ccZeroed[analog.CC] {
-								d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
-								d.ccZeroed[analog.CC] = true
-							}
-							d.ccZeroed[analog.CCNeg] = false
-						} else {
-							d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-							if !d.ccZeroed[analog.CCNeg] {
-								d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
-								d.ccZeroed[analog.CCNeg] = true
-							}
-							d.ccZeroed[analog.CC] = false
-						}
-					case !canBeNegative && !analog.Bidirectional:
-						adjustedValue = value
-						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-					default:
-						d.log(fmt.Sprintf("This should not happen: %s", ie.Event.String()),
-							zap.String("handler_event", ie.Source.Event()),
-						)
-					}
-				case config.AnalogPitchBend:
-					if canBeNegative {
-						d.midiEvents <- PitchBendEvent(d.channel, value)
-					} else {
-						d.midiEvents <- PitchBendEvent(d.channel, value*2-1.0)
-					}
-				case config.AnalogKeySim:
-					identifier := fmt.Sprintf("%d", ie.Event.Code) // for tracking purpose
-					note := analog.Note
-
-					if analog.Bidirectional && value < 0 {
-						note = analog.NoteNeg
-						identifier = fmt.Sprintf("%d_neg", ie.Event.Code)
-					}
-
-					v := math.Abs(value)
-					switch {
-					case v > 0.5:
-						_, ok := d.analogNoteTracker[identifier]
-						if !ok {
-							d.AnalogNoteOn(identifier, note)
-						}
-					case v < 0.49:
-						d.AnalogNoteOff(fmt.Sprintf("%d", ie.Event.Code))
-						d.AnalogNoteOff(fmt.Sprintf("%d_neg", ie.Event.Code))
-					}
-				case config.AnalogActionSim:
-					action := analog.Action
-					if analog.Bidirectional && value < 0 {
-						action = analog.ActionNeg
-					}
-
-					if checkDoubleActions() {
-						continue
-					}
-
-					v := math.Abs(value)
-					if v > 0.5 {
-						invokeActionPress(action)
-						d.actionTracker[action] = true
-					} else {
-						delete(d.actionTracker, analog.Action)
-						delete(d.actionTracker, analog.ActionNeg)
-					}
-				default:
-					panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType))
-				}
-			default:
-				d.log(fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
-					zap.String("handler_event", ie.Source.Event()),
-				)
-			}
+			d.handleABSEvent(ie)
 		}
 	}
 
@@ -342,6 +176,184 @@ func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 		d.AnalogNoteOff(identifier)
 	}
 	d.log("virtual midi device exited")
+}
+
+func (d *Device) handleKEYEvent(ie input.InputEvent) {
+	_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
+	action, actionOk := d.config.ActionMapping[ie.Event.Code]
+
+	switch {
+	case actionOk:
+		switch ie.Event.Value {
+		case EV_KEY_PRESS:
+			d.actionTracker[action] = true
+			if !d.checkDoubleActions() {
+				d.invokeActionPress(action)
+			}
+		case EV_KEY_RELEASE:
+			switch action {
+			case config.Multinote:
+				d.Multinote()
+			}
+			d.invokeActionRelease(action)
+			delete(d.actionTracker, action)
+		}
+	case noteOk:
+		switch ie.Event.Value {
+		case EV_KEY_PRESS:
+			d.NoteOn(ie.Event.Code)
+		case EV_KEY_RELEASE:
+			d.NoteOff(ie.Event.Code)
+		}
+	default:
+		switch {
+		case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_RELEASE:
+			return
+		case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_REPEAT:
+			return
+		}
+
+		d.log(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()),
+			zap.String("handler_event", ie.Source.Event()),
+		)
+	}
+}
+
+func (d *Device) handleABSEvent(ie input.InputEvent) {
+	analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
+
+	switch {
+	case analogOk:
+		// converting integer value to float
+		// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
+		var value float64
+		var canBeNegative bool
+		min := d.absinfos[ie.Source.Event()][ie.Event.Code].Minimum
+		max := d.absinfos[ie.Source.Event()][ie.Event.Code].Maximum
+		if min < 0 {
+			canBeNegative = true
+		}
+
+		if ie.Event.Value < 0 {
+			value = float64(ie.Event.Value) / math.Abs(float64(min))
+		} else {
+			value = float64(ie.Event.Value) / math.Abs(float64(max))
+		}
+
+		if analog.FlipAxis {
+			if canBeNegative {
+				value = -value
+			} else {
+				value = 1.0 - value
+			}
+		}
+
+		if d.ccLearning && !(value < -0.5 || value > 0.5) {
+			return
+		}
+
+		switch analog.MappingType {
+		case config.AnalogCC:
+			var adjustedValue float64
+
+			switch {
+			case canBeNegative && analog.Bidirectional:
+				adjustedValue = math.Abs(value)
+				if value < 0 {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+					if !d.ccZeroed[analog.CC] {
+						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
+						d.ccZeroed[analog.CC] = true
+					}
+					d.ccZeroed[analog.CCNeg] = false
+				} else {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+					if !d.ccZeroed[analog.CCNeg] {
+						d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
+						d.ccZeroed[analog.CCNeg] = true
+					}
+					d.ccZeroed[analog.CC] = false
+				}
+			case canBeNegative && !analog.Bidirectional:
+				adjustedValue = (value + 1) / 2
+				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+			case !canBeNegative && analog.Bidirectional:
+				adjustedValue = math.Abs(value*2 - 1)
+				if value < 0.5 {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+					if !d.ccZeroed[analog.CC] {
+						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
+						d.ccZeroed[analog.CC] = true
+					}
+					d.ccZeroed[analog.CCNeg] = false
+				} else {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+					if !d.ccZeroed[analog.CCNeg] {
+						d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
+						d.ccZeroed[analog.CCNeg] = true
+					}
+					d.ccZeroed[analog.CC] = false
+				}
+			case !canBeNegative && !analog.Bidirectional:
+				adjustedValue = value
+				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+			default:
+				d.log(fmt.Sprintf("This should not happen: %s", ie.Event.String()),
+					zap.String("handler_event", ie.Source.Event()),
+				)
+			}
+		case config.AnalogPitchBend:
+			if canBeNegative {
+				d.midiEvents <- PitchBendEvent(d.channel, value)
+			} else {
+				d.midiEvents <- PitchBendEvent(d.channel, value*2-1.0)
+			}
+		case config.AnalogKeySim:
+			identifier := fmt.Sprintf("%d", ie.Event.Code) // for tracking purpose
+			note := analog.Note
+
+			if analog.Bidirectional && value < 0 {
+				note = analog.NoteNeg
+				identifier = fmt.Sprintf("%d_neg", ie.Event.Code)
+			}
+
+			v := math.Abs(value)
+			switch {
+			case v > 0.5:
+				_, ok := d.analogNoteTracker[identifier]
+				if !ok {
+					d.AnalogNoteOn(identifier, note)
+				}
+			case v < 0.49:
+				d.AnalogNoteOff(fmt.Sprintf("%d", ie.Event.Code))
+				d.AnalogNoteOff(fmt.Sprintf("%d_neg", ie.Event.Code))
+			}
+		case config.AnalogActionSim:
+			action := analog.Action
+			if analog.Bidirectional && value < 0 {
+				action = analog.ActionNeg
+			}
+
+			if d.checkDoubleActions() {
+				return
+			}
+
+			v := math.Abs(value)
+			if v > 0.5 {
+				d.invokeActionPress(action)
+				d.actionTracker[action] = true
+			} else {
+				delete(d.actionTracker, analog.Action)
+				delete(d.actionTracker, analog.ActionNeg)
+			}
+		default:
+			panic(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType))
+		}
+	default:
+		d.log(fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
+			zap.String("handler_event", ie.Source.Event()),
+		)
+	}
 }
 
 func (d *Device) NoteOn(evCode evdev.EvCode) {
