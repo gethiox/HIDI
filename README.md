@@ -80,12 +80,13 @@ the best user experience possible.
 ## Wishlist (far future)
 Features that are possible to achieve. With enough interest and support I may be motivated to implement these.
 
-- Network MIDI (no specific solution yet)
+- Network MIDI (no specific solution on my radar yet)
 - Bluetooth MIDI device (either platforms with integrated bluetooth or USB dongle)
 - Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Fully featured DAW control plugins
 - MIDI sequencer
-- [OpenRGB](https://openrgb.org/) - useful for both DAW control and MIDI sequencer  
+- [OpenRGB](https://openrgb.org/) - could be most useful both DAW control and MIDI sequencer, could light on
+  specific midi mappings on generic midi keyboards as well  
   (for supported devices in [keyboards](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards)
   section)
 
