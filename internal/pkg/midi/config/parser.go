@@ -37,14 +37,14 @@ type YamlCustomMapping struct {
 
 type DeviceConfig struct {
 	ConfigFile string
-	Name       string // factory or user
+	ConfigType string // factory or user
 	ID         input.InputID
 	Uniq       string
 	Config     Config
 }
 
 // readDeviceConfig parses yaml file and provide ready to use DeviceConfig
-func readDeviceConfig(path, name string) (DeviceConfig, error) {
+func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 	cfg := YamlDeviceConfig{}
 	fd, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
@@ -206,7 +206,7 @@ func readDeviceConfig(path, name string) (DeviceConfig, error) {
 
 	devConfig := DeviceConfig{
 		ConfigFile: path2.Base(path),
-		Name:       name,
+		ConfigType: configType,
 		ID: input.InputID{
 			Bus:     cfg.Identifier.Bus,
 			Vendor:  cfg.Identifier.Vendor,

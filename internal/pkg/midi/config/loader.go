@@ -95,7 +95,7 @@ func LoadDeviceConfigs(configNotifier chan<- validate.NotifyMessage) (DeviceConf
 		{userGamepad, cfg.User.Gamepads, "user"},
 		{userKeyboard, cfg.User.Keyboards, "user"},
 	} {
-		err, fails, _ := loadDirectory(pair.root, pair.configMap)
+		err, fails, _ := loadDirectory(pair.root, pair.identifier, pair.configMap)
 
 		if pair.identifier == "user" {
 			userFails += fails
@@ -111,7 +111,7 @@ func LoadDeviceConfigs(configNotifier chan<- validate.NotifyMessage) (DeviceConf
 	return cfg, nil
 }
 
-func loadDirectory(root string, configMap ConfigMap) (err error, fails, success int) {
+func loadDirectory(root, configType string, configMap ConfigMap) (err error, fails, success int) {
 	err = filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
@@ -120,7 +120,7 @@ func loadDirectory(root string, configMap ConfigMap) (err error, fails, success 
 		name := strings.ToLower(info.Name())
 
 		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-			devCfg, err := readDeviceConfig(path, name)
+			devCfg, err := readDeviceConfig(path, configType)
 			if err != nil {
 				log.Info(fmt.Sprintf("device config %s load failed: %s", name, err), logger.Warning)
 				fails++

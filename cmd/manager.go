@@ -84,13 +84,16 @@ root:
 				if err != nil {
 					panic(err)
 				}
-				log.Info("Config loaded!", zap.String("device_name", dev.Name), zap.String("config", conf.Name), logger.Info)
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents)
 				devices[&midiDev] = &midiDev
-				log.Info("Starting to process events", zap.String("device_name", dev.Name), logger.Debug)
 				wg.Add(1)
+				log.Info("Device connected", zap.String("device_name", dev.Name),
+					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),
+					zap.String("device_type", dev.DeviceType.String()),
+					logger.Info,
+				)
 				midiDev.ProcessEvents(&wg)
-				log.Info("Event processing finished", zap.String("device_name", dev.Name), logger.Debug)
+				log.Info("Device disconnected", zap.String("device_name", dev.Name), logger.Info)
 				delete(devices, &midiDev)
 			}(d)
 		}

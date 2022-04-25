@@ -109,10 +109,6 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 	}
 	return d
 }
-func (d *Device) log(msg string, fields ...zap.Field) {
-	fields = append(fields, zap.String("device_name", d.InputDevice.Name))
-	log.Info(msg, fields...)
-}
 
 func (d *Device) logFields(fields ...zap.Field) []zap.Field {
 	fields = append(fields, zap.String("device_name", d.InputDevice.Name))
@@ -219,8 +215,10 @@ func (d *Device) handleKEYEvent(ie input.InputEvent) {
 			return
 		}
 
-		log.Info(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()),
-			d.logFields(logger.KeysNotAssigned, zap.String("handler_event", ie.Source.Event()))...,
+		log.Info(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()), d.logFields(
+			logger.KeysNotAssigned,
+			zap.String("handler_event", ie.Source.Event()),
+		)...,
 		)
 	}
 }

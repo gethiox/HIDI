@@ -111,6 +111,7 @@ type Entry struct {
 	HandlerEvent string `json:"handler_event"`
 	HandlerName  string `json:"handler_name"`
 	Config       string `json:"config"`
+	DeviceType   string `json:"device_type"`
 }
 
 func unpack(data []byte) (Entry, error) {
@@ -150,13 +151,16 @@ func (f *Feeder) Write(data []byte) {
 	ml := fmt.Sprintf("[%s] %s", tf, msg.Msg)
 	mr := ""
 	if msg.Config != "" {
-		mr += fmt.Sprintf(" [%s]", msg.Config)
+		mr += fmt.Sprintf(" [config=%s]", msg.Config)
 	}
 	if msg.HandlerName != "" {
 		mr += fmt.Sprintf(" [handler=%s]", msg.HandlerName)
 	}
 	if msg.HandlerEvent != "" {
 		mr += fmt.Sprintf(" [%s]", msg.HandlerEvent)
+	}
+	if msg.DeviceType != "" {
+		mr += fmt.Sprintf(" [type=%s]", msg.DeviceType)
 	}
 	if msg.Device != "" {
 		mr += fmt.Sprintf(" [dev=%s]", msg.Device)
