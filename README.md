@@ -133,7 +133,8 @@ Any kind of help is highly appreciated!
 ### Features
 
 You can propose features and improvements. There is no guarantee that I'm going to implement it right-away.
-It depends on the complexity of given feature and overall integrity with the rest of application.
+It depends on the complexity of given feature and overall integrity with the rest of application,
+it depends on my free time and free will as well.
 
 ### Bugs
 
