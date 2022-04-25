@@ -52,8 +52,14 @@ root:
 }
 
 func FanOut[T any](input <-chan T) (<-chan T, <-chan T) {
-	var output1 = make(chan T, 1)
-	var output2 = make(chan T, 1)
+	size := cap(input)
+	if size == 0 {
+		// at least size of 1 to prevent from output channels blocking by each other
+		// also to keep running just one goroutine
+		size = 1
+	}
+	var output1 = make(chan T, size)
+	var output2 = make(chan T, size)
 
 	go func() {
 		for v := range input {
