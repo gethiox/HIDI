@@ -15,7 +15,7 @@ func monitorNewHandlers(ctx context.Context, discoveryRate time.Duration) <-chan
 
 	go func() {
 		var previous = make(map[string]bool)
-		log.Info(fmt.Sprintf("monitoring nev event handlers"))
+		log.Info("monitoring nev event handlers")
 
 		firstRun := true
 	root:
@@ -65,7 +65,6 @@ func monitorNewHandlers(ctx context.Context, discoveryRate time.Duration) <-chan
 			}
 
 			if len(newEvents) > 0 {
-				log.Info(fmt.Sprintf("sending new events: %+v", newEvents))
 				newHandlers <- newEvents
 			}
 		}
@@ -83,9 +82,7 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 		newEvents := monitorNewHandlers(ctx, discoveryRate)
 		var events []string
 
-		log.Info(fmt.Sprintf("merging proces engaged"))
 		firstRun := true
-
 	root:
 		for {
 			if !firstRun {

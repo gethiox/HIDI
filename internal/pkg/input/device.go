@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/holoplot/go-evdev"
+	"go.uber.org/zap"
 )
 
 // Collects all separate device-info handlers together for building one logical handler
@@ -248,7 +249,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		wg.Add(1)
 		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan InputEvent) {
-			path := dev.Path()
+			event := info.Event()
 			name, _ := dev.Name()
 			name = strings.Trim(name, "\x00") // TODO: fix in go-evdev
 			defer wg.Done()
@@ -256,13 +257,15 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 			if grab {
 				_ = dev.Grab()
-				log.Info(fmt.Sprintf("Grabbing device for exclusive usage [%s] [%s]", path, name))
+				log.Info("Grabbing device for exclusive usage", zap.String("handler_event", event), zap.String("handler_name", name))
 			}
-			log.Info(fmt.Sprintf("Reading input events [%s] [%s]", path, name))
+			log.Info("Reading input events", zap.String("handler_event", event), zap.String("handler_name", name))
 
 			err = dev.NonBlock()
 			if err != nil {
-				fmt.Printf("enabling non-blocking event reading mode failed: %v [%s] [%s]\n", err, path, name)
+				log.Info(fmt.Sprintf("enabling non-blocking event reading mode failed: %v", err),
+					zap.String("handler_event", event), zap.String("handler_name", name),
+				)
 			}
 			for {
 				event, err := dev.ReadOne()
@@ -287,10 +290,10 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				events <- outputEvent
 			}
 			if grab {
-				log.Info(fmt.Sprintf("Ungrabbing device [%s] [%s]", path, name))
+				log.Info("Ungrabbing device", zap.String("handler_event", event), zap.String("handler_name", name))
 				_ = dev.Ungrab()
 			}
-			log.Info(fmt.Sprintf("Reading input events finished [%s] [%s]", path, name))
+			log.Info("Reading input events finished", zap.String("handler_event", event), zap.String("handler_name", name))
 		}(dev, ht, h, absEvents)
 	}
 

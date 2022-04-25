@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/jroimartin/gocui"
 	"github.com/logrusorgru/aurora"
@@ -41,7 +44,7 @@ func Layout(g *gocui.Gui) error {
 		}
 		v.Title = "[Logs]"
 		v.Autoscroll = true
-		v.Wrap = true
+		v.Wrap = false
 		v.Frame = true
 
 		// for i := 0; i < 200; i++ {
@@ -82,6 +85,38 @@ func quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.ErrQuit
 }
 
+type TimeNanosecond time.Time
+
+// Implement Marshaler and Unmarshaler interface
+func (j *TimeNanosecond) UnmarshalJSON(b []byte) error {
+	v, err := strconv.ParseInt(string(b), 10, 64)
+	if err != nil {
+		return err
+	}
+	*j = TimeNanosecond(time.Unix(0, v))
+	return nil
+}
+
+func (j TimeNanosecond) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Time(j))
+}
+
+type Entry struct {
+	Ts     TimeNanosecond `json:"ts"`
+	Caller string         `json:"caller"`
+	Msg    string         `json:"msg"`
+
+	Device       string `json:"device_name"`
+	HandlerEvent string `json:"handler_event"`
+	HandlerName  string `json:"handler_name"`
+}
+
+func unpack(data []byte) (Entry, error) {
+	var v Entry
+	err := json.Unmarshal(data, &v)
+	return v, err
+}
+
 type Feeder struct {
 	view *gocui.View
 }
@@ -96,8 +131,36 @@ func NewFeeder(gui *gocui.Gui, viewName string) (Feeder, error) {
 }
 
 func (f *Feeder) Write(data []byte) {
+	x, _ := f.view.Size()
+	msg, err := unpack(data)
+	if err != nil {
+		f.view.Write([]byte{'\n'})
+		f.view.Write(data)
+		f.view.Write([]byte{'\n'})
+		f.view.Write([]byte("kurwa"))
+		f.view.Write([]byte(fmt.Sprintf("%v", err)))
+		return
+	}
+
+	tf := time.Time(msg.Ts).Format("03:04:05.000")
+	ml := fmt.Sprintf("[%s] %s", tf, msg.Msg)
+	mr := ""
+	if msg.HandlerEvent != "" {
+		mr += fmt.Sprintf(" [%s]", msg.HandlerEvent)
+	}
+	if msg.HandlerName != "" {
+		mr += fmt.Sprintf(" [%s]", msg.HandlerName)
+	}
+	if msg.Device != "" {
+		mr += fmt.Sprintf(" [dev=%s]", msg.Device)
+	}
+	mr += fmt.Sprintf(" (%s)", msg.Caller)
+
+	mrPad := fmt.Sprintf("%%%ds", x-len(ml)-1)
+	mrPadded := fmt.Sprintf(mrPad, mr)
+	m := fmt.Sprintf("%s %s", ml, mrPadded)
 	f.view.Write([]byte{'\n'})
-	f.view.Write(data)
+	f.view.Write([]byte(m))
 }
 
 func (f *Feeder) OverWrite(data []byte) {

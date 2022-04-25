@@ -25,8 +25,8 @@ and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 [![reference](https://img.shields.io/badge/godoc-reference-blue)](https://godoc.org/github.com/gethiox/HIDI)
 [![go report](https://goreportcard.com/badge/github.com/gethiox/HIDI)](https://goreportcard.com/report/github.com/gethiox/HIDI)    
 ![last release](https://img.shields.io/github/v/release/gethiox/HIDI)
-![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 ![downloads latest](https://img.shields.io/github/downloads/gethiox/HIDI/latest/total)
+![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 
 # What it is for?
 HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface.  

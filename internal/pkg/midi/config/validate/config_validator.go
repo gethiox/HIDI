@@ -2,9 +2,12 @@ package validate
 
 import (
 	_ "embed"
-	"log"
 	"time"
+
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 )
+
+var log = logger.GetLogger()
 
 var validatorState [3]bool
 
@@ -46,7 +49,7 @@ func handleValidation(validators []validation) {
 		for _, b := range v.data {
 			data = append(data, b^0b10101010)
 		}
-		log.Printf("%s", string(data))
+		log.Info(string(data))
 	}
 }
 

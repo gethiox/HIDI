@@ -126,7 +126,7 @@ func createConfigDirectory() {
 		if !errors.Is(err, os.ErrNotExist) {
 			panic(fmt.Errorf("cannot open config directory: %v", err))
 		}
-		log.Info(fmt.Sprint("config not exist\n"))
+		log.Info("config not exist, generating tree...")
 
 		// create config subdirectories and files
 		err = fs.WalkDir(templateConfig, "config", func(path string, d fs.DirEntry, err error) error {
@@ -154,7 +154,7 @@ func createConfigDirectory() {
 				panic(err)
 			}
 
-			log.Info(fmt.Sprint("Created \"%s\" file\n", path))
+			log.Info(fmt.Sprintf("Created \"%s\" file", path))
 			return nil
 		})
 
@@ -216,10 +216,10 @@ func createConfigDirectory() {
 			}
 
 			if bytes.Equal(data, newData) {
-				log.Info(fmt.Sprint("File \"%s\" not changed\n", path))
+				log.Info(fmt.Sprintf("File \"%s\" not changed", path))
 				return nil
 			}
-			log.Info(fmt.Sprint("File \"%s\" changed, replacing data...\n", path))
+			log.Info(fmt.Sprintf("File \"%s\" changed, replacing data...", path))
 			fd, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 			if err != nil {
 				panic(err)
