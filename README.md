@@ -114,6 +114,9 @@ Just run `go run build.go`
 By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage
 
 # Usage
+
+![](docs/interface.png)
+
 Just place binary on your platform and run by `./HIDI`  
 See `-h` flag for available optional arguments
 
