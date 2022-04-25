@@ -9,7 +9,9 @@ These are things that I want to make before 1.0 release:
   - [x] log deserialization
   - [x] pretty print for logs
   - [ ] output colorization
+- [ ] implement device overveiw status
 - [ ] Improve throttling logic to the best possible solution
+- [ ] Optimize output writing to buffers
 - [ ] General code cleanup
 
 # HIDI
