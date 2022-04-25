@@ -10,6 +10,30 @@ import (
 
 var Messages = make(chan []byte, 128)
 
+const (
+	ErrorLvl           = 0
+	WarningLvl         = 1
+	InfoLvl            = 2
+	ActionLvl          = 3
+	KeysLvl            = 4
+	KeysNotAssignedLvl = 5
+	AnalogLvl          = 6
+
+	DebugLvl = 378
+)
+
+var (
+	Error           = zap.Int("level", ErrorLvl)
+	Warning         = zap.Int("level", WarningLvl)
+	Info            = zap.Int("level", InfoLvl)
+	Action          = zap.Int("level", ActionLvl)
+	Keys            = zap.Int("level", KeysLvl)
+	KeysNotAssigned = zap.Int("level", KeysNotAssignedLvl)
+	Analog          = zap.Int("level", AnalogLvl)
+
+	Debug = zap.Int("level", 378)
+)
+
 type chanWriter struct {
 	sync.Mutex
 	ws zapcore.WriteSyncer

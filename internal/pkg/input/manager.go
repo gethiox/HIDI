@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/holoplot/go-evdev"
 )
 
@@ -15,7 +16,7 @@ func monitorNewHandlers(ctx context.Context, discoveryRate time.Duration) <-chan
 
 	go func() {
 		var previous = make(map[string]bool)
-		log.Info("monitoring nev event handlers")
+		log.Info("monitoring nev event handlers", logger.Debug)
 
 		firstRun := true
 	root:
@@ -77,7 +78,7 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 	var devChan = make(chan Device)
 
 	go func() {
-		log.Info("Monitor new devices engaged")
+		log.Info("Monitor new devices engaged", logger.Debug)
 
 		newEvents := monitorNewHandlers(ctx, discoveryRate)
 		var events []string
@@ -144,7 +145,7 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 			events = nil
 		}
 
-		log.Info("Monitor new devices disengaged")
+		log.Info("Monitor new devices disengaged", logger.Debug)
 		close(devChan)
 	}()
 

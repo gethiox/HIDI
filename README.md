@@ -85,7 +85,7 @@ Features that are possible to achieve. With enough interest and support I may be
 - Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Fully featured DAW control plugins
 - MIDI sequencer
-- [OpenRGB](https://openrgb.org/) - could be most useful both DAW control and MIDI sequencer, could light on
+- [OpenRGB](https://openrgb.org/) - could be most useful for DAW control and MIDI sequencer, could light on
   specific midi mappings on generic midi keyboards as well  
   (for supported devices in [keyboards](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards)
   section)
@@ -98,9 +98,9 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
 # Requirements
 - Dedicated machine with Linux
 - The most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
-  However, there are no limits, it can be run on practically all Linux-supported platforms, including x86-64.
+  However, there are no limits, it can be run on practically all Linux-supported platforms.
 - In the case of Pi Zero, USB HAT may be useful
-- **decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
+- **Decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work just fine). Here is my recommendation:
   ![no china usb midi](./docs/no-china-usb-midi.png)
 - If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
@@ -158,7 +158,7 @@ Make sure it has proper values in `Identifier` section and loads correctly.
 For more information, see [guide](cmd/config/user/README.md)
 
 You can create pull request if you wish to share it with the project. But before that,
-make sure that all default mappings are working
+make sure that all default mappings are working and arranged correctly
 (Piano, Chromatic, Control - this one covers all keyboard keys with unique notes).    
 
 ### My little questions

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 )
 
 func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
@@ -22,7 +23,7 @@ func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
 			<-ctx.Done()
 			err := watcher.Close()
 			if err != nil {
-				log.Info(fmt.Sprintf("closing watched failed: %v", err))
+				log.Info(fmt.Sprintf("closing watched failed: %v", err), logger.Debug)
 			}
 		}()
 
@@ -42,7 +43,7 @@ func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
 
 			name := strings.ToLower(event.Name)
 			if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") {
-				log.Info(fmt.Sprintf("config change detected: %s", event.Name))
+				log.Info(fmt.Sprintf("config change detected: %s", event.Name), logger.Info)
 				change <- true
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 )
 
@@ -121,7 +122,7 @@ func loadDirectory(root string, configMap ConfigMap) (err error, fails, success 
 		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 			devCfg, err := readDeviceConfig(path, name)
 			if err != nil {
-				log.Info(fmt.Sprintf("device config %s load failed: %s", name, err))
+				log.Info(fmt.Sprintf("device config %s load failed: %s", name, err), logger.Warning)
 				fails++
 				return nil
 			}

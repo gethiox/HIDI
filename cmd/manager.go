@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
@@ -21,7 +22,7 @@ func runManager(ctx context.Context, cfg HIDIConfig, midiEvents chan<- midi.Even
 
 	wg := sync.WaitGroup{}
 
-	log.Info("Run manager")
+	log.Info("Run manager", logger.Debug)
 root:
 	for {
 		select {
@@ -33,7 +34,7 @@ root:
 
 		configs, err := config.LoadDeviceConfigs(configNotifier)
 		if err != nil {
-			log.Info(fmt.Sprintf("Device Configs load failed: %s", err))
+			log.Info(fmt.Sprintf("Device Configs load failed: %s", err), logger.Error)
 			os.Exit(1)
 		}
 
@@ -44,7 +45,7 @@ root:
 			defer wg.Done()
 			select {
 			case <-deviceConfigChange:
-				log.Info("handling config change")
+				log.Info("handling config change", logger.Debug)
 				cancel()
 			case <-ctx.Done():
 				cancel()
@@ -60,12 +61,12 @@ root:
 
 			appearedAt := time.Now()
 
-			log.Info("Opening device...", zap.String("device_name", d.Name))
+			log.Info("Opening device...", zap.String("device_name", d.Name), logger.Debug)
 			for {
 				inputEvents, err = d.ProcessEvents(ctxConfigChange, grab, cfg.HIDI.EVThrottling)
 				if err != nil {
 					if time.Now().Sub(appearedAt) > time.Second*5 {
-						log.Info("failed to open device on time, giving up", zap.String("device_name", d.Name))
+						log.Info("failed to open device on time, giving up", zap.String("device_name", d.Name), logger.Warning)
 						continue device
 					}
 					time.Sleep(time.Millisecond * 100)
@@ -73,28 +74,27 @@ root:
 				}
 				break
 			}
-			log.Info("Device Opened!", zap.String("device_name", d.Name))
 
 			wg.Add(1)
 			go func(dev input.Device) {
 				defer wg.Done()
-				log.Info("Loading config for keyboard...", zap.String("device_name", dev.Name))
+				log.Info("Loading config for keyboard...", zap.String("device_name", dev.Name), logger.Debug)
 				conf, err := configs.FindConfig(dev.ID, dev.DeviceType)
 
 				if err != nil {
 					panic(err)
 				}
-				log.Info("Config loaded!", zap.String("device_name", dev.Name))
+				log.Info("Config loaded!", zap.String("device_name", dev.Name), zap.String("config", conf.Name), logger.Info)
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents)
 				devices[&midiDev] = &midiDev
-				log.Info("Starting to process events", zap.String("device_name", dev.Name))
+				log.Info("Starting to process events", zap.String("device_name", dev.Name), logger.Debug)
 				wg.Add(1)
 				midiDev.ProcessEvents(&wg)
-				log.Info("Event processing finished", zap.String("device_name", dev.Name))
+				log.Info("Event processing finished", zap.String("device_name", dev.Name), logger.Debug)
 				delete(devices, &midiDev)
 			}(d)
 		}
 	}
 	wg.Wait()
-	log.Info("Exit manager")
+	log.Info("Exit manager", logger.Debug)
 }

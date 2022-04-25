@@ -12,6 +12,7 @@ import (
 
 	"github.com/d2r2/go-hd44780"
 	"github.com/gethiox/HIDI/internal/pkg/display"
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/go-ini/ini"
 )
 
@@ -126,7 +127,7 @@ func createConfigDirectory() {
 		if !errors.Is(err, os.ErrNotExist) {
 			panic(fmt.Errorf("cannot open config directory: %v", err))
 		}
-		log.Info("config not exist, generating tree...")
+		log.Info("config not exist, generating tree...", logger.Info)
 
 		// create config subdirectories and files
 		err = fs.WalkDir(templateConfig, "config", func(path string, d fs.DirEntry, err error) error {
@@ -154,7 +155,7 @@ func createConfigDirectory() {
 				panic(err)
 			}
 
-			log.Info(fmt.Sprintf("Created \"%s\" file", path))
+			log.Info(fmt.Sprintf("Created \"%s\" file", path), logger.Debug)
 			return nil
 		})
 
@@ -216,10 +217,10 @@ func createConfigDirectory() {
 			}
 
 			if bytes.Equal(data, newData) {
-				log.Info(fmt.Sprintf("File \"%s\" not changed", path))
+				log.Info(fmt.Sprintf("File \"%s\" not changed", path), logger.Debug)
 				return nil
 			}
-			log.Info(fmt.Sprintf("File \"%s\" changed, replacing data...", path))
+			log.Info(fmt.Sprintf("File \"%s\" changed, replacing data...", path), logger.Debug)
 			fd, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 			if err != nil {
 				panic(err)

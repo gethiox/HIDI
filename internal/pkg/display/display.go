@@ -78,6 +78,7 @@ func HandleDisplay(wg *sync.WaitGroup, cfg ScreenConfig, dd <-chan DisplayData) 
 		}
 		return
 	}
+	defer bus.Close()
 
 	var barChars = [][]byte{
 		{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F}, // "▁"
@@ -117,6 +118,5 @@ func HandleDisplay(wg *sync.WaitGroup, cfg ScreenConfig, dd <-chan DisplayData) 
 
 	}
 
-	bus.Close()
-	log.Info(fmt.Sprintf("display closed"))
+	log.Info(fmt.Sprintf("display closed"), logger.Debug)
 }

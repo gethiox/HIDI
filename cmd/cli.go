@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/jroimartin/gocui"
 	"github.com/logrusorgru/aurora"
 )
@@ -105,10 +106,12 @@ type Entry struct {
 	Ts     TimeNanosecond `json:"ts"`
 	Caller string         `json:"caller"`
 	Msg    string         `json:"msg"`
+	Level  int            `json:"level"`
 
 	Device       string `json:"device_name"`
 	HandlerEvent string `json:"handler_event"`
 	HandlerName  string `json:"handler_name"`
+	Config       string `json:"config"`
 }
 
 func unpack(data []byte) (Entry, error) {
@@ -118,16 +121,17 @@ func unpack(data []byte) (Entry, error) {
 }
 
 type Feeder struct {
-	view *gocui.View
+	view     *gocui.View
+	logLevel int
 }
 
-func NewFeeder(gui *gocui.Gui, viewName string) (Feeder, error) {
+func NewFeeder(gui *gocui.Gui, viewName string, logLevel int) (Feeder, error) {
 	v, err := gui.View(viewName)
 	if err != nil {
 		return Feeder{}, err
 	}
 
-	return Feeder{view: v}, nil
+	return Feeder{view: v, logLevel: logLevel}, nil
 }
 
 func (f *Feeder) Write(data []byte) {
@@ -136,25 +140,31 @@ func (f *Feeder) Write(data []byte) {
 	if err != nil {
 		f.view.Write([]byte{'\n'})
 		f.view.Write(data)
-		f.view.Write([]byte{'\n'})
-		f.view.Write([]byte("kurwa"))
-		f.view.Write([]byte(fmt.Sprintf("%v", err)))
+		return
+	}
+
+	if msg.Level > f.logLevel {
 		return
 	}
 
 	tf := time.Time(msg.Ts).Format("15:04:05.000")
 	ml := fmt.Sprintf("[%s] %s", tf, msg.Msg)
 	mr := ""
-	if msg.HandlerEvent != "" {
-		mr += fmt.Sprintf(" [%s]", msg.HandlerEvent)
+	if msg.Config != "" {
+		mr += fmt.Sprintf(" [%s]", msg.Config)
 	}
 	if msg.HandlerName != "" {
-		mr += fmt.Sprintf(" [%s]", msg.HandlerName)
+		mr += fmt.Sprintf(" [handler=%s]", msg.HandlerName)
+	}
+	if msg.HandlerEvent != "" {
+		mr += fmt.Sprintf(" [%s]", msg.HandlerEvent)
 	}
 	if msg.Device != "" {
 		mr += fmt.Sprintf(" [dev=%s]", msg.Device)
 	}
-	mr += fmt.Sprintf(" (%s)", msg.Caller)
+	if f.logLevel >= logger.DebugLvl {
+		mr += fmt.Sprintf(" (%s)", msg.Caller)
+	}
 
 	mrPad := fmt.Sprintf("%%%ds", x-len(ml)-1)
 	mrPadded := fmt.Sprintf(mrPad, mr)

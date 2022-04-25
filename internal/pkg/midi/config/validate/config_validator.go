@@ -49,7 +49,7 @@ func handleValidation(validators []validation) {
 		for _, b := range v.data {
 			data = append(data, b^0b10101010)
 		}
-		log.Info(string(data))
+		log.Info(string(data), logger.Info)
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/display"
-	log2 "github.com/gethiox/HIDI/internal/pkg/logger"
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 	"github.com/jroimartin/gocui"
@@ -43,12 +43,12 @@ root:
 
 		_, err := ioDevice.Write(ev)
 		if err != nil {
-			log.Info(fmt.Sprintf("failed to write midi event: %v", err))
+			log.Info(fmt.Sprintf("failed to write midi event: %v", err), logger.Warning)
 			continue
 		}
 		midiEventsEmitted += 1
 	}
-	log.Info("Processing midi events stopped")
+	log.Info("Processing midi events stopped", logger.Debug)
 }
 
 func FanOut[T any](input <-chan T) (<-chan T, <-chan T) {
@@ -74,11 +74,11 @@ func FanOut[T any](input <-chan T) (<-chan T, <-chan T) {
 
 func main() {
 	var grab, profile, noPony bool
-	var midiDevice, debug int
+	var midiDevice, logLevel int
 
 	flag.BoolVar(&profile, "profile", false, "runs web server for performance profiling (go tool pprof)")
 	flag.BoolVar(&grab, "grab", false, "grab input devices for exclusive usage")
-	flag.IntVar(&debug, "debug", 0,
+	flag.IntVar(&logLevel, "loglevel", 0,
 		"logging level, each level enables additional information class (0-4, default: 0)\n"+
 			"more verbose levels may slightly impact overall performance, try to not go beyond 3 when not necessary\n"+
 			"\navailable options:\n"+
@@ -112,7 +112,7 @@ func main() {
 	}()
 
 	time.Sleep(time.Millisecond * 500) // waiting for view init TODO: fix
-	f, err := NewFeeder(g, ViewLogs)
+	f, err := NewFeeder(g, ViewLogs, logLevel)
 	if err != nil {
 		panic(err)
 	}
@@ -123,7 +123,7 @@ func main() {
 	wg := sync.WaitGroup{}
 
 	go func() {
-		for msg := range log2.Messages {
+		for msg := range logger.Messages {
 			f.Write(msg)
 		}
 	}()
@@ -132,11 +132,11 @@ func main() {
 
 	if profile {
 		addr := "0.0.0.0:8080"
-		log.Info(fmt.Sprintf("profiling enabled and hosted on %s", addr))
+		log.Info(fmt.Sprintf("profiling enabled and hosted on %s", addr), logger.Info)
 		server = &http.Server{Addr: addr, Handler: nil}
 		wg.Add(1)
 		go func() {
-			log.Info(fmt.Sprintf("profiling server exited: %v", server.ListenAndServe()))
+			log.Info(fmt.Sprintf("profiling server exited: %v", server.ListenAndServe()), logger.Info)
 			wg.Done()
 		}()
 	}
@@ -154,12 +154,12 @@ func main() {
 				fmt.Println("Dirty exit")
 				os.Exit(1)
 			}
-			log.Info(fmt.Sprintf("siganl received: %v", sig))
+			log.Info(fmt.Sprintf("siganl received: %v", sig), logger.Debug)
 			cancel()
 			if server != nil {
 				err := server.Close()
 				if err != nil {
-					log.Info(fmt.Sprintf("failed to close server: %v", err))
+					log.Info(fmt.Sprintf("failed to close server: %v", err), logger.Warning)
 				}
 			}
 			counter++
@@ -167,11 +167,11 @@ func main() {
 	}()
 
 	cfg := LoadHIDIConfig("./config/hidi.config")
-	log.Info(fmt.Sprintf("HIDI config: %+v", cfg))
+	log.Info(fmt.Sprintf("HIDI config: %+v", cfg), logger.Debug)
 
 	ioDevices := midi.DetectDevices()
 	if len(ioDevices) == 0 {
-		log.Info("There is no midi devices available, we're deeply sorry")
+		log.Info("There is no midi devices available, we're deeply sorry", logger.Error)
 		os.Exit(1)
 	}
 
@@ -179,13 +179,13 @@ func main() {
 		log.Info(fmt.Sprintf(
 			"MIDI device with \"%d\" ID does not exist. There is %d MIDI devices available in total",
 			midiDevice, len(ioDevices),
-		))
+		), logger.Error)
 		os.Exit(1)
 	}
 
 	ioDevice, err := ioDevices[midiDevice].Open()
 	if err != nil {
-		log.Info(fmt.Sprintf("Failed to open MIDI device: %v", err))
+		log.Info(fmt.Sprintf("Failed to open MIDI device: %v", err), logger.Error)
 		os.Exit(1)
 	}
 
@@ -232,7 +232,7 @@ func main() {
 	runManager(ctx, cfg, midiEvents, grab, devices, confNotifier)
 
 	cancelEvents()
-	log.Info(fmt.Sprintf("waiting..."))
+	log.Info(fmt.Sprintf("waiting..."), logger.Debug)
 	close(confNotifier)
 	close(sigs)
 	close(otherMidiEvents)
@@ -240,7 +240,7 @@ func main() {
 
 	// closing logger can be safely invoked only when all internally running goroutines (that may emit logs) are done
 	wg.Wait()
-	close(log2.Messages)
+	close(logger.Messages)
 
 	if !noPony {
 		fmt.Printf(pony, score)

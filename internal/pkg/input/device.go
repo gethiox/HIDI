@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/holoplot/go-evdev"
 	"go.uber.org/zap"
 )
@@ -257,14 +258,15 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 			if grab {
 				_ = dev.Grab()
-				log.Info("Grabbing device for exclusive usage", zap.String("handler_event", event), zap.String("handler_name", name))
+				log.Info("Grabbing device for exclusive usage", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
 			}
-			log.Info("Reading input events", zap.String("handler_event", event), zap.String("handler_name", name))
+			log.Info("Reading input events", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
 
 			err = dev.NonBlock()
 			if err != nil {
 				log.Info(fmt.Sprintf("enabling non-blocking event reading mode failed: %v", err),
 					zap.String("handler_event", event), zap.String("handler_name", name),
+					logger.Warning,
 				)
 			}
 			for {
@@ -290,16 +292,16 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				events <- outputEvent
 			}
 			if grab {
-				log.Info("Ungrabbing device", zap.String("handler_event", event), zap.String("handler_name", name))
+				log.Info("Ungrabbing device", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
 				_ = dev.Ungrab()
 			}
-			log.Info("Reading input events finished", zap.String("handler_event", event), zap.String("handler_name", name))
+			log.Info("Reading input events finished", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
 		}(dev, ht, h, absEvents)
 	}
 
 	go func() {
 		wg.Wait()
-		log.Info(fmt.Sprintf("All handlers done, closing events channel"))
+		log.Info(fmt.Sprintf("All handlers done, closing events channel"), logger.Debug)
 		close(events)
 	}()
 
