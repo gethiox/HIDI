@@ -85,7 +85,9 @@ Features that are possible to achieve. With enough interest and support I may be
 - Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Fully featured DAW control plugins
 - MIDI sequencer
-- [OpenRGB](https://openrgb.org/) support - useful for both DAW controller and MIDI sequencer
+- [OpenRGB](https://openrgb.org/) - useful for both DAW control and MIDI sequencer  
+  (for supported devices in [keyboards](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards)
+  section)
 
 Have you some improvement/feature idea not listed here? Feel free to leave it in `Discussions` section!
 
