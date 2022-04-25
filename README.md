@@ -40,7 +40,7 @@ and hardware synthesizers**.
 Easy to use, easy to customize, and it has many quality of life features, carefully crafted with love to provide
 the best user experience possible.
 
-- Any number of **customized MIDI mappings**, switchable by dedicated key
+- Any number of **customized MIDI mappings**, switchable by dedicated key,
   Piano, Chromatic and Control (every key with unique midi note, useful for DAW control) provided as default configuration
 - Gamepad analog input to **control CC, pitch-bend** and note/action emulation
 - Several actions like **octave** control (F1-F2), **semitone** (F3-F4), **mapping** (F5-F6), **channel** (F7-F8),
@@ -55,9 +55,8 @@ the best user experience possible.
 - NKRO keyboards support (if it can be enabled in hardware by some key-sequence)
 - You can connect as many HID devices as you have free USB slots
 - **All devices are loaded/unloaded completely dynamically**
-- Application will reload configuration when new one will appear or existing one was changed.  
-  Very useful when user want to craft their own configuration, thanks to that he can test his modifications
-  in realtime without unnecessary interruption like restarting application
+- Application will reload configuration when new one will appear or existing one was changed.
+  Very useful when user want to craft their own configuration
 
 # Significant improvements since beta release
 - YAML configurations for devices. automatic reload
@@ -77,12 +76,12 @@ the best user experience possible.
 - Gamepad analog deadzones and adjustable transform curve
 - configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
 - Localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
-- Automated tests
 
 ## Wishlist (far future)
-I think these things are possible to achieve. With enough interest and support I may be motivated to
-implement these features.
+Features that are possible to achieve. With enough interest and support I may be motivated to implement these.
 
+- Network MIDI (no specific solution yet)
+- Bluetooth MIDI device (either platforms with integrated bluetooth or USB dongle)
 - Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Fully featured DAW control plugins
 - MIDI sequencer
