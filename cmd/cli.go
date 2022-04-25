@@ -142,7 +142,7 @@ func (f *Feeder) Write(data []byte) {
 		return
 	}
 
-	tf := time.Time(msg.Ts).Format("03:04:05.000")
+	tf := time.Time(msg.Ts).Format("15:04:05.000")
 	ml := fmt.Sprintf("[%s] %s", tf, msg.Msg)
 	mr := ""
 	if msg.HandlerEvent != "" {
