@@ -55,6 +55,7 @@ func overviewView(g *gocui.Gui, devices map[*midi.Device]*midi.Device) {
 				len(d.InputDevice.Handlers),
 			)
 			viewData = append(viewData, s)
+			viewData = append(viewData, "└ "+d.Status())
 		}
 
 		view.Clear()

@@ -582,6 +582,17 @@ func (d *Device) CCLearningOff() {
 	log.Info("CC learning mode disabled", d.logFields(logger.Action)...)
 }
 
+func (d *Device) Status() string {
+	return fmt.Sprintf(
+		"octave: %3d, semitone: %3d, ch: %2d, notes: %2d, map: %s",
+		d.octave,
+		d.semitone,
+		d.channel+1,
+		len(d.noteTracker)+len(d.analogNoteTracker),
+		d.config.KeyMappings[d.mapping].Name,
+	)
+}
+
 func DetectDevices() []IODevice {
 	fd, err := os.Open("/dev/snd")
 	if err != nil {
