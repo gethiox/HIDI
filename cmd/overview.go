@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -31,8 +32,6 @@ func overviewView(g *gocui.Gui, devices map[*midi.Device]*midi.Device) {
 	}
 
 	for {
-		time.Sleep(time.Millisecond * 500)
-
 		var viewData []string
 		viewData = append(viewData, "Devices:")
 
@@ -45,10 +44,14 @@ func overviewView(g *gocui.Gui, devices map[*midi.Device]*midi.Device) {
 		sort.Sort(ptrs)
 
 		for _, d := range ptrs {
+			dname := d.InputDevice.Name
+			dtype := d.InputDevice.DeviceType.String()
+			nameSep := 30 - len(dname)
+			typeSep := 8 - len(dtype)
 			s := fmt.Sprintf(
-				"Name: %30s, Type: %8s, handlers: %2d",
-				d.InputDevice.Name,
-				d.InputDevice.DeviceType.String(),
+				"Name: %s, Type: %s, handlers: %2d",
+				strings.Repeat(" ", nameSep)+colorForString(dname).String(),
+				strings.Repeat(" ", typeSep)+colorForString(dtype).String(),
 				len(d.InputDevice.Handlers),
 			)
 			viewData = append(viewData, s)
@@ -59,7 +62,7 @@ func overviewView(g *gocui.Gui, devices map[*midi.Device]*midi.Device) {
 			view.Write([]byte{'\n'})
 			view.Write([]byte(d))
 		}
-
+		time.Sleep(time.Millisecond * 500)
 	}
 }
 

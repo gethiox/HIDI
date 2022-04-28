@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
+	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -47,14 +50,6 @@ func Layout(g *gocui.Gui) error {
 		v.Autoscroll = true
 		v.Wrap = false
 		v.Frame = true
-
-		// for i := 0; i < 200; i++ {
-		// 	fmt.Fprintf(v, fmt.Sprintf("\nHello world! %s %d", aurora.Red("asdf"), i))
-		// }
-		//
-		// for i := uint8(16); i <= 231; i++ {
-		// 	fmt.Fprintf(v, fmt.Sprintf("\n%d, %s, %s", i, aurora.Index(i, "pew-pew"), aurora.BgIndex(i, "pew-pew")))
-		// }
 	}
 
 	if v, err := g.SetView(ViewOverview, maxX-69, 0, maxX-1, 10); err != nil {
@@ -134,6 +129,84 @@ func NewFeeder(gui *gocui.Gui, viewName string, logLevel int) (Feeder, error) {
 	return Feeder{view: v, logLevel: logLevel}, nil
 }
 
+func color(r, g, b uint8) aurora.Color {
+	return aurora.Color(16 + 36*r + 6*g + b)
+}
+
+// r, g, b 0<=v<=6
+func getColor(r, g, b uint8, v interface{}) aurora.Value {
+	n := 16 + 36*r + 6*g + b
+	return aurora.Index(n, v)
+}
+
+func randomColor(v interface{}) aurora.Value {
+	return getColor(uint8(rand.Intn(7)), uint8(rand.Intn(7)), uint8(rand.Intn(7)), v)
+}
+
+func terminator(r rune) bool {
+	if r >= 0x40 && r <= 0x7e {
+		return true
+	}
+	return false
+}
+
+// returns random color for string, will return the same color for the same string
+func colorForString(s string) aurora.Value {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	sum := h.Sum32()
+
+	r, g, b := uint8(sum), uint8(sum>>8), uint8(sum>>16)
+
+	if r+g+b < 64 {
+		b = 64
+	}
+
+	return aurora.Index(16+36*r+6*g+b, s)
+	// return color(uint8(sum), uint8(sum>>8), uint8(sum>>16))
+}
+
+// rawStringLen returns a len of string ignoring included escape sequences
+func rawStringLen(s string) int {
+	var sequence bool
+	var escLens []int
+	var escLen int
+
+	for i, r := range s {
+		if !sequence {
+			if r == '\033' {
+				if i >= len(s)-1 { // esc seems to be last character
+					continue
+				}
+				if s[i+1] == '[' {
+					sequence = true
+					escLen += 1
+					continue
+				}
+
+			}
+		} else {
+			if r == '[' && s[i-1] == '\033' {
+				escLen += 1
+				continue
+			}
+			if terminator(r) {
+				sequence = false
+				escLen += 1
+				escLens = append(escLens, escLen)
+				escLen = 0
+			} else {
+				escLen += 1
+			}
+		}
+	}
+	var sum int
+	for _, x := range escLens {
+		sum += x
+	}
+	return len(s) - sum
+}
+
 func (f *Feeder) Write(data []byte) {
 	x, _ := f.view.Size()
 	msg, err := unpack(data)
@@ -148,32 +221,57 @@ func (f *Feeder) Write(data []byte) {
 	}
 
 	tf := time.Time(msg.Ts).Format("15:04:05.000")
-	ml := fmt.Sprintf("[%s] %s", tf, msg.Msg)
-	mr := ""
+
+	timestamp := fmt.Sprintf("[%s]", tf)
+
+	fields := ""
 	if msg.Config != "" {
-		mr += fmt.Sprintf(" [config=%s]", msg.Config)
+		fields += fmt.Sprintf(" [config=%s]", colorForString(msg.Config).String())
 	}
 	if msg.HandlerName != "" {
-		mr += fmt.Sprintf(" [handler=%s]", msg.HandlerName)
+		fields += fmt.Sprintf(" [handler=%s]", colorForString(msg.HandlerName).String())
 	}
 	if msg.HandlerEvent != "" {
-		mr += fmt.Sprintf(" [%s]", msg.HandlerEvent)
+		fields += fmt.Sprintf(" [%s]", colorForString(msg.HandlerEvent).String())
 	}
 	if msg.DeviceType != "" {
-		mr += fmt.Sprintf(" [type=%s]", msg.DeviceType)
+		fields += fmt.Sprintf(" [type=%s]", colorForString(msg.DeviceType).String())
 	}
 	if msg.Device != "" {
-		mr += fmt.Sprintf(" [dev=%s]", msg.Device)
+		fields += fmt.Sprintf(" [dev=%s]", colorForString(msg.Device).String())
 	}
 	if f.logLevel >= logger.DebugLvl {
-		mr += fmt.Sprintf(" (%s)", msg.Caller)
+		fields += fmt.Sprintf(" (%s)", colorForString(msg.Caller).String())
 	}
 
-	mrPad := fmt.Sprintf("%%%ds", x-len(ml)-1)
-	mrPadded := fmt.Sprintf(mrPad, mr)
-	m := fmt.Sprintf("%s %s", ml, mrPadded)
+	fieldsLen := rawStringLen(fields)
+	timeLen := len(timestamp)
+	msgLen := len(msg.Msg)
+
+	var m string
+	freeSpace := x - (timeLen + 1 + msgLen + 1 + fieldsLen)
+	if freeSpace < 0 {
+		limit := (x - (fieldsLen + 1 + timeLen + 1)) - 3
+		if limit < 20 {
+			m = msg.Msg
+			fields = aurora.Gray(12, "(fields hidden)").String()
+			freeSpace = x - (timeLen + 1 + msgLen + 1 + rawStringLen(fields))
+			if freeSpace < 0 {
+				freeSpace = 0
+			}
+		} else {
+			m = msg.Msg[:limit] + "(…)"
+			freeSpace = 0
+		}
+	} else {
+		m = msg.Msg
+	}
+
+	separators := strings.Repeat(" ", freeSpace)
+
+	mm := fmt.Sprintf("%s %s%s %s", timestamp, m, separators, fields)
 	f.view.Write([]byte{'\n'})
-	f.view.Write([]byte(m))
+	f.view.Write([]byte(mm))
 }
 
 func (f *Feeder) OverWrite(data []byte) {
