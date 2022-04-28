@@ -10,6 +10,7 @@ These are things that I want to make before 1.0 release:
   - [x] pretty print for logs
     - [x] align text to the terminal width
     - [x] handle small terminal windows, trimming message, hiding extra fields
+    - [ ] regenerate buffer output on terminal size change
   - [ ] output colorization
     - [x] initial colorization support
     - [x] colorize segments with unique color for strings for given sections

@@ -222,7 +222,7 @@ func (f *Feeder) Write(data []byte) {
 
 	tf := time.Time(msg.Ts).Format("15:04:05.000")
 
-	timestamp := fmt.Sprintf("[%s]", tf)
+	timestamp := fmt.Sprintf("[%s]", aurora.Blue(tf).String())
 
 	fields := ""
 	if msg.Config != "" {
@@ -245,7 +245,7 @@ func (f *Feeder) Write(data []byte) {
 	}
 
 	fieldsLen := rawStringLen(fields)
-	timeLen := len(timestamp)
+	timeLen := rawStringLen(timestamp)
 	msgLen := len(msg.Msg)
 
 	var m string
