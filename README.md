@@ -10,7 +10,7 @@ These are things that I want to make before 1.0 release:
   - [x] pretty print for logs
     - [x] align text to the terminal width
     - [x] handle small terminal windows, trimming message, hiding extra fields
-    - [ ] regenerate buffer output on terminal size change
+    - [ ] ~~regenerate buffer output on terminal size change~~ (Nice to have)
   - [x] output colorization
     - [x] initial colorization support
     - [x] colorize segments with unique color for strings for given sections
@@ -18,8 +18,8 @@ These are things that I want to make before 1.0 release:
     - [x] ~~16 and 0 colors mode with autodetection~~ 256 or no color mode, deal with it
 - [x] implement device overview status
 - [ ] Improve throttling logic to the best possible solution
-- [ ] Optimize output writing to buffers
-- [ ] General code cleanup
+- [x] ~~Optimize output writing to buffers~~ (Nice to have)
+- [x] ~~General code cleanup~~ (Nice to have)
 
 # HIDI
 
