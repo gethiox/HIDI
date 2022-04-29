@@ -577,6 +577,7 @@ func (d *Device) CCLearningOn() {
 	d.ccLearning = true
 	log.Info("CC learning mode enabled", d.logFields(logger.Action)...)
 }
+
 func (d *Device) CCLearningOff() {
 	d.ccLearning = false
 	log.Info("CC learning mode disabled", d.logFields(logger.Action)...)

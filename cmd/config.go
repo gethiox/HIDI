@@ -18,6 +18,7 @@ import (
 
 type HIDI struct {
 	EVThrottling        time.Duration
+	LogViewRate         time.Duration
 	DiscoveryRate       time.Duration
 	StabilizationPeriod time.Duration
 }
@@ -61,6 +62,13 @@ func LoadHIDIConfig(path string) HIDIConfig {
 		panic(err)
 	}
 	c.HIDI.StabilizationPeriod = time.Millisecond * time.Duration(i)
+
+	logViewRate, _ := hidi.GetKey("log_view_rate")
+	i, err = logViewRate.Int()
+	if err != nil {
+		panic(err)
+	}
+	c.HIDI.LogViewRate = time.Second / time.Duration(i)
 
 	// [screen]
 	screen, _ := cfg.GetSection("screen")
@@ -121,7 +129,7 @@ var templateConfig embed.FS
 
 // createConfigDirectory creates config directory if necessary.
 // It also updates Factory device configs, hidi.config stays intact.
-func createConfigDirectory() {
+func createConfigDirectoryIfNeeded() {
 	f, err := os.OpenFile("config", os.O_RDONLY, 0)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {

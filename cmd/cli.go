@@ -32,7 +32,7 @@ func GetCli() (*gocui.Gui, error) {
 
 	g.SetManagerFunc(Layout)
 
-	if err := g.SetKeybinding("", gocui.KeyCtrlQ, gocui.ModNone, quit); err != nil {
+	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
 		return nil, err
 	}
 
@@ -82,7 +82,6 @@ func quit(g *gocui.Gui, v *gocui.View) error {
 
 type TimeNanosecond time.Time
 
-// Implement Marshaler and Unmarshaler interface
 func (j *TimeNanosecond) UnmarshalJSON(b []byte) error {
 	v, err := strconv.ParseInt(string(b), 10, 64)
 	if err != nil {
@@ -117,16 +116,24 @@ func unpack(data []byte) (Entry, error) {
 
 type Feeder struct {
 	view     *gocui.View
+	au       aurora.Aurora
 	logLevel int
 }
 
-func NewFeeder(gui *gocui.Gui, viewName string, logLevel int) (Feeder, error) {
+func NewFeeder(gui *gocui.Gui, viewName string, logLevel int, au aurora.Aurora) (Feeder, error) {
 	v, err := gui.View(viewName)
 	if err != nil {
 		return Feeder{}, err
 	}
 
-	return Feeder{view: v, logLevel: logLevel}, nil
+	return Feeder{view: v, logLevel: logLevel, au: au}, nil
+}
+
+func gray(v uint8) aurora.Color {
+	if v > 23 {
+		v = 23
+	}
+	return aurora.Color(232+v) << 16
 }
 
 func color(r, g, b uint8) aurora.Color {
@@ -134,13 +141,13 @@ func color(r, g, b uint8) aurora.Color {
 }
 
 // r, g, b 0<=v<=6
-func getColor(r, g, b uint8, v interface{}) aurora.Value {
+func getColor(au aurora.Aurora, r, g, b uint8, v interface{}) aurora.Value {
 	n := 16 + 36*r + 6*g + b
-	return aurora.Index(n, v)
+	return au.Index(n, v)
 }
 
-func randomColor(v interface{}) aurora.Value {
-	return getColor(uint8(rand.Intn(7)), uint8(rand.Intn(7)), uint8(rand.Intn(7)), v)
+func randomColor(au aurora.Aurora, v interface{}) aurora.Value {
+	return getColor(au, uint8(rand.Intn(7)), uint8(rand.Intn(7)), uint8(rand.Intn(7)), v)
 }
 
 func terminator(r rune) bool {
@@ -151,7 +158,7 @@ func terminator(r rune) bool {
 }
 
 // returns random color for string, will return the same color for the same string
-func colorForString(s string) aurora.Value {
+func colorForString(au aurora.Aurora, s string) aurora.Value {
 	h := fnv.New32a()
 	h.Write([]byte(s))
 	sum := h.Sum32()
@@ -162,8 +169,12 @@ func colorForString(s string) aurora.Value {
 		b = 64
 	}
 
-	return aurora.Index(16+36*r+6*g+b, s)
+	return au.Index(16+36*r+6*g+b, s)
 	// return color(uint8(sum), uint8(sum>>8), uint8(sum>>16))
+}
+
+func secondProgress(t time.Time) float64 {
+	return float64(t.Nanosecond()) / 999999999.0
 }
 
 // rawStringLen returns a len of string ignoring included escape sequences
@@ -220,28 +231,60 @@ func (f *Feeder) Write(data []byte) {
 		return
 	}
 
-	tf := time.Time(msg.Ts).Format("15:04:05.000")
+	var msgColor aurora.Color
 
-	timestamp := fmt.Sprintf("[%s]", aurora.Blue(tf).String())
+	switch msg.Level {
+	case logger.ErrorLvl:
+		msgColor = color(5, 1, 1)
+	case logger.WarningLvl:
+		msgColor = color(5, 5, 1)
+	case logger.InfoLvl:
+		msgColor = gray(18)
+	case logger.ActionLvl:
+		msgColor = gray(18)
+	case logger.KeysLvl:
+		msgColor = gray(15)
+	case logger.KeysNotAssignedLvl:
+		msgColor = gray(13)
+	case logger.AnalogLvl:
+		msgColor = gray(11)
+	case logger.DebugLvl:
+		msgColor = gray(9)
+	}
+
+	t := time.Time(msg.Ts)
+
+	tf := t.Format("15:04:05")
+	tms := t.Format(".000")
+
+	var base uint8 = 16
+	base += uint8(secondProgress(t) * 8)
+
+	timestamp := fmt.Sprintf(
+		"[%s.%s]",
+		f.au.Reset(tf).Colorize(color(1, 1, 5)<<16).String(),
+		f.au.Reset(tms[1:]).Colorize(gray(base)).String(),
+	)
 
 	fields := ""
 	if msg.Config != "" {
-		fields += fmt.Sprintf(" [config=%s]", colorForString(msg.Config).String())
+		fields += fmt.Sprintf(" [config=%s]", colorForString(f.au, msg.Config).String())
 	}
 	if msg.HandlerName != "" {
-		fields += fmt.Sprintf(" [handler=%s]", colorForString(msg.HandlerName).String())
+		fields += fmt.Sprintf(" [handler=%s]", colorForString(f.au, msg.HandlerName).String())
 	}
 	if msg.HandlerEvent != "" {
-		fields += fmt.Sprintf(" [%s]", colorForString(msg.HandlerEvent).String())
+		fields += fmt.Sprintf(" [%s]", colorForString(f.au, msg.HandlerEvent).String())
 	}
 	if msg.DeviceType != "" {
-		fields += fmt.Sprintf(" [type=%s]", colorForString(msg.DeviceType).String())
+		fields += fmt.Sprintf(" [type=%s]", colorForString(f.au, msg.DeviceType).String())
 	}
 	if msg.Device != "" {
-		fields += fmt.Sprintf(" [dev=%s]", colorForString(msg.Device).String())
+		fields += fmt.Sprintf(" [dev=%s]", colorForString(f.au, msg.Device).String())
 	}
 	if f.logLevel >= logger.DebugLvl {
-		fields += fmt.Sprintf(" (%s)", colorForString(msg.Caller).String())
+		x := strings.Split(msg.Caller, ":")
+		fields += fmt.Sprintf(" (%s:%s)", colorForString(f.au, x[0]).String(), x[1])
 	}
 
 	fieldsLen := rawStringLen(fields)
@@ -253,18 +296,18 @@ func (f *Feeder) Write(data []byte) {
 	if freeSpace < 0 {
 		limit := (x - (fieldsLen + 1 + timeLen + 1)) - 3
 		if limit < 20 {
-			m = msg.Msg
-			fields = aurora.Gray(12, "(fields hidden)").String()
+			m = f.au.Reset(msg.Msg).Colorize(msgColor).String()
+			fields = f.au.Gray(12, "(fields hidden)").String()
 			freeSpace = x - (timeLen + 1 + msgLen + 1 + rawStringLen(fields))
 			if freeSpace < 0 {
 				freeSpace = 0
 			}
 		} else {
-			m = msg.Msg[:limit] + "(…)"
+			m = f.au.Reset(msg.Msg[:limit] + "(…)").Colorize(msgColor).String()
 			freeSpace = 0
 		}
 	} else {
-		m = msg.Msg
+		m = f.au.Reset(msg.Msg).Colorize(msgColor).String()
 	}
 
 	separators := strings.Repeat(" ", freeSpace)
