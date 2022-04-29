@@ -89,16 +89,16 @@ func handleSigs(wg *sync.WaitGroup, sigs <-chan os.Signal, cancel func(), server
 				log.Info(fmt.Sprintf("failed to close server: %v", err), logger.Warning)
 			}
 		}
-		if !*noui {
+		if *ui {
 			g.Close()
 		}
 		counter++
 	}
 }
 
-func runUI(cfg HIDIConfig, noui bool) *gocui.Gui {
+func runUI(cfg HIDIConfig, ui bool) *gocui.Gui {
 	var g *gocui.Gui
-	if !noui {
+	if ui {
 		var err error
 		g, err = GetCli()
 		if err != nil {
@@ -142,7 +142,7 @@ func runProfileServer(wg *sync.WaitGroup) *http.Server {
 var (
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
-	noui     = flag.Bool("noui", false, "disable ui")
+	ui       = flag.Bool("ui", true, "disable ui")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
 	logLevel = flag.Int("loglevel", 2,
 		"logging level, each level enables additional information class (0-6, default: 2)\n"+
@@ -158,6 +158,7 @@ var (
 	)
 	noPony     = flag.Bool("nopony", false, "oh my... You can disable me if you want to, I.. I don't really mind. I'm fine")
 	midiDevice = flag.Int("mididevice", 0, "select N-th midi device, default: 0 (first)")
+	silient    = flag.Bool("silient", false, "no output logging")
 
 	cfg = LoadHIDIConfig("./config/hidi.config")
 )
@@ -170,7 +171,7 @@ func init() {
 func main() {
 	log.Info(fmt.Sprintf("HIDI config: %+v", cfg), logger.Debug)
 
-	g := runUI(cfg, *noui)
+	g := runUI(cfg, *ui)
 	createConfigDirectoryIfNeeded()
 
 	// this wait-group has to be propagated everywhere where usual logging appear
@@ -231,7 +232,7 @@ func main() {
 		}()
 	}
 
-	if !*noui {
+	if *ui {
 		go logView(g, !*nocolor, *logLevel)
 		go overviewView(g, !*nocolor, devices)
 		go lcdView(g, dd2)

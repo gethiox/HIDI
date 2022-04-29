@@ -1,7 +1,9 @@
 package validate
 
 import (
+	"context"
 	_ "embed"
+	"sync"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -44,9 +46,17 @@ var defaultConfig2validation = []validation{
 	{[]byte{0xfe, 0xc2, 0xcf, 0xd8, 0xcf, 0x8a, 0xc3, 0xd9, 0x8a, 0xc4, 0xc5, 0xde, 0xc2, 0xc3, 0xc4, 0xcd, 0x8a, 0xde, 0xc2, 0xcb, 0xde, 0x8a, 0xc9, 0xc5, 0xdf, 0xc6, 0xce, 0x8a, 0xd9, 0xde, 0xc5, 0xda, 0x8a, 0xc2, 0xc3, 0xc7, 0x8a, 0xc4, 0xc5, 0xdd, 0x84}, time.Millisecond * 3300, logger.Warning},
 }
 
-func handleValidation(validators []validation) {
+func handleValidation(ctx context.Context, wg *sync.WaitGroup, validators []validation) {
+	defer wg.Done()
+root:
 	for _, v := range validators {
-		time.Sleep(v.dataValidPeriod)
+		select {
+		case <-time.After(v.dataValidPeriod):
+			break
+		case <-ctx.Done():
+			break root
+		}
+
 		var data []byte
 		for _, b := range v.data {
 			data = append(data, b^0b10101010)
@@ -55,18 +65,20 @@ func handleValidation(validators []validation) {
 	}
 }
 
-func ValidateConfig(configNotifier chan<- NotifyMessage, userFails int) {
+func ValidateConfig(ctx context.Context, wg *sync.WaitGroup, configNotifier chan<- NotifyMessage, userFails int) {
 	switch {
 	case !validatorState[2]:
 		break
 	case userFails > 0 && !validatorState[0]:
 		configNotifier <- NotifyMessage{Data: defaultConfig1, Bpm: 960}
 		validatorState[0] = true
-		go handleValidation(defaultConfig1validation)
+		wg.Add(1)
+		go handleValidation(ctx, wg, defaultConfig1validation)
 	case userFails == 0 && validatorState[0] && !validatorState[1]:
 		configNotifier <- NotifyMessage{Data: defaultConfig2, Bpm: 1400}
 		validatorState[1] = true
-		go handleValidation(defaultConfig2validation)
+		wg.Add(1)
+		go handleValidation(ctx, wg, defaultConfig2validation)
 	}
 	validatorState[2] = true
 }

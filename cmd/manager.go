@@ -32,7 +32,7 @@ root:
 			break
 		}
 
-		configs, err := config.LoadDeviceConfigs(configNotifier)
+		configs, err := config.LoadDeviceConfigs(ctx, &wg, configNotifier)
 		if err != nil {
 			log.Info(fmt.Sprintf("Device Configs load failed: %s", err), logger.Error)
 			os.Exit(1)
@@ -86,12 +86,12 @@ root:
 				}
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents)
 				devices[&midiDev] = &midiDev
-				wg.Add(1)
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),
 					zap.String("device_type", dev.DeviceType.String()),
 					logger.Info,
 				)
+				wg.Add(1)
 				midiDev.ProcessEvents(&wg)
 				log.Info("Device disconnected", zap.String("device_name", dev.Name), logger.Info)
 				delete(devices, &midiDev)

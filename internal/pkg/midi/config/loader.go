@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -75,7 +77,7 @@ type dirInfo struct {
 	identifier string
 }
 
-func LoadDeviceConfigs(configNotifier chan<- validate.NotifyMessage) (DeviceConfigs, error) {
+func LoadDeviceConfigs(ctx context.Context, wg *sync.WaitGroup, configNotifier chan<- validate.NotifyMessage) (DeviceConfigs, error) {
 	cfg := DeviceConfigs{
 		Factory: struct{ Keyboards, Gamepads ConfigMap }{
 			Keyboards: make(ConfigMap),
@@ -106,7 +108,7 @@ func LoadDeviceConfigs(configNotifier chan<- validate.NotifyMessage) (DeviceConf
 		}
 	}
 
-	validate.ValidateConfig(configNotifier, userFails)
+	validate.ValidateConfig(ctx, wg, configNotifier, userFails)
 
 	return cfg, nil
 }
