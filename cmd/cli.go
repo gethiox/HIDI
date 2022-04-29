@@ -288,6 +288,10 @@ func (f *Feeder) Write(data []byte) {
 		fields += fmt.Sprintf(" (%s:%s)", colorForString(f.au, x[0]).String(), x[1])
 	}
 
+	if fields != "" {
+		fields = fields[1:] // removing one space at the beginning
+	}
+
 	fieldsLen := rawStringLen(fields)
 	timeLen := rawStringLen(timestamp)
 	msgLen := len(msg.Msg)
