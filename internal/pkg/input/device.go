@@ -208,11 +208,14 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 			var lastSent = make(map[evdev.EvCode]time.Time)
 			var timerMap = make(map[evdev.EvCode]*time.Timer)
 
+			defer close(timers)
+
 			for _, abs := range evdev.ABSFromString {
 				locks[abs] = &sync.Mutex{}
 				// timers are set with a little of additional headroom which should prevent
 				// from firing when analog axis is in active use (not guarantee it tho, but it's not critical anyway)
-				timerMap[abs] = time.NewTimer(absThrottle + time.Millisecond*10)
+				// this way it should prevent the 99.9% cases of firing the same event twice at the time
+				timerMap[abs] = time.NewTimer(absThrottle + time.Millisecond*20)
 				lastSent[abs] = time.Now().Add(absThrottle * 2 * -1)
 			}
 
@@ -220,7 +223,12 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				for evCode := range timers {
 					go func(evCode evdev.EvCode) {
 						for {
-							<-timerMap[evCode].C
+							select {
+							case <-ctx.Done():
+								return
+							case <-timerMap[evCode].C:
+								break
+							}
 							locks[evCode].Lock()
 							events <- lastEvent[evCode]
 							locks[evCode].Unlock()
@@ -245,7 +253,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 					}
 
 					// but before that, timer has to be reset
-					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*10)
+					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*20)
 					// doesn't matter if the timer already fired or not
 
 					locks[ev.Event.Code].Lock()
@@ -257,7 +265,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 					// throttled
 					locks[ev.Event.Code].Lock()
 					lastEvent[ev.Event.Code] = ev
-					timerMap[ev.Event.Code].Reset(absThrottle)
+					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*20)
 					locks[ev.Event.Code].Unlock()
 				}
 			}

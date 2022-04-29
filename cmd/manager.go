@@ -42,7 +42,7 @@ root:
 			os.Exit(1)
 		}
 
-		ctxConfigChange, cancel := context.WithCancel(context.Background())
+		ctxDevice, cancel := context.WithCancel(context.Background())
 
 		wg.Add(1)
 		go func() {
@@ -57,7 +57,7 @@ root:
 		}()
 
 	device:
-		for d := range input.MonitorNewDevices(ctxConfigChange, cfg.HIDI.StabilizationPeriod, cfg.HIDI.DiscoveryRate) {
+		for d := range input.MonitorNewDevices(ctxDevice, cfg.HIDI.StabilizationPeriod, cfg.HIDI.DiscoveryRate) {
 			// TODO: inspect this code against possible race-condition
 
 			var inputEvents <-chan input.InputEvent
@@ -67,7 +67,7 @@ root:
 
 			log.Info("Opening device...", zap.String("device_name", d.Name), logger.Debug)
 			for {
-				inputEvents, err = d.ProcessEvents(ctxConfigChange, grab, cfg.HIDI.EVThrottling)
+				inputEvents, err = d.ProcessEvents(ctxDevice, grab, cfg.HIDI.EVThrottling)
 				if err != nil {
 					if time.Now().Sub(appearedAt) > time.Second*5 {
 						log.Info("failed to open device on time, giving up", zap.String("device_name", d.Name), logger.Warning)
