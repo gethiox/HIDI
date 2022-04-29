@@ -20,7 +20,7 @@ These are things that I want to make before 1.0 release:
     - [x] ~~16 and 0 colors mode with autodetection~~ 256 or no color mode, deal with it
   - [x] alternative output mode, simple print
 - [x] implement device overview status
-- [ ] Improve throttling logic to the best possible solution
+- [x] Improve throttling logic to the best possible solution
 - [x] Maximum performance mode by skipping logs for all virtual keyboard events
 - [x] ~~Optimize output writing to buffers~~ (Nice to have)
 - [x] ~~General code cleanup~~ (Nice to have)
@@ -102,7 +102,8 @@ the best user experience possible.
 
 ![](docs/interface.png)
 
-Just place binary on your platform and run by `./HIDI`  
+Download the latest version from [releases](https://github.com/gethiox/HIDI/releases) for the platform of your choice.
+Place binary on your system and run it with `./HIDI`.  
 See `-h` flag for available optional arguments
 
 - If necessary, add permission for execution with `chmod +x HIDI`
@@ -114,8 +115,8 @@ See `-h` flag for available optional arguments
   **Warning**: If you're starting application with your directly connected keyboard it may be impossible to terminate it
   in that case  
   Proper solution coming soon™
-- Standard user may not have permission to read input devices directly for security reasons  
-  The best way of running this program in userspace is to give temporary privilege to `input` group with:  
+- Standard user may not have permission to read input devices directly for security reasons.  
+  The best way of running this program is to grant temporary privilege to `input` group with:  
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege
 
@@ -175,7 +176,7 @@ please provide the full content of `/proc/bus/input/devices` file.
 ### Code
 
 Feel free to contribute fixes, improvements and little features to the codebase. I do not have any
-guide for now. In some places my code may be convoluted and not easy to understand (mostly `cmd` directory),
+guide for now. In some places my code may be convoluted (`cmd` directory to be specific),
 but besides of that, applying changes should be pretty straight-forward.
 
 ### Configurations

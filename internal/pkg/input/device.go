@@ -202,49 +202,64 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		absEvents := make(chan InputEvent, 64)
 		go func(absEvents chan InputEvent) {
-			var locks = make(map[evdev.EvCode]*sync.RWMutex)
-			var timers = make(chan timerSrimer, 64)
+			var locks = make(map[evdev.EvCode]*sync.Mutex)
+			var timers = make(chan evdev.EvCode, 64)
 			var lastEvent = make(map[evdev.EvCode]InputEvent)
 			var lastSent = make(map[evdev.EvCode]time.Time)
-			// var timerMap = make(map[evdev.EvCode]time.Timer)
+			var timerMap = make(map[evdev.EvCode]*time.Timer)
 
 			for _, abs := range evdev.ABSFromString {
-				locks[abs] = &sync.RWMutex{}
+				locks[abs] = &sync.Mutex{}
+				// timers are set with a little of additional headroom which should prevent
+				// from firing when analog axis is in active use (not guarantee it tho, but it's not critical anyway)
+				timerMap[abs] = time.NewTimer(absThrottle + time.Millisecond*10)
+				lastSent[abs] = time.Now().Add(absThrottle * 2 * -1)
 			}
 
 			go func() {
-				for timer := range timers {
-					go func(timer timerSrimer) {
-						<-timer.timer.C
-						locks[timer.evcode].RLock()
-						events <- lastEvent[timer.evcode]
-						locks[timer.evcode].RUnlock()
-					}(timer)
+				for evCode := range timers {
+					go func(evCode evdev.EvCode) {
+						for {
+							<-timerMap[evCode].C
+							locks[evCode].Lock()
+							events <- lastEvent[evCode]
+							locks[evCode].Unlock()
+						}
+					}(evCode)
 				}
 			}()
 
+			var encounteredEvCodes = make(map[evdev.EvCode]bool, 16)
+
 			for ev := range absEvents {
 				now := time.Now()
-				last, ok := lastSent[ev.Event.Code]
-				if ok {
-					if now.Sub(last) > absThrottle {
-						events <- ev
-						timers <- timerSrimer{
-							timer:  time.NewTimer(absThrottle),
-							evcode: ev.Event.Code,
-						}
+				last := lastSent[ev.Event.Code]
+
+				if now.Sub(last) > absThrottle {
+					// throttle period exceeded, event can be sent
+					_, ok := encounteredEvCodes[ev.Event.Code]
+					if !ok {
+						// this is first time this EvCode appear, need to spin goroutine for it
+						timers <- ev.Event.Code
+						encounteredEvCodes[ev.Event.Code] = true
 					}
+
+					// but before that, timer has to be reset
+					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*10)
+					// doesn't matter if the timer already fired or not
+
 					locks[ev.Event.Code].Lock()
 					lastSent[ev.Event.Code] = now
 					lastEvent[ev.Event.Code] = ev
 					locks[ev.Event.Code].Unlock()
-					continue
+					events <- ev
+				} else {
+					// throttled
+					locks[ev.Event.Code].Lock()
+					lastEvent[ev.Event.Code] = ev
+					timerMap[ev.Event.Code].Reset(absThrottle)
+					locks[ev.Event.Code].Unlock()
 				}
-				events <- ev
-				locks[ev.Event.Code].Lock()
-				lastSent[ev.Event.Code] = now
-				lastEvent[ev.Event.Code] = ev
-				locks[ev.Event.Code].Unlock()
 			}
 		}(absEvents)
 
