@@ -218,17 +218,9 @@ func rawStringLen(s string) int {
 	return len(s) - sum
 }
 
-func (f *Feeder) Write(data []byte) {
-	x, _ := f.view.Size()
-	msg, err := unpack(data)
-	if err != nil {
-		f.view.Write([]byte{'\n'})
-		f.view.Write(data)
-		return
-	}
-
-	if msg.Level > f.logLevel {
-		return
+func prepareString(msg Entry, au aurora.Aurora, width, logLevel int) string {
+	if msg.Level > logLevel {
+		return ""
 	}
 
 	var msgColor aurora.Color
@@ -262,30 +254,30 @@ func (f *Feeder) Write(data []byte) {
 
 	timestamp := fmt.Sprintf(
 		"[%s.%s]",
-		f.au.Reset(tf).Colorize(color(1, 1, 5)<<16).String(),
-		f.au.Reset(tms[1:]).Colorize(gray(base)).String(),
+		au.Reset(tf).Colorize(color(1, 1, 5)<<16).String(),
+		au.Reset(tms[1:]).Colorize(gray(base)).String(),
 	)
 
 	// TODO: some less retarded solution
 	fields := ""
 	if msg.Config != "" {
-		fields += fmt.Sprintf(" [config=%s]", colorForString(f.au, msg.Config).String())
+		fields += fmt.Sprintf(" [config=%s]", colorForString(au, msg.Config).String())
 	}
 	if msg.HandlerName != "" {
-		fields += fmt.Sprintf(" [handler=%s]", colorForString(f.au, msg.HandlerName).String())
+		fields += fmt.Sprintf(" [handler=%s]", colorForString(au, msg.HandlerName).String())
 	}
 	if msg.HandlerEvent != "" {
-		fields += fmt.Sprintf(" [%s]", colorForString(f.au, msg.HandlerEvent).String())
+		fields += fmt.Sprintf(" [%s]", colorForString(au, msg.HandlerEvent).String())
 	}
 	if msg.DeviceType != "" {
-		fields += fmt.Sprintf(" [type=%s]", colorForString(f.au, msg.DeviceType).String())
+		fields += fmt.Sprintf(" [type=%s]", colorForString(au, msg.DeviceType).String())
 	}
 	if msg.Device != "" {
-		fields += fmt.Sprintf(" [dev=%s]", colorForString(f.au, msg.Device).String())
+		fields += fmt.Sprintf(" [dev=%s]", colorForString(au, msg.Device).String())
 	}
-	if f.logLevel >= logger.DebugLvl {
+	if logLevel >= logger.DebugLvl {
 		x := strings.Split(msg.Caller, ":")
-		fields += fmt.Sprintf(" (%s:%s)", colorForString(f.au, x[0]).String(), x[1])
+		fields += fmt.Sprintf(" (%s:%s)", colorForString(au, x[0]).String(), x[1])
 	}
 
 	if fields != "" {
@@ -296,30 +288,50 @@ func (f *Feeder) Write(data []byte) {
 	timeLen := rawStringLen(timestamp)
 	msgLen := len(msg.Msg)
 
-	var m string
-	freeSpace := x - (timeLen + 1 + msgLen + 1 + fieldsLen)
-	if freeSpace < 0 {
-		limit := (x - (fieldsLen + 1 + timeLen + 1)) - 3
-		if limit < 20 {
-			m = f.au.Reset(msg.Msg).Colorize(msgColor).String()
-			fields = f.au.Gray(12, "(fields hidden)").String()
-			freeSpace = x - (timeLen + 1 + msgLen + 1 + rawStringLen(fields))
-			if freeSpace < 0 {
+	if width > -1 {
+		var m string
+		freeSpace := width - (timeLen + 1 + msgLen + 1 + fieldsLen)
+		if freeSpace < 0 {
+			limit := (width - (fieldsLen + 1 + timeLen + 1)) - 3
+			if limit < 20 {
+				m = au.Reset(msg.Msg).Colorize(msgColor).String()
+				fields = au.Gray(12, "(fields hidden)").String()
+				freeSpace = width - (timeLen + 1 + msgLen + 1 + rawStringLen(fields))
+				if freeSpace < 0 {
+					freeSpace = 0
+				}
+			} else {
+				m = au.Reset(msg.Msg[:limit] + "(…)").Colorize(msgColor).String()
 				freeSpace = 0
 			}
 		} else {
-			m = f.au.Reset(msg.Msg[:limit] + "(…)").Colorize(msgColor).String()
-			freeSpace = 0
+			m = au.Reset(msg.Msg).Colorize(msgColor).String()
 		}
+
+		separators := strings.Repeat(" ", freeSpace)
+
+		return fmt.Sprintf("%s %s%s %s", timestamp, m, separators, fields)
 	} else {
-		m = f.au.Reset(msg.Msg).Colorize(msgColor).String()
+		m := au.Reset(msg.Msg).Colorize(msgColor).String()
+		return fmt.Sprintf("%s %s %s", timestamp, m, fields)
 	}
 
-	separators := strings.Repeat(" ", freeSpace)
+}
 
-	mm := fmt.Sprintf("%s %s%s %s", timestamp, m, separators, fields)
+func (f *Feeder) Write(data []byte) {
+	msg, err := unpack(data)
+	if err != nil {
+		f.view.Write([]byte{'\n'})
+		f.view.Write(data)
+		return
+	}
+
+	x, _ := f.view.Size()
+
+	s := prepareString(msg, f.au, x, f.logLevel)
+
 	f.view.Write([]byte{'\n'})
-	f.view.Write([]byte(mm))
+	f.view.Write([]byte(s))
 }
 
 func (f *Feeder) OverWrite(data []byte) {

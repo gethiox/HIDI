@@ -77,6 +77,7 @@ func logView(g *gocui.Gui, color bool, logLevel int) {
 		panic(err)
 	}
 
+	// filling up all first lines
 	_, y := feeder.view.Size()
 	for i := 0; i < y; i++ {
 		feeder.view.Write([]byte("\n"))

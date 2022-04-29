@@ -19,6 +19,7 @@ import (
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 	"github.com/jroimartin/gocui"
+	"github.com/logrusorgru/aurora"
 )
 
 var midiEventsEmitted, score uint // counter for display info
@@ -142,29 +143,28 @@ func runProfileServer(wg *sync.WaitGroup) *http.Server {
 var (
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
-	ui       = flag.Bool("ui", true, "disable ui")
+	ui       = flag.Bool("ui", false, "engage debug ui")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
-	logLevel = flag.Int("loglevel", 2,
-		"logging level, each level enables additional information class (0-6, default: 2)\n"+
+	logLevel = flag.Int("loglevel", 4,
+		"logging level, each level enables additional information class (0-4, default: 2)\n"+
 			"more verbose levels may slightly impact overall performance, try to not go beyond 3 when not necessary\n"+
 			"\navailable options:\n"+
-			"0: errors\n"+
-			"1: warnings\n"+
-			"2: general info (eg. device appearance status)\n"+
-			"3: action events (octave_up, channel_down etc.)\n"+
-			"4: key events (keyboard keys and gamepad buttons)\n"+
-			"5: unassigned key events (keyboard keys and gamepad buttons not assigned to current mapping configuration)\n"+
-			"6: analog assigned and unassigned events",
+			"0: general info (eg. device appearance status)\n"+
+			"1: action events (octave_up, channel_down etc.)\n"+
+			"2: key events (keyboard keys and gamepad buttons)\n"+
+			"3: unassigned key events (keyboard keys and gamepad buttons not assigned to current mapping configuration)\n"+
+			"4: analog assigned and unassigned events",
 	)
 	noPony     = flag.Bool("nopony", false, "oh my... You can disable me if you want to, I.. I don't really mind. I'm fine")
 	midiDevice = flag.Int("mididevice", 0, "select N-th midi device, default: 0 (first)")
-	silient    = flag.Bool("silient", false, "no output logging")
+	silent     = flag.Bool("silent", false, "no output logging")
 
 	cfg = LoadHIDIConfig("./config/hidi.config")
 )
 
 func init() {
 	flag.Parse()
+	*logLevel += 2
 	rand.Seed(time.Now().Unix())
 }
 
@@ -242,8 +242,25 @@ func main() {
 			}
 		}()
 		go func() {
-			for range logger.Messages {
+			if *silent {
+				for range logger.Messages {
+				}
+			} else {
+				fmt.Printf("for nicer output use -ui flag\n")
+				au := aurora.NewAurora(!*nocolor)
+				for data := range logger.Messages {
+					msg, err := unpack(data)
+					if err != nil {
+						fmt.Printf("%s\n", string(data))
+						continue
+					}
+					m := prepareString(msg, au, -1, *logLevel)
+					if m != "" {
+						fmt.Printf("%s\n", m)
+					}
+				}
 			}
+
 		}()
 	}
 
