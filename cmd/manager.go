@@ -17,7 +17,11 @@ import (
 
 // runManager is the main program process, before exiting from that function it needs to ensure that
 // all goroutine execution has completed
-func runManager(ctx context.Context, cfg HIDIConfig, midiEvents chan<- midi.Event, grab bool, devices map[*midi.Device]*midi.Device, configNotifier chan<- validate.NotifyMessage) {
+func runManager(
+	ctx context.Context, cfg HIDIConfig,
+	grab, noLogs bool, devices map[*midi.Device]*midi.Device,
+	midiEvents chan<- midi.Event, configNotifier chan<- validate.NotifyMessage,
+) {
 	deviceConfigChange := config.DetectDeviceConfigChanges(ctx)
 
 	wg := sync.WaitGroup{}
@@ -84,7 +88,7 @@ root:
 				if err != nil {
 					panic(err)
 				}
-				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents)
+				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents, noLogs)
 				devices[&midiDev] = &midiDev
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),

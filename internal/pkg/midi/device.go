@@ -24,6 +24,7 @@ const (
 )
 
 type Device struct {
+	noLogs      bool // skips producing most of the log entries for maximum performance
 	config      config.Config
 	InputDevice input.Device
 	inputEvents <-chan input.InputEvent
@@ -54,7 +55,7 @@ type Device struct {
 	actionsRelease map[config.Action]func(*Device)
 }
 
-func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event) Device {
+func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event, noLogs bool) Device {
 	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
 
 	if inputDevice.DeviceType == input.JoystickDevice {
@@ -79,6 +80,7 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 	}
 
 	d := Device{
+		noLogs:      noLogs,
 		config:      cfg.Config,
 		InputDevice: inputDevice,
 		inputEvents: inputEvents,
@@ -215,11 +217,12 @@ func (d *Device) handleKEYEvent(ie input.InputEvent) {
 			return
 		}
 
-		log.Info(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()), d.logFields(
-			logger.KeysNotAssigned,
-			zap.String("handler_event", ie.Source.Event()),
-		)...,
-		)
+		if !d.noLogs {
+			log.Info(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()), d.logFields(
+				logger.KeysNotAssigned,
+				zap.String("handler_event", ie.Source.Event()),
+			)...)
+		}
 	}
 }
 
@@ -256,9 +259,10 @@ func (d *Device) handleABSEvent(ie input.InputEvent) {
 			return
 		}
 
-		log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()),
-			d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...,
-		)
+		if !d.noLogs {
+			log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()),
+				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...)
+		}
 
 		switch analog.MappingType {
 		case config.AnalogCC:
@@ -305,10 +309,6 @@ func (d *Device) handleABSEvent(ie input.InputEvent) {
 			case !canBeNegative && !analog.Bidirectional:
 				adjustedValue = value
 				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-			default:
-				log.Info(fmt.Sprintf("This should not happen: %s", ie.Event.String()),
-					d.logFields(logger.Warning, zap.String("handler_event", ie.Source.Event()))...,
-				)
 			}
 		case config.AnalogPitchBend:
 			if canBeNegative {
@@ -360,10 +360,12 @@ func (d *Device) handleABSEvent(ie input.InputEvent) {
 			)
 		}
 	default:
-		log.Info(
-			fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
-			d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...,
-		)
+		if !d.noLogs {
+			log.Info(
+				fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
+				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...,
+			)
+		}
 	}
 }
 
@@ -381,7 +383,9 @@ func (d *Device) NoteOn(evCode evdev.EvCode) {
 	d.noteTracker[evCode] = [2]byte{note, d.channel}
 	event := NoteEvent(NoteOn, d.channel, note, 64)
 	d.midiEvents <- event
-	log.Info(event.String(), d.logFields(logger.Keys)...)
+	if !d.noLogs {
+		log.Info(event.String(), d.logFields(logger.Keys)...)
+	}
 
 	for _, offset := range d.multiNote {
 		multiNote := noteCalculatored + offset
@@ -392,7 +396,9 @@ func (d *Device) NoteOn(evCode evdev.EvCode) {
 		// untracked notes
 		event = NoteEvent(NoteOn, d.channel, note, 64)
 		d.midiEvents <- event
-		log.Info(event.String(), d.logFields(logger.Keys)...)
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys)...)
+		}
 	}
 }
 
@@ -406,7 +412,9 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 	event := NoteEvent(NoteOff, channel, note, 0)
 	d.midiEvents <- event
 	delete(d.noteTracker, evCode)
-	log.Info(event.String(), d.logFields(logger.Keys)...)
+	if !d.noLogs {
+		log.Info(event.String(), d.logFields(logger.Keys)...)
+	}
 
 	for _, offset := range d.multiNote {
 		multiNote := int(note) + offset
@@ -416,7 +424,9 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 		newNote := uint8(multiNote)
 		event = NoteEvent(NoteOff, channel, newNote, 0)
 		d.midiEvents <- event
-		log.Info(event.String(), d.logFields(logger.Keys)...)
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys)...)
+		}
 	}
 }
 
@@ -430,7 +440,9 @@ func (d *Device) AnalogNoteOn(identifier string, note byte) {
 	d.analogNoteTracker[identifier] = [2]byte{note, d.channel}
 	event := NoteEvent(NoteOn, d.channel, note, 64)
 	d.midiEvents <- event
-	log.Info(event.String(), d.logFields(logger.Keys)...)
+	if !d.noLogs {
+		log.Info(event.String(), d.logFields(logger.Keys)...)
+	}
 }
 
 func (d *Device) AnalogNoteOff(identifier string) {
@@ -443,76 +455,101 @@ func (d *Device) AnalogNoteOff(identifier string) {
 	event := NoteEvent(NoteOff, channel, note, 0)
 	d.midiEvents <- event
 	delete(d.analogNoteTracker, identifier)
-	log.Info(event.String(), d.logFields(logger.Keys)...)
+	if !d.noLogs {
+		log.Info(event.String(), d.logFields(logger.Keys)...)
+	}
 }
 
 func (d *Device) OctaveDown() {
 	d.octave--
-	log.Info(fmt.Sprintf("octave down (%d)", d.octave), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("octave down (%d)", d.octave), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) OctaveUp() {
 	d.octave++
-	log.Info(fmt.Sprintf("octave up (%d)", d.octave), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("octave up (%d)", d.octave), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) OctaveReset() {
 	d.octave = 0
-	log.Info(fmt.Sprintf("octave reset (%d)", d.octave), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("octave reset (%d)", d.octave), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) SemitoneDown() {
 	d.semitone--
-	log.Info(fmt.Sprintf("semitone down (%d)", d.semitone), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("semitone down (%d)", d.semitone), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) SemitoneUp() {
 	d.semitone++
-	log.Info(fmt.Sprintf("semitone up (%d)", d.semitone), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("semitone up (%d)", d.semitone), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) SemitoneReset() {
 	d.semitone = 0
-	log.Info(fmt.Sprintf("semitone reset (%d)", d.semitone), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("semitone reset (%d)", d.semitone), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) MappingDown() {
 	if d.mapping != 0 {
 		d.mapping--
 	}
-	log.Info(fmt.Sprintf("mapping down (%s)", d.config.KeyMappings[d.mapping].Name), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("mapping down (%s)", d.config.KeyMappings[d.mapping].Name), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) MappingUp() {
 	if d.mapping != len(d.config.KeyMappings)-1 {
 		d.mapping++
 	}
-	log.Info(fmt.Sprintf("mapping up (%s)", d.config.KeyMappings[d.mapping].Name), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("mapping up (%s)", d.config.KeyMappings[d.mapping].Name), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) MappingReset() {
 	d.mapping = 0
-	log.Info(fmt.Sprintf("mapping reset (%s)", d.config.KeyMappings[d.mapping].Name), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("mapping reset (%s)", d.config.KeyMappings[d.mapping].Name), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) ChannelDown() {
 	if d.channel != 0 {
 		d.channel--
 	}
-
-	log.Info(fmt.Sprintf("channel down (%2d)", d.channel+1), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("channel down (%2d)", d.channel+1), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) ChannelUp() {
 	if d.channel != 15 {
 		d.channel++
 	}
-	log.Info(fmt.Sprintf("channel up (%2d)", d.channel+1), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("channel up (%2d)", d.channel+1), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) ChannelReset() {
 	d.channel = 0
-	log.Info(fmt.Sprintf("channel reset (%2d)", d.channel+1), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("channel reset (%2d)", d.channel+1), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) Multinote() {
@@ -522,13 +559,17 @@ func (d *Device) Multinote() {
 	}
 
 	if len(pressedNotes) == 0 {
-		log.Info("Bruh, no pressed notes, multinote mode disengaged", d.logFields(logger.Action)...)
+		if !d.noLogs {
+			log.Info("Bruh, no pressed notes, multinote mode disengaged", d.logFields(logger.Action)...)
+		}
 		d.multiNote = []int{}
 		return
 	}
 
 	if len(pressedNotes) == 1 {
-		log.Info("Bruh, press more than one note, multinote mode disengaged", d.logFields(logger.Action)...)
+		if !d.noLogs {
+			log.Info("Bruh, press more than one note, multinote mode disengaged", d.logFields(logger.Action)...)
+		}
 		d.multiNote = []int{}
 		return
 	}
@@ -559,7 +600,9 @@ func (d *Device) Multinote() {
 	}
 
 	d.multiNote = noteOffsets
-	log.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v/[%s]", d.multiNote, intervals), d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v/[%s]", d.multiNote, intervals), d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) Panic() {
@@ -569,18 +612,23 @@ func (d *Device) Panic() {
 	for note := uint8(0); note < 128; note++ {
 		d.midiEvents <- NoteEvent(NoteOff, d.channel, note, 0)
 	}
-
-	log.Info("Panic!", d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info("Panic!", d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) CCLearningOn() {
 	d.ccLearning = true
-	log.Info("CC learning mode enabled", d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info("CC learning mode enabled", d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) CCLearningOff() {
 	d.ccLearning = false
-	log.Info("CC learning mode disabled", d.logFields(logger.Action)...)
+	if !d.noLogs {
+		log.Info("CC learning mode disabled", d.logFields(logger.Action)...)
+	}
 }
 
 func (d *Device) Status() string {

@@ -246,16 +246,14 @@ func prepareString(msg Entry, au aurora.Aurora, width, logLevel int) string {
 
 	t := time.Time(msg.Ts)
 
-	tf := t.Format("15:04:05")
-	tms := t.Format(".000")
+	tf := t.Format("15:04:05.000")
 
 	var base uint8 = 16
 	base += uint8(secondProgress(t) * 8)
 
 	timestamp := fmt.Sprintf(
-		"[%s.%s]",
-		au.Reset(tf).Colorize(color(1, 1, 5)<<16).String(),
-		au.Reset(tms[1:]).Colorize(gray(base)).String(),
+		"[%s]",
+		au.Reset(tf).Colorize(color(1, 1, 5)).String(),
 	)
 
 	// TODO: some less retarded solution
@@ -329,9 +327,10 @@ func (f *Feeder) Write(data []byte) {
 	x, _ := f.view.Size()
 
 	s := prepareString(msg, f.au, x, f.logLevel)
-
-	f.view.Write([]byte{'\n'})
-	f.view.Write([]byte(s))
+	if s != "" {
+		f.view.Write([]byte{'\n'})
+		f.view.Write([]byte(s))
+	}
 }
 
 func (f *Feeder) OverWrite(data []byte) {

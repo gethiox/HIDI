@@ -157,6 +157,7 @@ var (
 	)
 	noPony     = flag.Bool("nopony", false, "oh my... You can disable me if you want to, I.. I don't really mind. I'm fine")
 	midiDevice = flag.Int("mididevice", 0, "select N-th midi device, default: 0 (first)")
+	perfMode   = flag.Bool("perfMode", false, "disable logs for all virtual keyboard events (active also when -silent flag is in use)")
 	silent     = flag.Bool("silent", false, "no output logging")
 
 	cfg = LoadHIDIConfig("./config/hidi.config")
@@ -264,7 +265,7 @@ func main() {
 		}()
 	}
 
-	runManager(ctx, cfg, midiEvents, *grab, devices, confNotifier)
+	runManager(ctx, cfg, *grab, *perfMode || *silent, devices, midiEvents, confNotifier)
 
 	cancelEvents()
 	log.Info(fmt.Sprintf("waiting..."), logger.Debug)

@@ -19,6 +19,7 @@ These are things that I want to make before 1.0 release:
   - [x] alternative output mode, simple print
 - [x] implement device overview status
 - [ ] Improve throttling logic to the best possible solution
+- [x] Maximum performance mode by skipping logs for all virtual keyboard events
 - [x] ~~Optimize output writing to buffers~~ (Nice to have)
 - [x] ~~General code cleanup~~ (Nice to have)
 
@@ -56,7 +57,7 @@ the best user experience possible.
 - Several actions like **octave** control (F1-F2), **semitone** (F3-F4), **mapping** (F5-F6), **channel** (F7-F8),
   **multi-note** (f9)
 - Action pairs can be pressed at once to reset to default value
-- Multi-note mode with one press of a button, hold any number of additional intervals and press F9
+- Multi-note mode with one press of a button, hold any number of additional intervals and press F9.  
   Press again without holding any notes to disable multi-note mode
 - **The best possible implementation of note emission**, user can freely change device state on the fly 
   (octave, semitone, mapping, channel) even while still pressing keyboard keys, due to careful design
@@ -82,10 +83,10 @@ the best user experience possible.
 - Relatively good default configurations for keyboards and gamepads
 
 # Nice to have
-- Utilize mouse's relative input
-- Gamepad analog deadzones and adjustable transform curve
+- Utilize relative mouse input
 - configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
-- Localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
+- localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
+- default device state in specific device configuration (octave, semitone, channel, mapping)
 
 ## Wishlist (far future)
 Features that are possible to achieve. With enough interest and support I may be motivated to implement these.
@@ -94,13 +95,14 @@ Features that are possible to achieve. With enough interest and support I may be
 - Bluetooth MIDI device (either platforms with integrated bluetooth or USB dongle)
 - Arpeggiator and note latch MIDI effects, MIDI clock sync
 - Fully featured DAW control plugins
-- MIDI sequencer
-- [OpenRGB](https://openrgb.org/) - could be most useful for DAW control and MIDI sequencer, could light on
+- **MIDI sequencer**
+- [OpenRGB](https://openrgb.org/) - most useful for DAW control and MIDI sequencer, could light on
   specific midi mappings on generic midi keyboards as well  
   (for supported devices in [keyboards](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards)
   section)
 
-Have you some improvement/feature idea not listed here? Feel free to leave it in `Discussions` section!
+Do you like some specific idea listed above? Have you some improvement/feature idea not listed here?  
+Feel free to leave your suggestions in `Discussions` section!
 
 # License
 Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
