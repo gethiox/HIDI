@@ -545,7 +545,7 @@ func (d *Device) Multinote() {
 	}
 
 	var intervals = ""
-	for i, interval := range d.multiNote {
+	for i, interval := range noteOffsets {
 		name, ok := intervalToString[interval]
 		if !ok {
 			intervals += "..."
