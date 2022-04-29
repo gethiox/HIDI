@@ -148,9 +148,9 @@ var (
 		"logging level, each level enables additional information class (0-6, default: 2)\n"+
 			"more verbose levels may slightly impact overall performance, try to not go beyond 3 when not necessary\n"+
 			"\navailable options:\n"+
-			"0: Errors\n"+
-			"1: Warnings\n"+
-			"2: standard (general device appearance status, warnings, errors)\n"+
+			"0: errors\n"+
+			"1: warnings\n"+
+			"2: general info (eg. device appearance status)\n"+
 			"3: action events (octave_up, channel_down etc.)\n"+
 			"4: key events (keyboard keys and gamepad buttons)\n"+
 			"5: unassigned key events (keyboard keys and gamepad buttons not assigned to current mapping configuration)\n"+

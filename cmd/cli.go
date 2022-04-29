@@ -137,7 +137,7 @@ func gray(v uint8) aurora.Color {
 }
 
 func color(r, g, b uint8) aurora.Color {
-	return aurora.Color(16 + 36*r + 6*g + b)
+	return aurora.Color(16+36*r+6*g+b) << 16
 }
 
 // r, g, b 0<=v<=6
@@ -266,6 +266,7 @@ func (f *Feeder) Write(data []byte) {
 		f.au.Reset(tms[1:]).Colorize(gray(base)).String(),
 	)
 
+	// TODO: some less retarded solution
 	fields := ""
 	if msg.Config != "" {
 		fields += fmt.Sprintf(" [config=%s]", colorForString(f.au, msg.Config).String())
