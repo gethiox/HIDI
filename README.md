@@ -11,11 +11,11 @@ These are things that I want to make before 1.0 release:
     - [x] align text to the terminal width
     - [x] handle small terminal windows, trimming message, hiding extra fields
     - [ ] regenerate buffer output on terminal size change
-  - [ ] output colorization
+  - [x] output colorization
     - [x] initial colorization support
     - [x] colorize segments with unique color for strings for given sections
     - [x] 256 color mode
-    - [ ] 16 and 0 colors mode with autodetection
+    - [x] ~~16 and 0 colors mode with autodetection~~ 256 or no color mode, deal with it
 - [x] implement device overview status
 - [ ] Improve throttling logic to the best possible solution
 - [ ] Optimize output writing to buffers
