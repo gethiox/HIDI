@@ -3,19 +3,20 @@
 
 ## In progress
 These are things that I want to make before 1.0 release:
-- [ ] Proper logging with multi-level debug option
+- [x] Proper logging with multi-level debug option
   - [x] serialized logs in entire application
   - [x] gocui cli view for logging, device statistics and virtual LCD information
   - [x] log deserialization
   - [x] pretty print for logs
     - [x] align text to the terminal width
     - [x] handle small terminal windows, trimming message, hiding extra fields
-    - [ ] ~~regenerate buffer output on terminal size change~~ (Nice to have)
+    - [x] ~~regenerate buffer output on terminal size change~~ (Nice to have)
   - [x] output colorization
     - [x] initial colorization support
     - [x] colorize segments with unique color for strings for given sections
     - [x] 256 color mode
     - [x] ~~16 and 0 colors mode with autodetection~~ 256 or no color mode, deal with it
+  - [x] alternative output mode, simple print
 - [x] implement device overview status
 - [ ] Improve throttling logic to the best possible solution
 - [x] ~~Optimize output writing to buffers~~ (Nice to have)
