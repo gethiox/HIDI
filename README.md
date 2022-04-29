@@ -1,7 +1,9 @@
 ## Warning
+
 **This is development branch, there is no guarantee that everything works correctly**
 
 ## In progress
+
 These are things that I want to make before 1.0 release:
 - [x] Proper logging with multi-level debug option
   - [x] serialized logs in entire application
@@ -23,6 +25,20 @@ These are things that I want to make before 1.0 release:
 - [x] ~~Optimize output writing to buffers~~ (Nice to have)
 - [x] ~~General code cleanup~~ (Nice to have)
 
+# Significant improvements since beta release
+
+- YAML configurations for devices. automatic reload
+- Monitoring of input handlers is now a magnitude more efficient
+- Graceful app termination
+- greatly improved speed of application start and termination
+- Fixed input device grabbing for exclusive usage
+- CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
+- Precompiled builds for various platforms
+- Embedded config directory, if config directory doesn't exist, application will create default one
+- Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
+- Support for optional HD44780 screens (16x2, 20x4) for displaying statistics
+- Relatively good default configurations for keyboards and gamepads
+
 # HIDI
 
 Flexible HID to MIDI translation layer
@@ -41,6 +57,7 @@ and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 ![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 
 # Purpose
+
 HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface.  
 This way you can play on your **computer keyboard as MIDI device**, use gamepad analog sticks to control
 pitch-bend and CC. As many devices as you want, simultaneously.
@@ -69,45 +86,8 @@ the best user experience possible.
 - Application will reload configuration when new one will appear or existing one was changed.
   Very useful when user want to craft their own configuration
 
-# Significant improvements since beta release
-- YAML configurations for devices. automatic reload
-- Monitoring of input handlers is now a magnitude more efficient
-- Graceful app termination
-- greatly improved speed of application start and termination
-- Fixed input device grabbing for exclusive usage
-- CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
-- Precompiled builds for various platforms
-- Embedded config directory, if config directory doesn't exist, application will create default one
-- Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
-- Support for optional HD44780 screens (16x2, 20x4) for displaying statistics  
-- Relatively good default configurations for keyboards and gamepads
-
-# Nice to have
-- Utilize relative mouse input
-- configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
-- localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
-- default device state in specific device configuration (octave, semitone, channel, mapping)
-
-## Wishlist (far future)
-Features that are possible to achieve. With enough interest and support I may be motivated to implement these.
-
-- Network MIDI (no specific solution on my radar yet)
-- Bluetooth MIDI device (either platforms with integrated bluetooth or USB dongle)
-- Arpeggiator and note latch MIDI effects, MIDI clock sync
-- Fully featured DAW control plugins
-- **MIDI sequencer**
-- [OpenRGB](https://openrgb.org/) - most useful for DAW control and MIDI sequencer, could light on
-  specific midi mappings on generic midi keyboards as well  
-  (for supported devices in [keyboards](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards)
-  section)
-
-Do you like some specific idea listed above? Have you some improvement/feature idea not listed here?  
-Feel free to leave your suggestions in `Discussions` section!
-
-# License
-Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
-
 # Requirements
+
 - Dedicated machine with Linux
 - The most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
   However, there are no limits, it can be run on practically all Linux-supported platforms.
@@ -117,11 +97,6 @@ Project is released under **GPLv3**, for detailed information see [LICENSE](./LI
   ![no china usb midi](./docs/no-china-usb-midi.png)
 - If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
 - **Keyboards**, **gamepads** :)
-
-# Building
-Make sure you have `go >= 1.18` installed  
-Just run `go run build.go`  
-By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage
 
 # Usage
 
@@ -144,7 +119,44 @@ See `-h` flag for available optional arguments
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege
 
+Have fun!
+
+## Development
+
+### Building
+
+Make sure you have `go >= 1.18` installed  
+Just run `go run build.go`  
+By default, it will build all defined platforms, to select specific one see `go run build.go -h` for usage
+
+### Wishlist
+
+Features that are possible to achieve. With enough interest and support I may be motivated to implement these.
+
+Small features:
+
+- Utilize relative mouse input
+- configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
+- localhost mode for Linux users without requirement of separate machine (with jack and alsa midi support)
+- default device state in specific device configuration (octave, semitone, channel, mapping)
+
+Bigger features:
+
+- Network MIDI (no specific solution on my radar yet)
+- Bluetooth MIDI device (either platforms with integrated bluetooth or USB dongle)
+- Arpeggiator and note latch MIDI effects, MIDI clock sync
+- Fully featured DAW control plugins
+- **MIDI sequencer**
+- [OpenRGB](https://openrgb.org/) support - most useful for DAW control and MIDI sequencer, could light on
+  specific midi mappings on generic midi keyboards as well  
+  (for supported devices in [keyboards](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards)
+  section)
+
+Do you like some specific idea listed above? Have you some improvement/feature idea not listed here?  
+Feel free to leave your wishes in `Discussions` section!
+
 # Contribution
+
 Any kind of help is highly appreciated!  
 
 ### Features
@@ -188,7 +200,11 @@ I have a few unanswered questions that might improve overall user experience:
 
 If you know something about it, let me know.
 
+# License
+
+Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
+
 # Support
 
 If you like my project, appreciate my time and effort and most importantly you had a lot of fun with it,
-consider supporting it by `Sponsor` GitHub button
+consider supporting it by `Sponsor` GitHub button.
