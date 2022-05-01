@@ -97,7 +97,7 @@ func handleSigs(wg *sync.WaitGroup, sigs <-chan os.Signal, cancel func(), server
 	}
 }
 
-func runUI(cfg HIDIConfig, ui bool) *gocui.Gui {
+func runUI(cfg HIDIConfig, ui bool, sigs chan os.Signal) *gocui.Gui {
 	var g *gocui.Gui
 	if ui {
 		var err error
@@ -107,10 +107,14 @@ func runUI(cfg HIDIConfig, ui bool) *gocui.Gui {
 		}
 
 		go func() {
-			defer g.Close()
-			if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
-				panic(err)
+			if err := g.MainLoop(); err != nil {
+				if err != gocui.ErrQuit {
+					panic(err)
+				}
+				g.Close()
+				sigs <- syscall.SIGINT // pretend that we received signal when exited from gui
 			}
+			g.Close()
 		}()
 
 		go func() {
@@ -145,8 +149,8 @@ var (
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
 	ui       = flag.Bool("ui", false, "engage debug ui")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
-	logLevel = flag.Int("loglevel", 4,
-		"logging level, each level enables additional information class (0-4, default: 2)\n"+
+	logLevel = flag.Int("loglevel", 3,
+		"logging level, each level enables additional information class (0-4, default: 3)\n"+
 			"more verbose levels may slightly impact overall performance, try to not go beyond 3 when not necessary\n"+
 			"\navailable options:\n"+
 			"0: general info (eg. device appearance status)\n"+
@@ -157,8 +161,7 @@ var (
 	)
 	noPony     = flag.Bool("nopony", false, "oh my... You can disable me if you want to, I.. I don't really mind. I'm fine")
 	midiDevice = flag.Int("mididevice", 0, "select N-th midi device, default: 0 (first)")
-	perfMode   = flag.Bool("perfMode", false, "disable logs for all virtual keyboard events (active also when -silent flag is in use)")
-	silent     = flag.Bool("silent", false, "no output logging")
+	silent     = flag.Bool("silent", false, "no output logging, best performance")
 
 	cfg = LoadHIDIConfig("./config/hidi.config")
 )
@@ -172,17 +175,17 @@ func init() {
 func main() {
 	log.Info(fmt.Sprintf("HIDI config: %+v", cfg), logger.Debug)
 
-	g := runUI(cfg, *ui)
+	var sigs = make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	g := runUI(cfg, *ui && !*silent, sigs)
 	createConfigDirectoryIfNeeded()
 
 	// this wait-group has to be propagated everywhere where usual logging appear
 	wg := sync.WaitGroup{}
 
 	server := runProfileServer(&wg)
-
-	var sigs = make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	ctx, cancel := context.WithCancel(context.Background())
 
 	wg.Add(1)
 	go handleSigs(&wg, sigs, cancel, server, g)
@@ -233,7 +236,7 @@ func main() {
 		}()
 	}
 
-	if *ui {
+	if *ui && !*silent {
 		go logView(g, !*nocolor, *logLevel)
 		go overviewView(g, !*nocolor, devices)
 		go lcdView(g, dd2)
@@ -265,7 +268,7 @@ func main() {
 		}()
 	}
 
-	runManager(ctx, cfg, *grab, *perfMode || *silent, devices, midiEvents, confNotifier)
+	runManager(ctx, cfg, *grab, *silent, devices, midiEvents, confNotifier)
 
 	cancelEvents()
 	log.Info(fmt.Sprintf("waiting..."), logger.Debug)
