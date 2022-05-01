@@ -317,42 +317,58 @@ func (d *Device) handleABSEvent(ie input.InputEvent) {
 				d.midiEvents <- PitchBendEvent(d.channel, value*2-1.0)
 			}
 		case config.AnalogKeySim:
-			identifier := fmt.Sprintf("%d", ie.Event.Code) // for tracking purpose
-			note := analog.Note
-
-			if analog.Bidirectional && value < 0 {
-				note = analog.NoteNeg
-				identifier = fmt.Sprintf("%d_neg", ie.Event.Code)
+			if !canBeNegative {
+				value = value*2 - 1.0
 			}
 
-			v := math.Abs(value)
+			identifier := fmt.Sprintf("%d", ie.Event.Code)
+			identifierNeg := fmt.Sprintf("%d_neg", ie.Event.Code)
+
 			switch {
-			case v > 0.5:
+			case value <= -0.5:
+				_, ok := d.analogNoteTracker[identifierNeg]
+				if !ok {
+					d.AnalogNoteOn(identifierNeg, analog.NoteNeg)
+				}
+				d.AnalogNoteOff(identifier)
+			case value > -0.49 && value < 0.49:
+				d.AnalogNoteOff(identifier)
+				d.AnalogNoteOff(identifierNeg)
+			case value >= 0.5:
 				_, ok := d.analogNoteTracker[identifier]
 				if !ok {
-					d.AnalogNoteOn(identifier, note)
+					d.AnalogNoteOn(identifier, analog.Note)
 				}
-			case v < 0.49:
-				d.AnalogNoteOff(fmt.Sprintf("%d", ie.Event.Code))
-				d.AnalogNoteOff(fmt.Sprintf("%d_neg", ie.Event.Code))
-			}
-		case config.AnalogActionSim:
-			action := analog.Action
-			if analog.Bidirectional && value < 0 {
-				action = analog.ActionNeg
+				d.AnalogNoteOff(identifierNeg)
 			}
 
+		case config.AnalogActionSim:
 			if d.checkDoubleActions() {
 				return
 			}
 
-			v := math.Abs(value)
-			if v > 0.5 {
-				d.invokeActionPress(action)
-				d.actionTracker[action] = true
-			} else {
+			if !canBeNegative {
+				value = value*2 - 1.0
+			}
+
+			switch {
+			case value <= -0.5:
+				d.invokeActionPress(analog.ActionNeg)
+				d.actionTracker[analog.ActionNeg] = true
+
+				d.invokeActionRelease(analog.Action)
 				delete(d.actionTracker, analog.Action)
+			case value > -0.49 && value < 0.49:
+				d.invokeActionRelease(analog.ActionNeg)
+				d.invokeActionRelease(analog.Action)
 				delete(d.actionTracker, analog.ActionNeg)
+				delete(d.actionTracker, analog.Action)
+			case value >= 0.5:
+				d.invokeActionPress(analog.Action)
+				d.actionTracker[analog.Action] = true
+
+				delete(d.actionTracker, analog.ActionNeg)
+				d.invokeActionRelease(analog.ActionNeg)
 			}
 		default:
 			log.Info(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType),
