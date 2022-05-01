@@ -175,11 +175,6 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
-type timerSrimer struct {
-	timer  *time.Timer
-	evcode evdev.EvCode
-}
-
 func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.Duration) (<-chan InputEvent, error) {
 	var events = make(chan InputEvent)
 
@@ -204,7 +199,8 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		go func(absEvents chan InputEvent) {
 			var locks = make(map[evdev.EvCode]*sync.Mutex)
 			var timers = make(chan evdev.EvCode, 64)
-			var lastEvent = make(map[evdev.EvCode]InputEvent)
+			var lastSentEvent = make(map[evdev.EvCode]InputEvent)
+			var lastThrottledEvent = make(map[evdev.EvCode]InputEvent)
 			var lastSent = make(map[evdev.EvCode]time.Time)
 			var timerMap = make(map[evdev.EvCode]*time.Timer)
 
@@ -230,7 +226,10 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 								break
 							}
 							locks[evCode].Lock()
-							events <- lastEvent[evCode]
+							event := lastThrottledEvent[evCode]
+							if event.Event.Value != lastSentEvent[evCode].Event.Value {
+								events <- event
+							}
 							locks[evCode].Unlock()
 						}
 					}(evCode)
@@ -258,13 +257,13 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 					locks[ev.Event.Code].Lock()
 					lastSent[ev.Event.Code] = now
-					lastEvent[ev.Event.Code] = ev
+					lastSentEvent[ev.Event.Code] = ev
 					locks[ev.Event.Code].Unlock()
 					events <- ev
 				} else {
 					// throttled
 					locks[ev.Event.Code].Lock()
-					lastEvent[ev.Event.Code] = ev
+					lastThrottledEvent[ev.Event.Code] = ev
 					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*20)
 					locks[ev.Event.Code].Unlock()
 				}
