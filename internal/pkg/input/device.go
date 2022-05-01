@@ -258,6 +258,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 					locks[ev.Event.Code].Lock()
 					lastSent[ev.Event.Code] = now
 					lastSentEvent[ev.Event.Code] = ev
+					lastThrottledEvent[ev.Event.Code] = ev
 					locks[ev.Event.Code].Unlock()
 					events <- ev
 				} else {
