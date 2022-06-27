@@ -60,8 +60,15 @@ root:
 		for d := range input.MonitorNewDevices(ctxDevice, cfg.HIDI.StabilizationPeriod, cfg.HIDI.DiscoveryRate) {
 			// TODO: inspect this code against possible race-condition
 
-			var inputEvents <-chan input.InputEvent
-			var err error
+			log.Info("Loading config for device...", zap.String("device_name", d.Name), logger.Debug)
+			conf, err := configs.FindConfig(d.ID, d.DeviceType)
+
+			if err != nil {
+				log.Info(fmt.Sprintf("failed to load config for device: %v", err), zap.String("device_name", d.Name), logger.Warning)
+				continue
+			}
+
+			var inputEvents <-chan *input.InputEvent
 
 			appearedAt := time.Now()
 
@@ -80,14 +87,8 @@ root:
 			}
 
 			wg.Add(1)
-			go func(dev input.Device) {
+			go func(dev input.Device, conf config.DeviceConfig) {
 				defer wg.Done()
-				log.Info("Loading config for keyboard...", zap.String("device_name", dev.Name), logger.Debug)
-				conf, err := configs.FindConfig(dev.ID, dev.DeviceType)
-
-				if err != nil {
-					panic(err)
-				}
 				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents, noLogs)
 				devices[&midiDev] = &midiDev
 				log.Info("Device connected", zap.String("device_name", dev.Name),
@@ -99,7 +100,7 @@ root:
 				midiDev.ProcessEvents(&wg)
 				log.Info("Device disconnected", zap.String("device_name", dev.Name), logger.Info)
 				delete(devices, &midiDev)
-			}(d)
+			}(d, conf)
 		}
 	}
 	wg.Wait()
