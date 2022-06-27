@@ -162,8 +162,6 @@ var (
 	noPony     = flag.Bool("nopony", false, "oh my... You can disable me if you want to, I.. I don't really mind. I'm fine")
 	midiDevice = flag.Int("mididevice", 0, "select N-th midi device, default: 0 (first)")
 	silent     = flag.Bool("silent", false, "no output logging, best performance")
-
-	cfg = LoadHIDIConfig("./config/hidi.config")
 )
 
 func init() {
@@ -173,6 +171,9 @@ func init() {
 }
 
 func main() {
+	createConfigDirectoryIfNeeded()
+
+	var cfg = LoadHIDIConfig("./config/hidi.config")
 	log.Info(fmt.Sprintf("HIDI config: %+v", cfg), logger.Debug)
 
 	var sigs = make(chan os.Signal, 1)
@@ -180,7 +181,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	g := runUI(cfg, *ui && !*silent, sigs)
-	createConfigDirectoryIfNeeded()
 
 	// this wait-group has to be propagated everywhere where usual logging appear
 	wg := sync.WaitGroup{}
@@ -192,6 +192,7 @@ func main() {
 
 	ioDevices := midi.DetectDevices()
 	if len(ioDevices) == 0 {
+		// TODO: able to log things
 		log.Info("There is no midi devices available, we're deeply sorry", logger.Error)
 		os.Exit(1)
 	}
