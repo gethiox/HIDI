@@ -72,6 +72,8 @@ func DetermineDeviceType(handlers map[HandlerType]DeviceInfo) DeviceType {
 	switch {
 	case contains(handlers, DI_TYPE_JOYSTICK):
 		return JoystickDevice
+	case contains(handlers, DI_TYPE_STD_KBD, DI_TYPE_MULTIMEDIA):
+		return KeyboardDevice
 	case contains(handlers, DI_TYPE_STD_KBD, DI_TYPE_MULTIMEDIA, DI_TYPE_SYSTEM):
 		return KeyboardDevice
 	case containsOnly(handlers, DI_TYPE_MOUSE):
@@ -175,8 +177,8 @@ func (d *Device) PhysicalUUID() PhysicalID {
 	return PhysicalID(d.Phys)
 }
 
-func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.Duration) (<-chan InputEvent, error) {
-	var events = make(chan InputEvent)
+func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.Duration) (<-chan *InputEvent, error) {
+	var events = make(chan *InputEvent)
 
 	wg := sync.WaitGroup{}
 	for ht, h := range d.Handlers {
@@ -187,6 +189,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		d.Evdevs[ht] = dev
 
+		// closing device on context expiration
 		go func(dev *evdev.InputDevice) {
 			<-ctx.Done()
 			err := dev.Close()
@@ -195,14 +198,16 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 			}
 		}(dev)
 
-		absEvents := make(chan InputEvent, 64)
-		go func(absEvents chan InputEvent) {
+		absEvents := make(chan *InputEvent, 64)
+		go func(absEvents chan *InputEvent) {
 			var locks = make(map[evdev.EvCode]*sync.Mutex)
 			var timers = make(chan evdev.EvCode, 64)
-			var lastSentEvent = make(map[evdev.EvCode]InputEvent)
-			var lastThrottledEvent = make(map[evdev.EvCode]InputEvent)
+			var lastSentEvent = make(map[evdev.EvCode]*InputEvent)
+			var lastThrottledEvent = make(map[evdev.EvCode]*InputEvent)
 			var lastSent = make(map[evdev.EvCode]time.Time)
 			var timerMap = make(map[evdev.EvCode]*time.Timer)
+
+			var timerKeeper = make([]*time.Timer, 128)
 
 			defer close(timers)
 
@@ -211,7 +216,9 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				// timers are set with a little of additional headroom which should prevent
 				// from firing when analog axis is in active use (not guarantee it tho, but it's not critical anyway)
 				// this way it should prevent the 99.9% cases of firing the same event twice at the time
-				timerMap[abs] = time.NewTimer(absThrottle + time.Millisecond*20)
+				timer := time.NewTimer(absThrottle + time.Millisecond*20)
+				timerKeeper = append(timerKeeper, timer)
+				timerMap[abs] = timer
 				lastSent[abs] = time.Now().Add(absThrottle * 2 * -1)
 			}
 
@@ -272,7 +279,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		}(absEvents)
 
 		wg.Add(1)
-		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan InputEvent) {
+		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan *InputEvent) {
 			event := info.Event()
 			name, _ := dev.Name()
 			name = strings.Trim(name, "\x00") // TODO: fix in go-evdev
@@ -293,26 +300,26 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				)
 			}
 			for {
-				event, err := dev.ReadOne()
+				ev, err := dev.ReadOne()
 				if err != nil {
 					break
 				}
 
-				if event.Type == evdev.EV_KEY && event.Value == 2 { // repeat
+				if ev.Type == evdev.EV_KEY && ev.Value == 2 { // repeat
 					continue
 				}
 
 				outputEvent := InputEvent{
 					Source: info,
-					Event:  *event,
+					Event:  *ev,
 				}
 
-				if event.Type == evdev.EV_ABS {
+				if ev.Type == evdev.EV_ABS {
 					// throttling
-					absEvents <- outputEvent
+					absEvents <- &outputEvent
 					continue
 				}
-				events <- outputEvent
+				events <- &outputEvent
 			}
 			if grab {
 				log.Info("Ungrabbing device", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)

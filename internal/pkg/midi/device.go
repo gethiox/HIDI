@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -27,7 +28,7 @@ type Device struct {
 	noLogs      bool // skips producing most of the log entries for maximum performance
 	config      config.Config
 	InputDevice input.Device
-	inputEvents <-chan input.InputEvent
+	inputEvents <-chan *input.InputEvent
 	midiEvents  chan<- Event
 
 	// TODO: move this to input.Device
@@ -55,7 +56,7 @@ type Device struct {
 	actionsRelease map[config.Action]func(*Device)
 }
 
-func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan input.InputEvent, midiEvents chan<- Event, noLogs bool) Device {
+func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan *input.InputEvent, midiEvents chan<- Event, noLogs bool) Device {
 	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
 
 	if inputDevice.DeviceType == input.JoystickDevice {
@@ -148,25 +149,29 @@ func (d *Device) checkDoubleActions() bool {
 	return false
 }
 
+func (d *Device) processEvent(event *input.InputEvent) {
+	if event.Event.Type == evdev.EV_SYN {
+		return
+	}
+
+	if event.Event.Type == evdev.EV_KEY && event.Event.Value == EV_KEY_REPEAT {
+		return
+	}
+
+	switch event.Event.Type {
+	case evdev.EV_KEY:
+		d.handleKEYEvent(event)
+	case evdev.EV_ABS:
+		d.handleABSEvent(event)
+	}
+}
+
 func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 	defer wg.Done()
 	log.Info("start ProcessEvents", d.logFields(logger.Debug)...)
 
 	for ie := range d.inputEvents {
-		if ie.Event.Type == evdev.EV_SYN {
-			continue
-		}
-
-		if ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_REPEAT {
-			continue
-		}
-
-		switch ie.Event.Type {
-		case evdev.EV_KEY:
-			d.handleKEYEvent(ie)
-		case evdev.EV_ABS:
-			d.handleABSEvent(ie)
-		}
+		d.processEvent(ie)
 	}
 
 	if len(d.noteTracker) > 0 || len(d.analogNoteTracker) > 0 {
@@ -174,7 +179,15 @@ func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 	}
 
 	for evcode := range d.noteTracker {
-		d.NoteOff(evcode)
+		d.NoteOff(&input.InputEvent{
+			Source: input.DeviceInfo{},
+			Event: evdev.InputEvent{
+				Time:  syscall.Timeval{},
+				Type:  evdev.EV_KEY,
+				Code:  evcode,
+				Value: 0,
+			},
+		})
 	}
 	for identifier := range d.analogNoteTracker {
 		d.AnalogNoteOff(identifier)
@@ -182,7 +195,7 @@ func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 	log.Info("virtual midi device exited", d.logFields(logger.Debug)...)
 }
 
-func (d *Device) handleKEYEvent(ie input.InputEvent) {
+func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 	_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
 	action, actionOk := d.config.ActionMapping[ie.Event.Code]
 
@@ -205,9 +218,9 @@ func (d *Device) handleKEYEvent(ie input.InputEvent) {
 	case noteOk:
 		switch ie.Event.Value {
 		case EV_KEY_PRESS:
-			d.NoteOn(ie.Event.Code)
+			d.NoteOn(ie)
 		case EV_KEY_RELEASE:
-			d.NoteOff(ie.Event.Code)
+			d.NoteOff(ie)
 		}
 	default:
 		switch {
@@ -226,7 +239,7 @@ func (d *Device) handleKEYEvent(ie input.InputEvent) {
 	}
 }
 
-func (d *Device) handleABSEvent(ie input.InputEvent) {
+func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
 
 	switch {
@@ -385,8 +398,8 @@ func (d *Device) handleABSEvent(ie input.InputEvent) {
 	}
 }
 
-func (d *Device) NoteOn(evCode evdev.EvCode) {
-	note, ok := d.config.KeyMappings[d.mapping].Midi[evCode]
+func (d *Device) NoteOn(ev *input.InputEvent) {
+	note, ok := d.config.KeyMappings[d.mapping].Midi[ev.Event.Code]
 	if !ok {
 		return
 	}
@@ -396,11 +409,11 @@ func (d *Device) NoteOn(evCode evdev.EvCode) {
 	}
 	note = uint8(noteCalculatored)
 
-	d.noteTracker[evCode] = [2]byte{note, d.channel}
+	d.noteTracker[ev.Event.Code] = [2]byte{note, d.channel}
 	event := NoteEvent(NoteOn, d.channel, note, 64)
 	d.midiEvents <- event
 	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys)...)
+		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 	}
 
 	for _, offset := range d.multiNote {
@@ -413,13 +426,13 @@ func (d *Device) NoteOn(evCode evdev.EvCode) {
 		event = NoteEvent(NoteOn, d.channel, note, 64)
 		d.midiEvents <- event
 		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys)...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
 	}
 }
 
-func (d *Device) NoteOff(evCode evdev.EvCode) {
-	noteAndChannel, ok := d.noteTracker[evCode]
+func (d *Device) NoteOff(ev *input.InputEvent) {
+	noteAndChannel, ok := d.noteTracker[ev.Event.Code]
 	if !ok {
 		return
 	}
@@ -427,9 +440,9 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 
 	event := NoteEvent(NoteOff, channel, note, 0)
 	d.midiEvents <- event
-	delete(d.noteTracker, evCode)
+	delete(d.noteTracker, ev.Event.Code)
 	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys)...)
+		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 	}
 
 	for _, offset := range d.multiNote {
@@ -441,7 +454,7 @@ func (d *Device) NoteOff(evCode evdev.EvCode) {
 		event = NoteEvent(NoteOff, channel, newNote, 0)
 		d.midiEvents <- event
 		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys)...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
 	}
 }
