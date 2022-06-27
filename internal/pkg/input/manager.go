@@ -140,6 +140,7 @@ func MonitorNewDevices(ctx context.Context, stabilizationPeriod, discoveryRate t
 			}
 
 			for _, device := range Normalize(deviceInfos) {
+				log.Info(fmt.Sprintf("Normalized device: %+v", device), logger.Debug)
 				devChan <- device
 			}
 			events = nil
