@@ -52,6 +52,13 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Devi
 			dtype := d.InputDevice.DeviceType.String()
 			nameSep := 30 - len(dname)
 			typeSep := 8 - len(dtype)
+			if nameSep < 0 {
+				nameSep = 0
+			}
+			if typeSep < 0 {
+				typeSep = 0
+			}
+
 			s := fmt.Sprintf(
 				"Name: %s, Type: %s, handlers: %2d",
 				strings.Repeat(" ", nameSep)+colorForString(au, dname).String(),
