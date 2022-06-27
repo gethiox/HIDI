@@ -200,7 +200,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 		absEvents := make(chan *InputEvent, 64)
 		go func(absEvents chan *InputEvent) {
-			var locks = make(map[evdev.EvCode]*sync.Mutex)
+			var lock = sync.Mutex{}
 			var timers = make(chan evdev.EvCode, 64)
 			var lastSentEvent = make(map[evdev.EvCode]*InputEvent)
 			var lastThrottledEvent = make(map[evdev.EvCode]*InputEvent)
@@ -212,7 +212,6 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 			defer close(timers)
 
 			for _, abs := range evdev.ABSFromString {
-				locks[abs] = &sync.Mutex{}
 				// timers are set with a little of additional headroom which should prevent
 				// from firing when analog axis is in active use (not guarantee it tho, but it's not critical anyway)
 				// this way it should prevent the 99.9% cases of firing the same event twice at the time
@@ -232,12 +231,12 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 							case <-timerMap[evCode].C:
 								break
 							}
-							locks[evCode].Lock()
+							lock.Lock()
 							event := lastThrottledEvent[evCode]
 							if event.Event.Value != lastSentEvent[evCode].Event.Value {
 								events <- event
 							}
-							locks[evCode].Unlock()
+							lock.Unlock()
 						}
 					}(evCode)
 				}
@@ -262,18 +261,18 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*20)
 					// doesn't matter if the timer already fired or not
 
-					locks[ev.Event.Code].Lock()
+					lock.Lock()
 					lastSent[ev.Event.Code] = now
 					lastSentEvent[ev.Event.Code] = ev
 					lastThrottledEvent[ev.Event.Code] = ev
-					locks[ev.Event.Code].Unlock()
+					lock.Unlock()
 					events <- ev
 				} else {
 					// throttled
-					locks[ev.Event.Code].Lock()
+					lock.Lock()
 					lastThrottledEvent[ev.Event.Code] = ev
 					timerMap[ev.Event.Code].Reset(absThrottle + time.Millisecond*20)
-					locks[ev.Event.Code].Unlock()
+					lock.Unlock()
 				}
 			}
 		}(absEvents)
