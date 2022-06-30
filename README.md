@@ -12,18 +12,19 @@ These are things that I want to make before 1.0 release:
   - [x] pretty print for logs
     - [x] align text to the terminal width
     - [x] handle small terminal windows, trimming message, hiding extra fields
-    - [x] ~~regenerate buffer output on terminal size change~~ (Nice to have)
+    - [ ] regenerate buffer output on terminal size change
+    - [ ] avoid flickering of buffers without scrolling 
+    - [ ] Optimize output writing to buffers, avoid infinity "memory leak"
   - [x] output colorization
     - [x] initial colorization support
     - [x] colorize segments with unique color for strings for given sections
     - [x] 256 color mode
-    - [x] ~~16 and 0 colors mode with autodetection~~ 256 or no color mode, deal with it
+    - [x] automatic conversion from 256 colors to lower modes (not ideal, but good enough)
   - [x] alternative output mode, simple print
 - [x] implement device overview status
 - [x] Improve throttling logic to the best possible solution
 - [x] Maximum performance mode by skipping logs for all virtual keyboard events
-- [x] ~~Optimize output writing to buffers~~ (Nice to have)
-- [x] ~~General code cleanup~~ (Nice to have)
+- [ ] General code cleanup
 
 # Significant improvements since beta release
 
