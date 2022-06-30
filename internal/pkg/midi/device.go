@@ -581,6 +581,23 @@ func (d *Device) ChannelReset() {
 	}
 }
 
+func humanizeNoteOffsets(offsets []int) string {
+	var intervals = ""
+	for i, interval := range offsets {
+		name, ok := intervalToString[interval]
+		if !ok {
+			intervals += "..."
+			break
+		}
+		if i == 0 {
+			intervals += fmt.Sprintf("%s", name)
+		} else {
+			intervals += fmt.Sprintf(", %s", name)
+		}
+	}
+	return intervals
+}
+
 func (d *Device) Multinote() {
 	var pressedNotes []int
 	for _, noteAndChannel := range d.noteTracker {
@@ -614,19 +631,7 @@ func (d *Device) Multinote() {
 		noteOffsets = append(noteOffsets, note-minVal)
 	}
 
-	var intervals = ""
-	for i, interval := range noteOffsets {
-		name, ok := intervalToString[interval]
-		if !ok {
-			intervals += "..."
-			break
-		}
-		if i == 0 {
-			intervals += fmt.Sprintf("%s", name)
-		} else {
-			intervals += fmt.Sprintf(", %s", name)
-		}
-	}
+	intervals := humanizeNoteOffsets(noteOffsets)
 
 	d.multiNote = noteOffsets
 	if !d.noLogs {
@@ -662,12 +667,13 @@ func (d *Device) CCLearningOff() {
 
 func (d *Device) Status() string {
 	return fmt.Sprintf(
-		"octave: %3d, semitone: %3d, ch: %2d, notes: %2d, map: %s",
+		"octave: %3d, semitone: %3d, channel: %2d, notes: %2d, map: %s, multinote: %s",
 		d.octave,
 		d.semitone,
 		d.channel+1,
 		len(d.noteTracker)+len(d.analogNoteTracker),
 		d.config.KeyMappings[d.mapping].Name,
+		humanizeNoteOffsets(d.multiNote),
 	)
 }
 

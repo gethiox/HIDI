@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awesome-gocui/gocui"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
-	"github.com/jroimartin/gocui"
 	"github.com/logrusorgru/aurora"
 )
 
@@ -25,7 +25,7 @@ const (
 )
 
 func GetCli() (*gocui.Gui, error) {
-	g, err := gocui.NewGui(gocui.Output256)
+	g, err := gocui.NewGui(gocui.Output256, true)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,17 @@ func GetCli() (*gocui.Gui, error) {
 func Layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 
-	if v, err := g.SetView(ViewLogs, 0, 0, maxX-1, maxY-1); err != nil {
+	if v, err := g.SetView(ViewOverview, 0, 0, maxX-1, 9, 0); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Title = "[Devices]"
+		v.Autoscroll = false
+		v.Wrap = false
+		v.Frame = true
+	}
+
+	if v, err := g.SetView(ViewLogs, 0, 9, maxX-1, maxY-1, gocui.TOP); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
@@ -52,19 +62,7 @@ func Layout(g *gocui.Gui) error {
 		v.Frame = true
 	}
 
-	if v, err := g.SetView(ViewOverview, maxX-69, 0, maxX-1, 10); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = "[overview]"
-		v.Autoscroll = false
-		v.Wrap = false
-		v.Frame = true
-	}
-
-	x := maxX - 69 - 22
-
-	if v, err := g.SetView(ViewLCD, x, 0, x+21, 5); err != nil {
+	if v, err := g.SetView(ViewLCD, maxX-22, 0, maxX-1, 5, 0); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
@@ -163,10 +161,22 @@ func colorForString(au aurora.Aurora, s string) aurora.Value {
 	h.Write([]byte(s))
 	sum := h.Sum32()
 
-	r, g, b := uint8(sum), uint8(sum>>8), uint8(sum>>16)
+	r, g, b := uint8(sum)&0b00000111, uint8(sum>>8)&0b00000111, uint8(sum>>16)&0b00000111
+	if r > 5 {
+		r = 5
+	}
+	if g > 5 {
+		g = 5
+	}
+	if b > 5 {
+		b = 5
+	}
 
-	if r+g+b < 64 {
-		b = 64
+	// avoid dark colors
+	if r+g+b < 3 {
+		r += 1
+		g += 1
+		b += 1
 	}
 
 	return au.Index(16+36*r+6*g+b, s)
@@ -319,8 +329,8 @@ func prepareString(msg Entry, au aurora.Aurora, width, logLevel int) string {
 func (f *Feeder) Write(data []byte) {
 	msg, err := unpack(data)
 	if err != nil {
-		f.view.Write([]byte{'\n'})
 		f.view.Write(data)
+		f.view.Write([]byte{'\n'})
 		return
 	}
 
@@ -328,13 +338,13 @@ func (f *Feeder) Write(data []byte) {
 
 	s := prepareString(msg, f.au, x, f.logLevel)
 	if s != "" {
-		f.view.Write([]byte{'\n'})
 		f.view.Write([]byte(s))
+		f.view.Write([]byte{'\n'})
 	}
 }
 
 func (f *Feeder) OverWrite(data []byte) {
 	f.view.Clear()
-	f.view.Write([]byte{'\n'})
 	f.view.Write(data)
+	f.view.Write([]byte{'\n'})
 }

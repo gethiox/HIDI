@@ -199,7 +199,11 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		}(dev)
 
 		absEvents := make(chan *InputEvent, 64)
+
+		wg.Add(1)
 		go func(absEvents chan *InputEvent) {
+			defer wg.Done() // todo: verify potential deadlock
+
 			var lock = sync.Mutex{}
 			var timers = make(chan evdev.EvCode, 64)
 			var lastSentEvent = make(map[evdev.EvCode]*InputEvent)
@@ -221,7 +225,9 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				lastSent[abs] = time.Now().Add(absThrottle * 2 * -1)
 			}
 
+			wg.Add(1)
 			go func() {
+				defer wg.Done() // todo: verify potential deadlock
 				for evCode := range timers {
 					go func(evCode evdev.EvCode) {
 						for {

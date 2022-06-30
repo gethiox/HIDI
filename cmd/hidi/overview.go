@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awesome-gocui/gocui"
 	"github.com/gethiox/HIDI/internal/pkg/display"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
-	"github.com/jroimartin/gocui"
 	"github.com/logrusorgru/aurora"
 )
 
@@ -37,7 +37,6 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Devi
 
 	for {
 		var viewData []string
-		viewData = append(viewData, "Devices:")
 
 		var ptrs DevicePtrs
 
@@ -50,29 +49,25 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Devi
 		for _, d := range ptrs {
 			dname := d.InputDevice.Name
 			dtype := d.InputDevice.DeviceType.String()
-			nameSep := 30 - len(dname)
 			typeSep := 8 - len(dtype)
-			if nameSep < 0 {
-				nameSep = 0
-			}
 			if typeSep < 0 {
 				typeSep = 0
 			}
 
 			s := fmt.Sprintf(
-				"Name: %s, Type: %s, handlers: %2d",
-				strings.Repeat(" ", nameSep)+colorForString(au, dname).String(),
+				"%s: %s, handlers: %2d",
 				strings.Repeat(" ", typeSep)+colorForString(au, dtype).String(),
+				colorForString(au, dname).String(),
 				len(d.InputDevice.Handlers),
 			)
 			viewData = append(viewData, s)
 			viewData = append(viewData, "└ "+d.Status())
 		}
 
-		view.Clear()
+		view.Rewind()
 		for _, d := range viewData {
-			view.Write([]byte{'\n'})
 			view.Write([]byte(d))
+			view.Write([]byte{'\n'})
 		}
 		time.Sleep(time.Millisecond * 500)
 	}

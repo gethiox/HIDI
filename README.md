@@ -183,7 +183,7 @@ but besides of that, applying changes should be pretty straight-forward.
 
 If your keyboard doesn't work correctly with default mappings, create `Factory` configuration for your device type.
 Make sure it has proper values in `Identifier` section and loads correctly.  
-For more information, see [guide](cmd/config/user/README.md)
+For more information, see [guide](cmd/hidi/config/user/README.md)
 
 You can create pull request if you wish to share it with the project. But before that,
 make sure that all default mappings are working and arranged correctly

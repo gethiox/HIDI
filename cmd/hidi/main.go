@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/awesome-gocui/gocui"
 	"github.com/gethiox/HIDI/internal/pkg/display"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
-	"github.com/jroimartin/gocui"
 	"github.com/logrusorgru/aurora"
 )
 
@@ -30,14 +30,17 @@ var pony string
 func processMidiEvents(ctx context.Context, wg *sync.WaitGroup, ioDevice *os.File, midiEvents, otherMidiEvents <-chan midi.Event) {
 	defer wg.Done()
 	var ev midi.Event
+	var ok bool
 root:
 	for {
 		select {
 		case <-ctx.Done():
 			break root
-		case ev = <-midiEvents:
-			if ev[0]&0b11110000 == midi.NoteOn {
-				score += 1
+		case ev, ok = <-midiEvents:
+			if ok { // todo: investigate
+				if ev[0]&0b11110000 == midi.NoteOn {
+					score += 1
+				}
 			}
 		case ev = <-otherMidiEvents:
 			break
@@ -148,6 +151,7 @@ var (
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
 	ui       = flag.Bool("ui", false, "engage debug ui")
+	force256 = flag.Bool("256", false, "force 256 color mode")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
 	logLevel = flag.Int("loglevel", 3,
 		"logging level, each level enables additional information class (0-4, default: 3)\n"+
@@ -171,6 +175,9 @@ func init() {
 }
 
 func main() {
+	if *force256 == true {
+		os.Setenv("TERM", "xterm-256color")
+	}
 	createConfigDirectoryIfNeeded()
 
 	var cfg = LoadHIDIConfig("./config/hidi.config")

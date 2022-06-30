@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -62,9 +63,12 @@ root:
 
 			log.Info("Loading config for device...", zap.String("device_name", d.Name), logger.Debug)
 			conf, err := configs.FindConfig(d.ID, d.DeviceType)
-
 			if err != nil {
-				log.Info(fmt.Sprintf("failed to load config for device: %v", err), zap.String("device_name", d.Name), logger.Warning)
+				if errors.Is(err, config.UnsupportedDeviceType) {
+					log.Info(fmt.Sprintf("failed to load config for device: %v", err), zap.String("device_name", d.Name), logger.Warning)
+					continue
+				}
+				log.Info(fmt.Sprintf("failed to load config for device: %v", err), zap.String("device_name", d.Name), logger.Error)
 				continue
 			}
 

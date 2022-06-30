@@ -21,6 +21,10 @@ const (
 	userKeyboard    = "./config/user/keyboard"
 )
 
+var (
+	UnsupportedDeviceType = errors.New("unsupported device type")
+)
+
 type ConfigMap map[input.InputID]DeviceConfig
 
 type DeviceConfigs struct {
@@ -68,7 +72,7 @@ func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (
 		return DeviceConfig{}, errors.New("default gamepad config not found")
 	}
 
-	return DeviceConfig{}, fmt.Errorf("unsupported device type config: %s", devType)
+	return DeviceConfig{}, fmt.Errorf("%w: %s", UnsupportedDeviceType, devType)
 }
 
 type dirInfo struct {
