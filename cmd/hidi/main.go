@@ -218,8 +218,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	var midiEvents = make(chan midi.Event)
-	var otherMidiEvents = make(chan midi.Event)
+	var midiEvents = make(chan midi.Event, 8)
+	var otherMidiEvents = make(chan midi.Event, 8)
 
 	confNotifier := make(chan validate.NotifyMessage)
 	wg.Add(1)

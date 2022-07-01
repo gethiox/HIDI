@@ -448,10 +448,12 @@ func (d *Device) NoteOn(ev *input.InputEvent) {
 			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
 	case config.CollisionInterrupt:
-		event = NoteEvent(NoteOff, d.channel, note, 0)
-		d.midiEvents <- event
-		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		if d.activeNotesCounter[d.channel][note] > 0 {
+			event = NoteEvent(NoteOff, d.channel, note, 0)
+			d.midiEvents <- event
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
 		}
 
 		event = NoteEvent(NoteOn, d.channel, note, d.velocity)
@@ -489,10 +491,12 @@ func (d *Device) NoteOn(ev *input.InputEvent) {
 				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 			}
 		case config.CollisionInterrupt:
-			event = NoteEvent(NoteOff, d.channel, note, 0)
-			d.midiEvents <- event
-			if !d.noLogs {
-				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			if d.activeNotesCounter[d.channel][note] > 0 {
+				event = NoteEvent(NoteOff, d.channel, note, 0)
+				d.midiEvents <- event
+				if !d.noLogs {
+					log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+				}
 			}
 
 			event = NoteEvent(NoteOn, d.channel, note, d.velocity)
@@ -542,21 +546,25 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 		if multiNote < 0 || multiNote > 127 {
 			continue
 		}
-		note = uint8(multiNote)
+		note2 := uint8(multiNote)
+
+		if d.activeNotesCounter[channel][note2] == 0 {
+			continue
+		}
 
 		switch d.config.CollisionMode {
 		case config.CollisionOff:
-			event = NoteEvent(NoteOff, channel, note, 0)
+			event = NoteEvent(NoteOff, channel, note2, 0)
 			d.midiEvents <- event
 			delete(d.noteTracker, ev.Event.Code)
 			if !d.noLogs {
 				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 			}
 		case config.CollisionNoRepeat, config.CollisionRetrigger, config.CollisionInterrupt:
-			if d.activeNotesCounter[channel][note] > 1 {
+			if d.activeNotesCounter[channel][note2] > 1 {
 				break
 			}
-			event = NoteEvent(NoteOff, channel, note, 0)
+			event = NoteEvent(NoteOff, channel, note2, 0)
 			d.midiEvents <- event
 			delete(d.noteTracker, ev.Event.Code)
 			if !d.noLogs {
@@ -564,7 +572,7 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 			}
 		}
 
-		d.activeNotesCounter[channel][note]--
+		d.activeNotesCounter[channel][note2]--
 	}
 }
 

@@ -178,7 +178,7 @@ func (d *Device) PhysicalUUID() PhysicalID {
 }
 
 func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.Duration) (<-chan *InputEvent, error) {
-	var events = make(chan *InputEvent)
+	var events = make(chan *InputEvent, 8)
 
 	wg := sync.WaitGroup{}
 	for ht, h := range d.Handlers {
