@@ -5,6 +5,8 @@ identifier: # marking config as default as zero-value identifier
   version: 0x00
   uniq: "" # optional
 
+collision_mode: "retrigger"
+
 action_mapping:
   KEY_ESC: "panic"
 

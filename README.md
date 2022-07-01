@@ -24,7 +24,9 @@ These are things that I want to make before 1.0 release:
 - [x] implement device overview status
 - [x] Improve throttling logic to the best possible solution
 - [x] Maximum performance mode by skipping logs for all virtual keyboard events
+- [ ] note collision handlers (off, no_repeat, retrigger, interrupt)
 - [ ] General code cleanup
+- [ ] Configurable analog deadzones
 
 # Significant improvements since beta release
 

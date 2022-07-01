@@ -18,13 +18,16 @@ const (
 	Multinote    Action = "multinote" // holding this button and pressing midi keys sets multinote mode
 	Panic        Action = "panic"
 	Learning     Action = "cc_learning"
-)
 
-const (
 	AnalogPitchBend MappingType = "pitch_bend"
 	AnalogCC        MappingType = "cc"
 	AnalogKeySim    MappingType = "key"
 	AnalogActionSim MappingType = "action"
+
+	CollisionOff       CollisionMode = "off"       // always emit note_on/off events
+	CollisionNoRepeat  CollisionMode = "no_repeat" // emit note_on on first occurrence, note_off on last release
+	CollisionInterrupt CollisionMode = "interrupt" // interrupt previous occurrence with note_off event first, note_off on last release
+	CollisionRetrigger CollisionMode = "retrigger" // always emit note_on, note_off on last release
 )
 
 var SupportedActions = map[Action]bool{
@@ -50,8 +53,16 @@ var SupportedMappingTypes = map[MappingType]bool{
 	AnalogActionSim: true,
 }
 
+var SupportedCollisionModes = map[CollisionMode]bool{
+	CollisionOff:       true,
+	CollisionNoRepeat:  true,
+	CollisionInterrupt: true,
+	CollisionRetrigger: true,
+}
+
 type Action string
 type MappingType string
+type CollisionMode string
 
 type Analog struct {
 	MappingType       MappingType
@@ -71,5 +82,7 @@ type KeyMapping struct {
 type Config struct {
 	KeyMappings     []KeyMapping
 	ActionMapping   map[evdev.EvCode]Action
-	AnalogDeadzones map[evdev.EvCode]float64 // 0.0 - 1.0
+	AnalogDeadzones map[evdev.EvCode]float64 // 0.0 - 1.0 // TODO
+	DefaultDeadzone float64                  // TODO
+	CollisionMode   CollisionMode
 }

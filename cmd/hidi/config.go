@@ -29,6 +29,7 @@ type HIDIConfig struct {
 }
 
 func LoadHIDIConfig(path string) HIDIConfig {
+	// TODO: remove bloat
 	data, err := os.ReadFile(path)
 	if err != nil {
 		panic(err)

@@ -20,8 +20,12 @@ type YamlDeviceConfig struct {
 		Version uint16 `yaml:"version"`
 		Uniq    string `yaml:"uniq"`
 	} `yaml:"identifier"`
-	ActionMapping map[string]string              `yaml:"action_mapping"`
-	KeyMappings   []map[string]map[string]string `yaml:"midi_mappings"`
+
+	CollisionMode   string                         `yaml:"collision_mode"`
+	Deadzones       map[string]float64             `yaml:"deadzones"`
+	DefaultDeadzone float64                        `yaml:"default_deadzone"`
+	ActionMapping   map[string]string              `yaml:"action_mapping"`
+	KeyMappings     []map[string]map[string]string `yaml:"midi_mappings"`
 }
 
 type YamlCustomMapping struct {
@@ -204,6 +208,11 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 		actionMapping[evcode] = action
 	}
 
+	collisionMode := CollisionMode(cfg.CollisionMode)
+	if !SupportedCollisionModes[collisionMode] {
+		return DeviceConfig{}, fmt.Errorf("[collision_mode] unsupported collision_mode: %s", collisionMode)
+	}
+
 	devConfig := DeviceConfig{
 		ConfigFile: path2.Base(path),
 		ConfigType: configType,
@@ -218,6 +227,8 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 			KeyMappings:     keyMapping,
 			ActionMapping:   actionMapping,
 			AnalogDeadzones: nil,
+			DefaultDeadzone: cfg.DefaultDeadzone,
+			CollisionMode:   collisionMode,
 		},
 	}
 	return devConfig, nil

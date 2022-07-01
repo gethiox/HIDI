@@ -46,6 +46,10 @@ func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (
 		if ok {
 			return cfg, nil
 		}
+		cfg, ok = c.User.Keyboards[input.InputID{}] // picking user default if exist
+		if ok {
+			return cfg, nil
+		}
 		cfg, ok = c.Factory.Keyboards[id]
 		if ok {
 			return cfg, nil
@@ -58,6 +62,10 @@ func (c *DeviceConfigs) FindConfig(id input.InputID, devType input.DeviceType) (
 
 	case input.JoystickDevice:
 		cfg, ok := c.User.Gamepads[id]
+		if ok {
+			return cfg, nil
+		}
+		cfg, ok = c.User.Gamepads[input.InputID{}] // picking user default if exist
 		if ok {
 			return cfg, nil
 		}

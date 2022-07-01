@@ -41,12 +41,17 @@ type Device struct {
 	// and modify state on the fly (changing octave, channel etc.), NoteOff events will be emitted correctly anyway.
 	noteTracker       map[evdev.EvCode][2]byte // 1: note, 2: channel
 	analogNoteTracker map[string][2]byte       // 1: note, 2: channel
-	actionTracker     map[config.Action]bool
-	ccZeroed          map[byte]bool // 1: positive, 2: negative
+	// used to track active occurrence number for given channel/note for purpose of handling clashed notes.
+	// more info in hidi.config at "collision_mode" option.
+	activeNotesCounter map[byte]map[byte]int // map[channel]map[note]occurrence_number
+
+	actionTracker map[config.Action]bool
+	ccZeroed      map[byte]bool // 1: positive, 2: negative
 
 	octave   int8
 	semitone int8
 	channel  uint8
+	velocity uint8
 	// warning: currently lazy implementation
 	multiNote  []int // list of additional note intervals (offsets)
 	mapping    int
@@ -59,6 +64,7 @@ type Device struct {
 func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan *input.InputEvent, midiEvents chan<- Event, noLogs bool) Device {
 	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
 
+	// TODO: move this to DeviceInfo
 	if inputDevice.DeviceType == input.JoystickDevice {
 		for ht, edev := range inputDevice.Evdevs {
 			if ht != input.DI_TYPE_JOYSTICK {
@@ -80,7 +86,16 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		}
 	}
 
-	d := Device{
+	var activeNoteCounter = make(map[byte]map[byte]int)
+	for ch := byte(0); ch < 16; ch++ {
+		var t = make(map[byte]int)
+		for note := byte(0); note < 128; note++ {
+			t[note] = 0
+		}
+		activeNoteCounter[ch] = t
+	}
+
+	return Device{
 		noLogs:      noLogs,
 		config:      cfg.Config,
 		InputDevice: inputDevice,
@@ -88,29 +103,37 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		midiEvents:  midiEvents,
 		absinfos:    absinfos,
 
-		noteTracker:       make(map[evdev.EvCode][2]byte, 32),
-		analogNoteTracker: make(map[string][2]byte, 32),
-		actionTracker:     make(map[config.Action]bool, 16),
-		ccZeroed:          make(map[byte]bool, 32),
-	}
+		noteTracker:        make(map[evdev.EvCode][2]byte, 32),
+		analogNoteTracker:  make(map[string][2]byte, 32),
+		activeNotesCounter: activeNoteCounter,
+		actionTracker:      make(map[config.Action]bool, 16),
+		ccZeroed:           make(map[byte]bool, 32),
 
-	d.actionsPress = map[config.Action]func(*Device){
-		config.Panic:        (*Device).Panic,
-		config.MappingUp:    (*Device).MappingUp,
-		config.MappingDown:  (*Device).MappingDown,
-		config.OctaveUp:     (*Device).OctaveUp,
-		config.OctaveDown:   (*Device).OctaveDown,
-		config.SemitoneUp:   (*Device).SemitoneUp,
-		config.SemitoneDown: (*Device).SemitoneDown,
-		config.ChannelUp:    (*Device).ChannelUp,
-		config.ChannelDown:  (*Device).ChannelDown,
-		config.Multinote:    func(*Device) {}, // on key release only
-		config.Learning:     (*Device).CCLearningOn,
+		actionsPress: map[config.Action]func(*Device){
+			config.Panic:        (*Device).Panic,
+			config.MappingUp:    (*Device).MappingUp,
+			config.MappingDown:  (*Device).MappingDown,
+			config.OctaveUp:     (*Device).OctaveUp,
+			config.OctaveDown:   (*Device).OctaveDown,
+			config.SemitoneUp:   (*Device).SemitoneUp,
+			config.SemitoneDown: (*Device).SemitoneDown,
+			config.ChannelUp:    (*Device).ChannelUp,
+			config.ChannelDown:  (*Device).ChannelDown,
+			config.Multinote:    func(*Device) {}, // on key release only
+			config.Learning:     (*Device).CCLearningOn,
+		},
+		actionsRelease: map[config.Action]func(*Device){
+			config.Learning: (*Device).CCLearningOff,
+		},
+
+		octave:     0,
+		semitone:   0,
+		channel:    0,
+		multiNote:  []int{},
+		mapping:    0,
+		ccLearning: false,
+		velocity:   64,
 	}
-	d.actionsRelease = map[config.Action]func(*Device){
-		config.Learning: (*Device).CCLearningOff,
-	}
-	return d
 }
 
 func (d *Device) logFields(fields ...zap.Field) []zap.Field {
@@ -180,7 +203,7 @@ func (d *Device) ProcessEvents(wg *sync.WaitGroup) {
 
 	for evcode := range d.noteTracker {
 		d.NoteOff(&input.InputEvent{
-			Source: input.DeviceInfo{},
+			Source: input.DeviceInfo{Name: "shutdown cleanup"},
 			Event: evdev.InputEvent{
 				Time:  syscall.Timeval{},
 				Type:  evdev.EV_KEY,
@@ -223,10 +246,7 @@ func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 			d.NoteOff(ie)
 		}
 	default:
-		switch {
-		case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_RELEASE:
-			return
-		case ie.Event.Type == evdev.EV_KEY && ie.Event.Value == EV_KEY_REPEAT:
+		if ie.Event.Type == evdev.EV_KEY && (ie.Event.Value == EV_KEY_RELEASE || ie.Event.Value == EV_KEY_REPEAT) {
 			return
 		}
 
@@ -277,6 +297,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...)
 		}
 
+		// TODO: cleanup this mess
 		switch analog.MappingType {
 		case config.AnalogCC:
 			var adjustedValue float64
@@ -409,25 +430,79 @@ func (d *Device) NoteOn(ev *input.InputEvent) {
 	}
 	note = uint8(noteCalculatored)
 
-	d.noteTracker[ev.Event.Code] = [2]byte{note, d.channel}
-	event := NoteEvent(NoteOn, d.channel, note, 64)
-	d.midiEvents <- event
-	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+	var event Event
+	switch d.config.CollisionMode {
+	case config.CollisionOff, config.CollisionRetrigger:
+		event = NoteEvent(NoteOn, d.channel, note, d.velocity)
+		d.midiEvents <- event
+		if !d.noLogs { // TODO: maybe move logging outside of device, but it will need InputEvent and Device reference tho
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		}
+	case config.CollisionNoRepeat:
+		if d.activeNotesCounter[d.channel][note] > 0 {
+			break
+		}
+		event = NoteEvent(NoteOn, d.channel, note, d.velocity)
+		d.midiEvents <- event
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		}
+	case config.CollisionInterrupt:
+		event = NoteEvent(NoteOff, d.channel, note, 0)
+		d.midiEvents <- event
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		}
+
+		event = NoteEvent(NoteOn, d.channel, note, d.velocity)
+		d.midiEvents <- event
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		}
 	}
 
+	d.noteTracker[ev.Event.Code] = [2]byte{note, d.channel}
+	d.activeNotesCounter[d.channel][note]++
+
+	// TODO: fix collision modes for multinote
 	for _, offset := range d.multiNote {
 		multiNote := noteCalculatored + offset
 		if multiNote < 0 || multiNote > 127 {
 			continue
 		}
 		note = uint8(multiNote)
-		// untracked notes
-		event = NoteEvent(NoteOn, d.channel, note, 64)
-		d.midiEvents <- event
-		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+
+		switch d.config.CollisionMode {
+		case config.CollisionOff, config.CollisionRetrigger:
+			event = NoteEvent(NoteOn, d.channel, note, d.velocity)
+			d.midiEvents <- event
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
+		case config.CollisionNoRepeat:
+			if d.activeNotesCounter[d.channel][note] > 0 {
+				break
+			}
+			event = NoteEvent(NoteOn, d.channel, note, d.velocity)
+			d.midiEvents <- event
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
+		case config.CollisionInterrupt:
+			event = NoteEvent(NoteOff, d.channel, note, 0)
+			d.midiEvents <- event
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
+
+			event = NoteEvent(NoteOn, d.channel, note, d.velocity)
+			d.midiEvents <- event
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
 		}
+
+		d.activeNotesCounter[d.channel][note]++
 	}
 }
 
@@ -438,24 +513,58 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 	}
 	note, channel := noteAndChannel[0], noteAndChannel[1]
 
-	event := NoteEvent(NoteOff, channel, note, 0)
-	d.midiEvents <- event
-	delete(d.noteTracker, ev.Event.Code)
-	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+	var event Event
+	switch d.config.CollisionMode {
+	case config.CollisionOff:
+		event = NoteEvent(NoteOff, channel, note, 0)
+		d.midiEvents <- event
+		delete(d.noteTracker, ev.Event.Code)
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		}
+	case config.CollisionNoRepeat, config.CollisionRetrigger, config.CollisionInterrupt:
+		if d.activeNotesCounter[channel][note] > 1 {
+			break
+		}
+		event = NoteEvent(NoteOff, channel, note, 0)
+		d.midiEvents <- event
+		delete(d.noteTracker, ev.Event.Code)
+		if !d.noLogs {
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		}
 	}
 
+	d.activeNotesCounter[channel][note]--
+
+	// TODO: fix collision modes for multinote
 	for _, offset := range d.multiNote {
 		multiNote := int(note) + offset
 		if multiNote < 0 || multiNote > 127 {
 			continue
 		}
-		newNote := uint8(multiNote)
-		event = NoteEvent(NoteOff, channel, newNote, 0)
-		d.midiEvents <- event
-		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		note = uint8(multiNote)
+
+		switch d.config.CollisionMode {
+		case config.CollisionOff:
+			event = NoteEvent(NoteOff, channel, note, 0)
+			d.midiEvents <- event
+			delete(d.noteTracker, ev.Event.Code)
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
+		case config.CollisionNoRepeat, config.CollisionRetrigger, config.CollisionInterrupt:
+			if d.activeNotesCounter[channel][note] > 1 {
+				break
+			}
+			event = NoteEvent(NoteOff, channel, note, 0)
+			d.midiEvents <- event
+			delete(d.noteTracker, ev.Event.Code)
+			if !d.noLogs {
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			}
 		}
+
+		d.activeNotesCounter[channel][note]--
 	}
 }
 
