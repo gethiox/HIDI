@@ -4,7 +4,7 @@ Make sure all sections have proper, space-based indentation.
 
 - `identifier` section is responsible for matching with your device,
   please include proper `bus`, `vendor`, `product` and `version` values
-- `uniq` may be useful for user configuration only, when user wants to distinguish devices of the same type
+- `uniq` may be useful for user configurations only, when user wants to distinguish devices of the same type
   (device must report that value correctly, most devices doesn't have one, especially keyboards)
 - `action_mapping` - self-explanatory, currently supported actions:
   - `mapping_up`
@@ -40,19 +40,22 @@ Make sure all sections have proper, space-based indentation.
     [codes.go](https://github.com/holoplot/go-evdev/blob/c80ef6a93985029e8db7b4a5ca42af976b4ac1a4/codes.go)
     or [input-event-codes.h](https://elixir.bootlin.com/linux/v5.17/source/include/uapi/linux/input-event-codes.h)
     files.
-- `deadzones` - todo
-- `default_deadzone` - todo
+- `deadzones` - key:deadzone mapping in `0.0` - `1.0` range.
+- `default_deadzone` - default deadzone value `0.0` - `1.0` for all other events 
+  that were not specified in `deadzones` section
 - `collision_mode` - there are two cases when there is a probability of "clashing" midi events.
   first, caused by midi mappings, as user can assign the very same midi note to different hardware keys.
   second, with multi-note mode, as user can play combination of two keys which will share the same midi note.
   there are a few modes available to specify behaviour when note is activated again without releasing it first:
-  - `off` - clash is not handled in any way, every press and release will always emit "note on/off" events.
-    this may cause premature note deactivation because of previously released key, (not recommended)
-  - `no_repeat` - second "note on" event will be not emitted.
+  - `off` - most primitive behavior where clash is not handled in any way, every press and release will always
+    emit "note on/off" events. this may cause premature note deactivation
+    because of previously released related key. (not recommended)
+  - `no_repeat` - doesn't emit "note on" event when note is already active.
     "note off" event will be emitted only when all related keys will be released.
-  - `interrupt` - interrupts previously activated note with "note off" event, and then activate it with "note on" again.
-  - `retrigger` - doesn't interrupts previously activated note, always emit "note on" events,
-    emits "note off" event once all related keys are released. (default).
+  - `interrupt` - always interrupts previously activated note with "note off" event, 
+    and then activate it with "note on" again, emits "note off" event once when all related keys are released. (default)
+  - `retrigger` - doesn't interrupt previously activated note, always emit "note on" events,
+    emits "note off" event once when all related keys are released. 
   
-  `interrupt` is a bit more "efficient" than `retrigger`, also it may sound differently (testing needed).
-  `retrigger` is recommended as number of "note off" and "note on" events are equal and is guaranteed to work reliably.
+  `retrigger` is a bit more "efficient" than `interrupt`, also it may sound differently (testing needed).
+  `interrupt` is recommended as number of "note off" and "note on" events are equal and is guaranteed to work reliably.
