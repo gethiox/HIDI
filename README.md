@@ -4,29 +4,15 @@
 
 ## In progress
 
-These are things that I want to make before 1.0 release:
-- [x] Proper logging with multi-level debug option
-  - [x] serialized logs in entire application
-  - [x] gocui cli view for logging, device statistics and virtual LCD information
-  - [x] log deserialization
-  - [x] pretty print for logs
-    - [x] align text to the terminal width
-    - [x] handle small terminal windows, trimming message, hiding extra fields
-    - [ ] regenerate buffer output on terminal size change
-    - [ ] avoid flickering of buffers without scrolling 
-    - [ ] Optimize output writing to buffers, avoid infinity "memory leak"
-  - [x] output colorization
-    - [x] initial colorization support
-    - [x] colorize segments with unique color for strings for given sections
-    - [x] 256 color mode
-    - [x] automatic conversion from 256 colors to lower modes (not ideal, but good enough)
-  - [x] alternative output mode, simple print
-- [x] implement device overview status
-- [x] Improve throttling logic to the best possible solution
-- [x] Maximum performance mode by skipping logs for all virtual keyboard events
-- [ ] note collision handlers (off, no_repeat, retrigger, interrupt)
-- [ ] General code cleanup
-- [ ] Configurable analog deadzones
+These are things that I want to finalize for 1.0 release:
+- cli:
+  - [ ] regenerate buffer output on terminal size change
+  - [ ] avoid flickering of buffers without scrolling 
+  - [ ] Optimize output writing to buffers, avoid infinity "memory leak"
+- logic:
+  - [ ] note collision handlers (off, no_repeat, retrigger, interrupt)
+  - [ ] General code cleanup
+- test coverage
 
 # Significant improvements since beta release
 
@@ -36,11 +22,15 @@ These are things that I want to make before 1.0 release:
 - greatly improved speed of application start and termination
 - Fixed input device grabbing for exclusive usage
 - CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
+- configurable deadzones for analog input
+- analog events throttling
+- improved overall performance when logging is disabled
 - Precompiled builds for various platforms
 - Embedded config directory, if config directory doesn't exist, application will create default one
 - Automatic update of factory configurations (if there are new ones or modified). hidi.config stays intact
 - Support for optional HD44780 screens (16x2, 20x4) for displaying statistics
 - Relatively good default configurations for keyboards and gamepads
+- informative and eye-candy debug/logging
 
 # HIDI
 
