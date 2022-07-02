@@ -46,6 +46,8 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Devi
 
 		sort.Sort(ptrs)
 
+		x, y := view.Size()
+
 		for _, d := range ptrs {
 			dname := d.InputDevice.Name
 			dtype := d.InputDevice.DeviceType.String()
@@ -60,33 +62,84 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Devi
 				colorForString(au, dname).String(),
 				len(d.InputDevice.Handlers),
 			)
-			viewData = append(viewData, s)
+
+			freeSpace := x - rawStringLen(s)
+			if freeSpace < 0 {
+				freeSpace = 0
+			}
+
+			viewData = append(viewData, fmt.Sprintf("%s%s", s, strings.Repeat(" ", freeSpace)))
 			viewData = append(viewData, "└ "+d.Status())
 		}
 
 		view.Rewind()
-		for _, d := range viewData {
-			view.Write([]byte(d))
+		for i := 0; i < y; i++ {
+			if i > len(viewData)-1 {
+				data := strings.Repeat(" ", x)
+				view.Write([]byte(data))
+				view.Write([]byte{'\n'})
+				continue
+			}
+
+			view.Write([]byte(viewData[i]))
 			view.Write([]byte{'\n'})
 		}
 		time.Sleep(time.Millisecond * 500)
 	}
 }
 
-func logView(g *gocui.Gui, color bool, logLevel int) {
+func logView(g *gocui.Gui, color bool, logLevel, bufSize int) {
 	feeder, err := NewFeeder(g, ViewLogs, logLevel, aurora.NewAurora(color))
 	if err != nil {
 		panic(err)
 	}
 
-	// filling up all first lines
-	_, y := feeder.view.Size()
-	for i := 0; i < y; i++ {
-		feeder.view.Write([]byte("\n"))
-	}
+	buf := newLogBuffer(bufSize)
 
-	for msg := range logger.Messages {
-		feeder.Write(msg)
+	var closed bool
+	var newMessage = make(chan bool)
+	var sizeChange = make(chan bool)
+
+	go func() {
+		var lastX, lastY int
+		for {
+			if closed {
+				close(sizeChange)
+				return
+			}
+			x, y := feeder.view.Size()
+			if x != lastX || y != lastY {
+				newMessage <- true // fix this retardation
+				lastX = x
+				lastY = y
+			}
+			time.Sleep(time.Millisecond * 100)
+		}
+
+	}()
+
+	go func() {
+		for msg := range logger.Messages {
+			buf.WriteMessage(msg)
+			newMessage <- true
+		}
+		close(newMessage)
+		closed = true
+	}()
+
+	for {
+		select {
+		case <-sizeChange:
+		case <-newMessage:
+		}
+		if closed {
+			break
+		}
+		feeder.view.Rewind()
+		_, y := feeder.view.Size()
+		for _, msg := range buf.ReadLastMessages(y) {
+			feeder.Write(*msg)
+		}
 	}
 }
 

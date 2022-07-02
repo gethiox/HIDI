@@ -174,6 +174,39 @@ func init() {
 	rand.Seed(time.Now().Unix())
 }
 
+type logBuffer struct {
+	buffer   [][]byte
+	size     int
+	position int
+}
+
+func (b *logBuffer) WriteMessage(message []byte) {
+	b.buffer[b.position] = message
+	b.position++
+	if b.position == b.size {
+		b.position = 0
+	}
+}
+
+func (b *logBuffer) ReadLastMessages(n int) []*[]byte {
+	if n > b.size {
+		n = b.size
+	}
+	var data = make([]*[]byte, 0)
+	for i := n; i > 0; i-- {
+		data = append(data, &b.buffer[((b.position-i)%b.size+b.size)%b.size])
+	}
+	return data
+}
+
+func newLogBuffer(size int) logBuffer {
+	return logBuffer{
+		buffer:   make([][]byte, size),
+		size:     size,
+		position: 0,
+	}
+}
+
 func main() {
 	if *force256 == true {
 		os.Setenv("TERM", "xterm-256color")
@@ -245,7 +278,7 @@ func main() {
 	}
 
 	if *ui && !*silent {
-		go logView(g, !*nocolor, *logLevel)
+		go logView(g, !*nocolor, *logLevel, cfg.HIDI.LogBufferSize)
 		go overviewView(g, !*nocolor, devices)
 		go lcdView(g, dd2)
 	} else {

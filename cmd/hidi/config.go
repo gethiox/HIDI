@@ -19,6 +19,7 @@ import (
 type HIDI struct {
 	EVThrottling        time.Duration
 	LogViewRate         time.Duration
+	LogBufferSize       int
 	DiscoveryRate       time.Duration
 	StabilizationPeriod time.Duration
 }
@@ -70,6 +71,13 @@ func LoadHIDIConfig(path string) HIDIConfig {
 		panic(err)
 	}
 	c.HIDI.LogViewRate = time.Second / time.Duration(i)
+
+	logBufferSize, _ := hidi.GetKey("log_buffer_size")
+	i, err = logBufferSize.Int()
+	if err != nil {
+		panic(err)
+	}
+	c.HIDI.LogBufferSize = i
 
 	// [screen]
 	screen, _ := cfg.GetSection("screen")

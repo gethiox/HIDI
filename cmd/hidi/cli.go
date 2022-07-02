@@ -57,7 +57,7 @@ func Layout(g *gocui.Gui) error {
 			return err
 		}
 		v.Title = "[Logs]"
-		v.Autoscroll = true
+		v.Autoscroll = false
 		v.Wrap = false
 		v.Frame = true
 	}
