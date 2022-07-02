@@ -40,6 +40,7 @@ type Device struct {
 	// used to track active occurrence number for given channel/note for purpose of handling clashed notes.
 	// more info in hidi.config at "collision_mode" option.
 	activeNotesCounter map[byte]map[byte]int // map[channel]map[note]occurrence_number
+	lastAnalogValue    map[evdev.EvCode]float64
 
 	actionTracker map[config.Action]bool
 	ccZeroed      map[byte]bool // 1: positive, 2: negative
@@ -79,6 +80,7 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		activeNotesCounter: activeNoteCounter,
 		actionTracker:      make(map[config.Action]bool, 16),
 		ccZeroed:           make(map[byte]bool, 32),
+		lastAnalogValue:    make(map[evdev.EvCode]float64, 32),
 
 		actionsPress: map[config.Action]func(*Device){
 			config.Panic:        (*Device).Panic,
@@ -233,160 +235,177 @@ func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
 
-	switch {
-	case analogOk:
-		// converting integer value to float
-		// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
-		var value float64
-		var canBeNegative bool
-		min := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Minimum
-		max := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Maximum
-		if min < 0 {
-			canBeNegative = true
-		}
-
-		if ie.Event.Value < 0 {
-			value = float64(ie.Event.Value) / math.Abs(float64(min))
-		} else {
-			value = float64(ie.Event.Value) / math.Abs(float64(max))
-		}
-
-		if analog.FlipAxis {
-			if canBeNegative {
-				value = -value
-			} else {
-				value = 1.0 - value
-			}
-		}
-
-		if d.ccLearning && !(value < -0.5 || value > 0.5) {
-			return
-		}
-
-		if !d.noLogs {
-			log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()),
-				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...)
-		}
-
-		// TODO: cleanup this mess
-		switch analog.MappingType {
-		case config.AnalogCC:
-			var adjustedValue float64
-
-			switch {
-			case canBeNegative && analog.Bidirectional:
-				adjustedValue = math.Abs(value)
-				if value < 0 {
-					d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
-					if !d.ccZeroed[analog.CC] {
-						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
-						d.ccZeroed[analog.CC] = true
-					}
-					d.ccZeroed[analog.CCNeg] = false
-				} else {
-					d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-					if !d.ccZeroed[analog.CCNeg] {
-						d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
-						d.ccZeroed[analog.CCNeg] = true
-					}
-					d.ccZeroed[analog.CC] = false
-				}
-			case canBeNegative && !analog.Bidirectional:
-				adjustedValue = (value + 1) / 2
-				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-			case !canBeNegative && analog.Bidirectional:
-				adjustedValue = math.Abs(value*2 - 1)
-				if value < 0.5 {
-					d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
-					if !d.ccZeroed[analog.CC] {
-						d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
-						d.ccZeroed[analog.CC] = true
-					}
-					d.ccZeroed[analog.CCNeg] = false
-				} else {
-					d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-					if !d.ccZeroed[analog.CCNeg] {
-						d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
-						d.ccZeroed[analog.CCNeg] = true
-					}
-					d.ccZeroed[analog.CC] = false
-				}
-			case !canBeNegative && !analog.Bidirectional:
-				adjustedValue = value
-				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
-			}
-		case config.AnalogPitchBend:
-			if canBeNegative {
-				d.midiEvents <- PitchBendEvent(d.channel, value)
-			} else {
-				d.midiEvents <- PitchBendEvent(d.channel, value*2-1.0)
-			}
-		case config.AnalogKeySim:
-			if !canBeNegative {
-				value = value*2 - 1.0
-			}
-
-			identifier := fmt.Sprintf("%d", ie.Event.Code)
-			identifierNeg := fmt.Sprintf("%d_neg", ie.Event.Code)
-
-			switch {
-			case value <= -0.5:
-				_, ok := d.analogNoteTracker[identifierNeg]
-				if !ok {
-					d.AnalogNoteOn(identifierNeg, analog.NoteNeg)
-				}
-				d.AnalogNoteOff(identifier)
-			case value > -0.49 && value < 0.49:
-				d.AnalogNoteOff(identifier)
-				d.AnalogNoteOff(identifierNeg)
-			case value >= 0.5:
-				_, ok := d.analogNoteTracker[identifier]
-				if !ok {
-					d.AnalogNoteOn(identifier, analog.Note)
-				}
-				d.AnalogNoteOff(identifierNeg)
-			}
-
-		case config.AnalogActionSim:
-			if d.checkDoubleActions() {
-				return
-			}
-
-			if !canBeNegative {
-				value = value*2 - 1.0
-			}
-
-			switch {
-			case value <= -0.5:
-				d.invokeActionPress(analog.ActionNeg)
-				d.actionTracker[analog.ActionNeg] = true
-
-				d.invokeActionRelease(analog.Action)
-				delete(d.actionTracker, analog.Action)
-			case value > -0.49 && value < 0.49:
-				d.invokeActionRelease(analog.ActionNeg)
-				d.invokeActionRelease(analog.Action)
-				delete(d.actionTracker, analog.ActionNeg)
-				delete(d.actionTracker, analog.Action)
-			case value >= 0.5:
-				d.invokeActionPress(analog.Action)
-				d.actionTracker[analog.Action] = true
-
-				delete(d.actionTracker, analog.ActionNeg)
-				d.invokeActionRelease(analog.ActionNeg)
-			}
-		default:
-			log.Info(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType),
-				d.logFields(logger.Warning, zap.String("handler_event", ie.Source.Event()))...,
-			)
-		}
-	default:
+	if !analogOk {
 		if !d.noLogs {
 			log.Info(
 				fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
 				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...,
 			)
 		}
+		return
+	}
+
+	// converting integer value to float and applying deadzone
+	// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
+	var value float64
+	var canBeNegative bool
+	min := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Minimum
+	max := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Maximum
+	if min < 0 {
+		canBeNegative = true
+	}
+
+	deadzone := d.config.AnalogDeadzones[ie.Event.Code]
+	if ie.Event.Value < 0 {
+		value = float64(ie.Event.Value) / math.Abs(float64(min))
+		if value > -deadzone {
+			value = 0
+		} else {
+			value = (value + deadzone) * (1.0 / (1.0 - deadzone))
+		}
+	} else {
+		value = float64(ie.Event.Value) / math.Abs(float64(max))
+		if value < deadzone {
+			value = 0
+		} else {
+			value = (value - deadzone) * (1.0 / (1.0 - deadzone))
+		}
+	}
+
+	// prevent from repeating value that was already sent before
+	lastValue := d.lastAnalogValue[ie.Event.Code]
+	if lastValue == value {
+		return
+	}
+	d.lastAnalogValue[ie.Event.Code] = value
+
+	if analog.FlipAxis {
+		if canBeNegative {
+			value = -value
+		} else {
+			value = 1.0 - value
+		}
+	}
+
+	if d.ccLearning && !(value < -0.5 || value > 0.5) {
+		return
+	}
+
+	if !d.noLogs {
+		log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()),
+			d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...)
+	}
+
+	// TODO: cleanup this mess
+	switch analog.MappingType {
+	case config.AnalogCC:
+		var adjustedValue float64
+
+		switch {
+		case canBeNegative && analog.Bidirectional:
+			adjustedValue = math.Abs(value)
+			if value < 0 {
+				d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+				if !d.ccZeroed[analog.CC] {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
+					d.ccZeroed[analog.CC] = true
+				}
+				d.ccZeroed[analog.CCNeg] = false
+			} else {
+				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+				if !d.ccZeroed[analog.CCNeg] {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
+					d.ccZeroed[analog.CCNeg] = true
+				}
+				d.ccZeroed[analog.CC] = false
+			}
+		case canBeNegative && !analog.Bidirectional:
+			adjustedValue = (value + 1) / 2
+			d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+		case !canBeNegative && analog.Bidirectional:
+			adjustedValue = math.Abs(value*2 - 1)
+			if value < 0.5 {
+				d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+				if !d.ccZeroed[analog.CC] {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, 0)
+					d.ccZeroed[analog.CC] = true
+				}
+				d.ccZeroed[analog.CCNeg] = false
+			} else {
+				d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+				if !d.ccZeroed[analog.CCNeg] {
+					d.midiEvents <- ControlChangeEvent(d.channel, analog.CCNeg, 0)
+					d.ccZeroed[analog.CCNeg] = true
+				}
+				d.ccZeroed[analog.CC] = false
+			}
+		case !canBeNegative && !analog.Bidirectional:
+			adjustedValue = value
+			d.midiEvents <- ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+		}
+	case config.AnalogPitchBend:
+		if canBeNegative {
+			d.midiEvents <- PitchBendEvent(d.channel, value)
+		} else {
+			d.midiEvents <- PitchBendEvent(d.channel, value*2-1.0)
+		}
+	case config.AnalogKeySim:
+		if !canBeNegative {
+			value = value*2 - 1.0
+		}
+
+		identifier := fmt.Sprintf("%d", ie.Event.Code)
+		identifierNeg := fmt.Sprintf("%d_neg", ie.Event.Code)
+
+		switch {
+		case value <= -0.5:
+			_, ok := d.analogNoteTracker[identifierNeg]
+			if !ok {
+				d.AnalogNoteOn(identifierNeg, analog.NoteNeg)
+			}
+			d.AnalogNoteOff(identifier)
+		case value > -0.49 && value < 0.49:
+			d.AnalogNoteOff(identifier)
+			d.AnalogNoteOff(identifierNeg)
+		case value >= 0.5:
+			_, ok := d.analogNoteTracker[identifier]
+			if !ok {
+				d.AnalogNoteOn(identifier, analog.Note)
+			}
+			d.AnalogNoteOff(identifierNeg)
+		}
+	case config.AnalogActionSim:
+		if d.checkDoubleActions() {
+			return
+		}
+
+		if !canBeNegative {
+			value = value*2 - 1.0
+		}
+
+		switch {
+		case value <= -0.5:
+			d.invokeActionPress(analog.ActionNeg)
+			d.actionTracker[analog.ActionNeg] = true
+
+			d.invokeActionRelease(analog.Action)
+			delete(d.actionTracker, analog.Action)
+		case value > -0.49 && value < 0.49:
+			d.invokeActionRelease(analog.ActionNeg)
+			d.invokeActionRelease(analog.Action)
+			delete(d.actionTracker, analog.ActionNeg)
+			delete(d.actionTracker, analog.Action)
+		case value >= 0.5:
+			d.invokeActionPress(analog.Action)
+			d.actionTracker[analog.Action] = true
+
+			delete(d.actionTracker, analog.ActionNeg)
+			d.invokeActionRelease(analog.ActionNeg)
+		}
+	default:
+		log.Info(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType),
+			d.logFields(logger.Warning, zap.String("handler_event", ie.Source.Event()))...,
+		)
 	}
 }
 

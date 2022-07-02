@@ -83,6 +83,5 @@ type Config struct {
 	KeyMappings     []KeyMapping
 	ActionMapping   map[evdev.EvCode]Action
 	AnalogDeadzones map[evdev.EvCode]float64 // 0.0 - 1.0 // TODO
-	DefaultDeadzone float64                  // TODO
 	CollisionMode   CollisionMode
 }

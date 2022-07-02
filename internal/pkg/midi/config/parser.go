@@ -68,6 +68,7 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 
 	var keyMapping []KeyMapping
 	var actionMapping = make(map[evdev.EvCode]Action)
+	var deadzones = make(map[evdev.EvCode]float64)
 
 	for _, mappings := range cfg.KeyMappings {
 		for name, mappingRaw := range mappings {
@@ -208,6 +209,17 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 		actionMapping[evcode] = action
 	}
 
+	for evcode := range evdev.ABSToString {
+		deadzones[evcode] = cfg.DefaultDeadzone
+	}
+	for evcodeRaw, value := range cfg.Deadzones {
+		evcode, ok := evdev.ABSFromString[evcodeRaw]
+		if !ok {
+			return DeviceConfig{}, fmt.Errorf("[deadzones] unsupported EvCode: %s", evcodeRaw)
+		}
+		deadzones[evcode] = value
+	}
+
 	collisionMode := CollisionMode(cfg.CollisionMode)
 	if !SupportedCollisionModes[collisionMode] {
 		return DeviceConfig{}, fmt.Errorf("[collision_mode] unsupported collision_mode: %s", collisionMode)
@@ -226,8 +238,7 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 		Config: Config{
 			KeyMappings:     keyMapping,
 			ActionMapping:   actionMapping,
-			AnalogDeadzones: nil,
-			DefaultDeadzone: cfg.DefaultDeadzone,
+			AnalogDeadzones: deadzones,
 			CollisionMode:   collisionMode,
 		},
 	}

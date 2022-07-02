@@ -45,4 +45,4 @@ deadzones:
   ABS_HAT0X: 0
   ABS_HAT0Y: 0
 
-default_deadzone: 0.01 # deadzone for all analog events not defined in "deadzones"
+default_deadzone: 0.1 # deadzone for all analog events not defined in "deadzones"
