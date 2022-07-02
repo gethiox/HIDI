@@ -31,10 +31,6 @@ type Device struct {
 	inputEvents <-chan *input.InputEvent
 	midiEvents  chan<- Event
 
-	// TODO: move this to input.Device
-	// absinfos holds information about boundaries of analog information
-	absinfos map[string]map[evdev.EvCode]evdev.AbsInfo // map key: DeviceInfo.Event()
-
 	// instead of generating NoteOff events based on the current Device state (lazy approach), every emitted note
 	// is being tracked and released precisely on related hardware button release.
 	// This approach gives much nicer user experience as the User may conveniently hold some keys
@@ -62,30 +58,6 @@ type Device struct {
 }
 
 func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-chan *input.InputEvent, midiEvents chan<- Event, noLogs bool) Device {
-	var absinfos = make(map[string]map[evdev.EvCode]evdev.AbsInfo)
-
-	// TODO: move this to DeviceInfo
-	if inputDevice.DeviceType == input.JoystickDevice {
-		for ht, edev := range inputDevice.Evdevs {
-			if ht != input.DI_TYPE_JOYSTICK {
-				continue
-			}
-			eventRaw := strings.Split(edev.Path(), "/")
-			event := eventRaw[len(eventRaw)-1]
-
-			absi, err := edev.AbsInfos()
-			if err != nil {
-				log.Info(fmt.Sprintf("Failed to fetch absinfos [%s]", inputDevice.Name), logger.Warning)
-				absinfos[event] = make(map[evdev.EvCode]evdev.AbsInfo)
-				continue
-			}
-
-			absinfos[event] = absi
-
-			edev.NonBlock() // hotfix, TODO: remove it
-		}
-	}
-
 	var activeNoteCounter = make(map[byte]map[byte]int)
 	for ch := byte(0); ch < 16; ch++ {
 		var t = make(map[byte]int)
@@ -101,7 +73,6 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, inputEvents <-
 		InputDevice: inputDevice,
 		inputEvents: inputEvents,
 		midiEvents:  midiEvents,
-		absinfos:    absinfos,
 
 		noteTracker:        make(map[evdev.EvCode][2]byte, 32),
 		analogNoteTracker:  make(map[string][2]byte, 32),
@@ -268,8 +239,8 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
 		var value float64
 		var canBeNegative bool
-		min := d.absinfos[ie.Source.Event()][ie.Event.Code].Minimum
-		max := d.absinfos[ie.Source.Event()][ie.Event.Code].Maximum
+		min := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Minimum
+		max := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Maximum
 		if min < 0 {
 			canBeNegative = true
 		}
@@ -576,7 +547,7 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 	}
 }
 
-func (d *Device) AnalogNoteOn(identifier string, note byte) {
+func (d *Device) AnalogNoteOn(identifier string, note byte) { // TODO: multinote, collision handler
 	noteCalculatored := int(note) + int(d.octave*12) + int(d.semitone)
 	if noteCalculatored < 0 || noteCalculatored > 127 {
 		return

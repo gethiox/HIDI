@@ -86,7 +86,7 @@ func DetermineDeviceType(handlers map[HandlerType]DeviceInfo) DeviceType {
 // Normalize processes all DeviceInfo list and returns generic devices with its underlying DeviceInfo handlers
 func Normalize(deviceInfos []DeviceInfo) []Device {
 	var collection = make(map[PhysicalID][]DeviceInfo, 0)
-	// var collectionOrder = make([]PhysicalID, 0)
+	// TODO: make output sorted for testing purpose
 
 	for _, di := range deviceInfos {
 		key := di.PhysicalUUID()
@@ -99,13 +99,31 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 		var dev = Device{
 			ID:       dis[0].ID,
 			Handlers: make(map[HandlerType]DeviceInfo),
-			Evdevs:   make(map[HandlerType]*evdev.InputDevice), // TODO: tests are failing because of that
+			AbsInfos: make(map[string]map[evdev.EvCode]evdev.AbsInfo),
 		}
 
 		var name = ""
 		var uniq = ""
 
 		for _, di := range dis {
+			d, err := evdev.Open(di.EventPath())
+			if err != nil {
+				panic(err) // todo
+			}
+			defer d.Close()
+
+			eventRaw := strings.Split(d.Path(), "/")
+			event := eventRaw[len(eventRaw)-1]
+
+			absi, err := d.AbsInfos()
+			if err != nil {
+				log.Info(fmt.Sprintf("Failed to fetch absinfos [%s]", di.Name), logger.Warning)
+				dev.AbsInfos[event] = make(map[evdev.EvCode]evdev.AbsInfo)
+				continue
+			}
+
+			dev.AbsInfos[event] = absi
+
 			switch {
 			case name == "":
 				name = di.Name
@@ -118,7 +136,7 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 			}
 
 			v, ok := dev.Handlers[di.HandlerType()]
-			if ok {
+			if ok { // todo
 				panic(fmt.Errorf("handler already exist: %+v (want to overwrite by: %+v)", v, di))
 			}
 
@@ -147,7 +165,7 @@ type Device struct {
 	DeviceType DeviceType
 	Handlers   map[HandlerType]DeviceInfo
 
-	Evdevs map[HandlerType]*evdev.InputDevice
+	AbsInfos map[string]map[evdev.EvCode]evdev.AbsInfo // map key: DeviceInfo.Event()
 }
 
 func (d *Device) String() string {
@@ -186,8 +204,6 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		if err != nil {
 			return nil, fmt.Errorf("opening handler failed: %v", err)
 		}
-
-		d.Evdevs[ht] = dev
 
 		// closing device on context expiration
 		go func(dev *evdev.InputDevice) {
