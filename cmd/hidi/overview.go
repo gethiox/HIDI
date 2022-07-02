@@ -97,8 +97,8 @@ func logView(g *gocui.Gui, color bool, logLevel, bufSize int) {
 	buf := newLogBuffer(bufSize)
 
 	var closed bool
-	var newMessage = make(chan bool)
-	var sizeChange = make(chan bool)
+	var newMessage = make(chan bool, 1)
+	var sizeChange = make(chan bool, 1)
 
 	go func() {
 		var lastX, lastY int
@@ -121,7 +121,12 @@ func logView(g *gocui.Gui, color bool, logLevel, bufSize int) {
 	go func() {
 		for msg := range logger.Messages {
 			buf.WriteMessage(msg)
-			newMessage <- true
+			select {
+			case newMessage <- true:
+			case <-time.After(time.Millisecond * 1):
+				continue
+			}
+
 		}
 		close(newMessage)
 		closed = true
