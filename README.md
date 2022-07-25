@@ -6,17 +6,18 @@
 
 These are things that I want to finalize for 1.0 release:
 - cli:
-  - [ ] regenerate buffer output on terminal size change
-  - [ ] avoid flickering of buffers without scrolling 
-  - [ ] Optimize output writing to buffers, avoid infinity "memory leak"
+  - [x] regenerate buffer output on terminal size change
+  - [x] avoid flickering of buffers without scrolling 
+  - [x] Optimize output writing to buffers, avoid infinity "memory leak"
 - logic:
-  - [ ] note collision handlers (off, no_repeat, retrigger, interrupt)
+  - [x] note collision handlers (off, no_repeat, retrigger, interrupt)
   - [ ] General code cleanup
 - test coverage
 
-# Significant improvements since beta release
+# improvements since beta release
 
-- YAML configurations for devices. automatic reload
+- OpenRGB support
+- YAML configurations for devices. automatic reload on user configuration changes
 - Monitoring of input handlers is now a magnitude more efficient
 - Graceful app termination
 - greatly improved speed of application start and termination
@@ -85,9 +86,9 @@ the best user experience possible.
 - The most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
   However, there are no limits, it can be run on practically all Linux-supported platforms.
 - In the case of Pi Zero, USB HAT may be useful
-- **Decent MIDI interface**, please avoid cheap china USB interfaces, [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
-  (unless you have old version lying around, it may work just fine). Here is my recommendation:
-  ![no china usb midi](./docs/no-china-usb-midi.png)
+- **Decent MIDI interface**, please avoid cheap china USB interfaces,
+  [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
+  (unless you have old version lying around, it may work just fine).
 - If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
 - **Keyboards**, **gamepads** :)
 
@@ -112,6 +113,13 @@ See `-h` flag for available optional arguments
   The best way of running this program is to grant temporary privilege to `input` group with:  
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege
+
+# Configuration
+
+There are two types of configurations:
+- `hidi.config` - minor behavior settings
+- device configurations, see [guide](cmd/hidi/hidi-config/user/README.md) for details.
+
 
 Have fun!
 
@@ -176,7 +184,7 @@ but besides of that, applying changes should be pretty straight-forward.
 
 If your keyboard doesn't work correctly with default mappings, create `Factory` configuration for your device type.
 Make sure it has proper values in `Identifier` section and loads correctly.  
-For more information, see [guide](cmd/hidi/config/user/README.md)
+For more information, see [guide](cmd/hidi/hidi-config/user/README.md)
 
 You can create pull request if you wish to share it with the project. But before that,
 make sure that all default mappings are working and arranged correctly

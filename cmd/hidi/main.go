@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	_ "embed"
 	"flag"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
@@ -14,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/amenzhinsky/go-memexec"
 	"github.com/awesome-gocui/gocui"
 	"github.com/gethiox/HIDI/internal/pkg/display"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
@@ -27,33 +30,138 @@ var midiEventsEmitted, score uint // counter for display info
 //go:embed pony.txt
 var pony string
 
-func processMidiEvents(ctx context.Context, wg *sync.WaitGroup, ioDevice *os.File, midiEvents, otherMidiEvents <-chan midi.Event) {
-	defer wg.Done()
-	var ev midi.Event
-	var ok bool
-root:
-	for {
-		select {
-		case <-ctx.Done():
-			break root
-		case ev, ok = <-midiEvents:
-			if ok { // todo: investigate
-				if ev[0]&0b11110000 == midi.NoteOn {
-					score += 1
+func processMidiEvents(ctx context.Context, wg *sync.WaitGroup, ioDevice *os.File,
+	midiEventsOut, otherMidiEvents <-chan midi.Event, midiEventsIn chan<- midi.Event) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var ev midi.Event
+		var ok bool
+	root:
+		for {
+			select {
+			case <-ctx.Done():
+				break root
+			case ev, ok = <-midiEventsOut:
+				if ok { // todo: investigate
+					if ev[0]&0b11110000 == midi.NoteOn {
+						score += 1
+					}
 				}
+			case ev = <-otherMidiEvents:
+				break
 			}
-		case ev = <-otherMidiEvents:
+
+			_, err := ioDevice.Write(ev)
+			if err != nil {
+				log.Info(fmt.Sprintf("failed to write midi event: %v", err), logger.Warning)
+				continue
+			}
+			midiEventsEmitted += 1
+		}
+		err := ioDevice.Close()
+		if err != nil {
+			log.Info(fmt.Sprintf("Failed to close ioDevice: %s", err), logger.Warning)
+		}
+		log.Info("Processing output midi events stopped", logger.Debug)
+	}()
+
+	var buf = make([]byte, 1024)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		var prevLeftovers = make([]byte, 0)
+	root:
+		for {
+			select {
+			case <-ctx.Done():
+				break root
+			default:
+				break
+			}
+
+			n, err := ioDevice.Read(buf)
+			if err != nil {
+				log.Info(fmt.Sprintf("failed to read midi event: %v", err), logger.Warning)
+				continue
+			}
+
+			prevLeftovers = append(prevLeftovers, buf[:n]...)
+			events, leftOvers := midi.ExtractEvents(prevLeftovers)
+			prevLeftovers = leftOvers
+			for _, e := range events {
+				midiEventsIn <- e
+			}
+		}
+		log.Info("Processing input midi events stopped", logger.Debug)
+	}()
+}
+
+type dynamicFanOut[T any] struct {
+	input    <-chan T
+	inputCap int
+	rand     *rand.Rand
+
+	mutex   sync.Mutex
+	outputs map[int64]chan T
+}
+
+func newDynamicFanOut[T any](input <-chan T) dynamicFanOut[T] {
+	f := dynamicFanOut[T]{
+		rand:     rand.New(rand.NewSource(time.Now().Unix())),
+		input:    input,
+		inputCap: cap(input),
+		outputs:  make(map[int64]chan T),
+	}
+	go f.run()
+	return f
+}
+
+func (f *dynamicFanOut[T]) run() {
+	for e := range f.input {
+		f.mutex.Lock()
+		for _, o := range f.outputs {
+			o <- e
+		}
+		f.mutex.Unlock()
+	}
+}
+
+// SpawnOutput creates new output channel and its ID
+func (f *dynamicFanOut[T]) SpawnOutput() (int64, <-chan T) {
+	ocap := f.inputCap
+	if ocap == 0 {
+		ocap = 1
+	}
+	newChan := make(chan T, ocap)
+	var id int64
+
+	f.mutex.Lock()
+	for {
+		id = f.rand.Int63()
+		_, ok := f.outputs[id]
+		if !ok {
 			break
 		}
-
-		_, err := ioDevice.Write(ev)
-		if err != nil {
-			log.Info(fmt.Sprintf("failed to write midi event: %v", err), logger.Warning)
-			continue
-		}
-		midiEventsEmitted += 1
 	}
-	log.Info("Processing midi events stopped", logger.Debug)
+	f.outputs[id] = newChan
+	f.mutex.Unlock()
+	return id, newChan
+}
+
+// DespawnOutput removes output channel with given ID
+func (f *dynamicFanOut[T]) DespawnOutput(id int64) error {
+	f.mutex.Lock()
+	c, ok := f.outputs[id]
+	if !ok {
+		return fmt.Errorf("output id %d not found", id)
+	}
+	close(c)
+	delete(f.outputs, id)
+	f.mutex.Unlock()
+	return nil
 }
 
 func FanOut[T any](input <-chan T) (<-chan T, <-chan T) {
@@ -121,9 +229,12 @@ func runUI(cfg HIDIConfig, ui bool, sigs chan os.Signal) *gocui.Gui {
 		}()
 
 		go func() {
+			last := time.Now()
 			for {
-				g.Update(Layout) // high impact on performance/cpu usugae, especially in combination with hw display handler
-				time.Sleep(cfg.HIDI.LogViewRate)
+				g.UpdateAsync(Layout) // high impact on performance/cpu usugae, especially in combination with hw display handler
+				now := time.Now()
+				time.Sleep(cfg.HIDI.LogViewRate - (now.Sub(last)))
+				last = now
 			}
 		}()
 
@@ -151,6 +262,7 @@ var (
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
 	ui       = flag.Bool("ui", false, "engage debug ui")
+	orgb     = flag.Bool("openrgb", false, "TBA")
 	force256 = flag.Bool("256", false, "force 256 color mode")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
 	logLevel = flag.Int("loglevel", 3,
@@ -175,26 +287,26 @@ func init() {
 }
 
 type logBuffer struct {
-	buffer   [][]byte
-	size     int
-	position int
+	buffer         [][]byte
+	size, position int
 }
 
 func (b *logBuffer) WriteMessage(message []byte) {
 	b.buffer[b.position] = message
-	b.position++
-	if b.position == b.size {
+	if b.position+1 == b.size {
 		b.position = 0
+	} else {
+		b.position++
 	}
 }
 
-func (b *logBuffer) ReadLastMessages(n int) []*[]byte {
+func (b *logBuffer) ReadLastMessages(n int) [][]byte {
 	if n > b.size {
 		n = b.size
 	}
-	var data = make([]*[]byte, 0)
+	var data = make([][]byte, 0)
 	for i := n; i > 0; i-- {
-		data = append(data, &b.buffer[((b.position-i)%b.size+b.size)%b.size])
+		data = append(data, b.buffer[((b.position-i)%b.size+b.size)%b.size])
 	}
 	return data
 }
@@ -207,13 +319,90 @@ func newLogBuffer(size int) logBuffer {
 	}
 }
 
+func runBinary(wg *sync.WaitGroup, ctx context.Context) {
+	defer wg.Done()
+	exe, err := memexec.New(OpenRGB)
+	if err != nil {
+		panic(err)
+	}
+	wg.Add(1)
+	defer func() {
+		defer wg.Done()
+		err := exe.Close()
+		if err != nil {
+			log.Info(fmt.Sprintf("failed to close memory exec: %s", err), logger.Error)
+		}
+	}()
+
+	port := 6742
+
+	cmd := exe.Command("--server", "--noautoconnect", "--server-port", fmt.Sprintf("%d", port))
+
+	out1, in1 := io.Pipe()
+	out2, in2 := io.Pipe()
+
+	defer out1.Close()
+	defer in1.Close()
+	defer out2.Close()
+	defer in2.Close()
+
+	cmd.Stdout = in1
+	cmd.Stderr = in2
+
+	log.Info("[OpenRGB] start", logger.Debug)
+	err = cmd.Start()
+	if err != nil {
+		log.Info(fmt.Sprintf("[OpenRGB] Failed to start: %s", err), logger.Error)
+		return
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		err := cmd.Process.Signal(os.Interrupt)
+		if err != nil {
+			log.Info(fmt.Sprintf("[OpenRGB] failed to send signal: %s", err), logger.Error)
+		} else {
+			log.Info("[OpenRGB] interrupt success", logger.Info)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scan1 := bufio.NewScanner(out1)
+		for scan1.Scan() {
+			log.Info("[OpenRGB] o> "+scan1.Text(), logger.Debug)
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scan2 := bufio.NewScanner(out2)
+		for scan2.Scan() {
+			log.Info("[OpenRGB] e> "+scan2.Text(), logger.Debug)
+		}
+	}()
+
+	err = cmd.Wait()
+	if err != nil {
+		log.Info(fmt.Sprintf("[OpenRGB] Execution error: %s", err), logger.Error)
+	}
+	log.Info("[OpenRGB] Done", logger.Debug)
+
+}
+
 func main() {
 	if *force256 == true {
 		os.Setenv("TERM", "xterm-256color")
 	}
-	createConfigDirectoryIfNeeded()
+	err := createConfigDirectoryIfNeeded()
+	if err != nil {
+		log.Info(fmt.Sprintf("configuration upkeep task failed: %s", err), logger.Warning)
+	}
 
-	var cfg = LoadHIDIConfig("./config/hidi.config")
+	var cfg = LoadHIDIConfig(configDir + "/hidi.config")
 	log.Info(fmt.Sprintf("HIDI config: %+v", cfg), logger.Debug)
 
 	var sigs = make(chan os.Signal, 1)
@@ -224,6 +413,16 @@ func main() {
 
 	// this wait-group has to be propagated everywhere where usual logging appear
 	wg := sync.WaitGroup{}
+
+	if *orgb {
+		if len(OpenRGB) != 0 {
+			log.Info(fmt.Sprintf("starting OpenRGB server (%s)", OpenRGBVersion), logger.Info)
+			wg.Add(1)
+			go runBinary(&wg, ctx)
+		} else {
+			log.Info("OpenRGB is not supported in that build", logger.Warning)
+		}
+	}
 
 	server := runProfileServer(&wg)
 
@@ -251,16 +450,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	var midiEvents = make(chan midi.Event, 8)
+	var midiEventsOut = make(chan midi.Event, 8)
+	var midiEventsIn = make(chan midi.Event, 8)
 	var otherMidiEvents = make(chan midi.Event, 8)
 
 	confNotifier := make(chan validate.NotifyMessage)
 	wg.Add(1)
 	go monitorConfChanges(ctx, &wg, confNotifier, otherMidiEvents)
 
-	wg.Add(1)
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
-	go processMidiEvents(eventCtx, &wg, ioDevice, midiEvents, otherMidiEvents)
+	processMidiEvents(eventCtx, &wg, ioDevice, midiEventsOut, otherMidiEvents, midiEventsIn)
 	var devices = make(map[*midi.Device]*midi.Device, 16)
 
 	wg.Add(1)
@@ -309,14 +508,14 @@ func main() {
 		}()
 	}
 
-	runManager(ctx, cfg, *grab, *silent, devices, midiEvents, confNotifier)
+	runManager(ctx, cfg, *grab, *silent, devices, midiEventsOut, midiEventsIn, confNotifier)
 
 	cancelEvents()
 	log.Info(fmt.Sprintf("waiting..."), logger.Debug)
 	close(confNotifier)
 	close(sigs)
 	close(otherMidiEvents)
-	close(midiEvents)
+	close(midiEventsOut)
 
 	// closing logger can be safely invoked only when all internally running goroutines (that may emit logs) are done
 	wg.Wait()

@@ -115,10 +115,10 @@ func getDeviceInfo(ev string) (DeviceInfo, error) {
 			Product: inputID.Product,
 			Version: inputID.Version,
 		},
-		Name:      strings.Trim(name, "\x00"), // TODO: fix in go-evdev
-		Phys:      strings.Trim(phys, "\x00"), // TODO: fix in go-evdev
+		Name:      name,
+		Phys:      phys,
 		Sysfs:     dPath,
-		Uniq:      strings.Trim(uniq, "\x00"), // TODO: fix in go-evdev
+		Uniq:      uniq,
 		eventName: ev,
 
 		CapableTypes: capableTypes,

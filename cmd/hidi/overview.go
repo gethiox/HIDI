@@ -56,20 +56,35 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Devi
 				typeSep = 0
 			}
 
-			s := fmt.Sprintf(
+			header := fmt.Sprintf(
 				"%s: %s, handlers: %2d",
 				strings.Repeat(" ", typeSep)+colorForString(au, dtype).String(),
 				colorForString(au, dname).String(),
 				len(d.InputDevice.Handlers),
 			)
 
-			freeSpace := x - rawStringLen(s)
-			if freeSpace < 0 {
-				freeSpace = 0
+			headerFreeSpace := x - rawStringLen(header)
+			if headerFreeSpace < 0 {
+				headerFreeSpace = 0
 			}
 
-			viewData = append(viewData, fmt.Sprintf("%s%s", s, strings.Repeat(" ", freeSpace)))
-			viewData = append(viewData, "└ "+d.Status())
+			state := d.State()
+
+			description := fmt.Sprintf(
+				"└ octave: %d, semitone: %d, channel: %d, active keys: %d, mapping: %s",
+				state.Octave,
+				state.Semitone,
+				state.Channel,
+				state.Notes,
+				colorForString(au, state.Mapping).String(),
+			)
+			descriptionFreeSpace := x - rawStringLen(description)
+			if descriptionFreeSpace < 0 {
+				descriptionFreeSpace = 0
+			}
+
+			viewData = append(viewData, fmt.Sprintf("%s%s", header, strings.Repeat(" ", headerFreeSpace)))
+			viewData = append(viewData, fmt.Sprintf("%s%s", description, strings.Repeat(" ", descriptionFreeSpace)))
 		}
 
 		view.Rewind()
@@ -142,8 +157,9 @@ func logView(g *gocui.Gui, color bool, logLevel, bufSize int) {
 		}
 		feeder.view.Rewind()
 		_, y := feeder.view.Size()
-		for _, msg := range buf.ReadLastMessages(y) {
-			feeder.Write(*msg)
+		lastMessages := buf.ReadLastMessages(y)
+		for _, msg := range lastMessages {
+			feeder.Write(msg)
 		}
 	}
 }
@@ -155,9 +171,10 @@ func lcdView(g *gocui.Gui, dd <-chan display.DisplayData) {
 	}
 
 	for data := range dd {
-		view.Clear()
+		view.Rewind()
 		for _, s := range data.Lines {
 			view.Write([]byte(s))
+			view.Write([]byte{'\n'})
 		}
 	}
 }

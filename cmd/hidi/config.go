@@ -132,44 +132,46 @@ func LoadHIDIConfig(path string) HIDIConfig {
 	return c
 }
 
-//go:embed config/hidi.config
-//go:embed config/*/*/*
+//go:embed hidi-config/hidi.config
+//go:embed hidi-config/*/*/*
 var templateConfig embed.FS
+
+const configDir = "hidi-config"
 
 // createConfigDirectory creates config directory if necessary.
 // It also updates Factory device configs, hidi.config stays intact.
-func createConfigDirectoryIfNeeded() {
-	f, err := os.OpenFile("config", os.O_RDONLY, 0)
+func createConfigDirectoryIfNeeded() error {
+	cdir, err := os.OpenFile(configDir, os.O_RDONLY, 0)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			panic(fmt.Errorf("cannot open config directory: %v", err))
+			return fmt.Errorf("cannot open config directory: %v", err)
 		}
 		log.Info("config not exist, generating tree...", logger.Info)
 
 		// create config subdirectories and files
-		err = fs.WalkDir(templateConfig, "config", func(path string, d fs.DirEntry, err error) error {
+		err = fs.WalkDir(templateConfig, configDir, func(path string, d fs.DirEntry, err error) error {
 			if d.IsDir() {
 				err := os.Mkdir(path, 0o777)
 				if err != nil {
-					panic(err)
+					return fmt.Errorf("cannot create \"%s\" directory: %w", path, err)
 				}
 				return nil
 			}
 
-			fd, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o666)
+			dst, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o666)
 			if err != nil {
-				panic(err)
+				return fmt.Errorf("cannot open \"%s\" file: %w", path, err)
 			}
-			defer fd.Close()
+			defer dst.Close()
 
 			data, err := fs.ReadFile(templateConfig, path)
 			if err != nil {
-				panic(err)
+				return fmt.Errorf("cannot read \"%s\" template file: %w", path, err)
 			}
 
-			_, err = fd.Write(data)
+			_, err = dst.Write(data)
 			if err != nil {
-				panic(err)
+				return fmt.Errorf("cannot write data into \"%s\" file: %w", path, err)
 			}
 
 			log.Info(fmt.Sprintf("Created \"%s\" file", path), logger.Debug)
@@ -179,81 +181,87 @@ func createConfigDirectoryIfNeeded() {
 		if err != nil {
 			panic(err)
 		}
-	} else {
-		f.Close()
-		// update factory configs
-		err = fs.WalkDir(templateConfig, "config/factory", func(path string, d fs.DirEntry, err error) error {
-			if d.IsDir() {
-				_, err := os.Stat(path)
-				if err == nil {
-					return nil
-				}
-				if !errors.Is(err, os.ErrNotExist) {
-					panic(err)
-				}
-				// ensure directories exists
-				err = os.Mkdir(path, 0o777)
-				if err != nil {
-					panic(err)
-				}
+		log.Info("config generation done", logger.Info)
+
+		return nil
+	}
+	cdir.Close()
+
+	// update factory configs
+	err = fs.WalkDir(templateConfig, configDir+"/factory", func(path string, entry fs.DirEntry, err error) error {
+		if entry.IsDir() {
+			_, err := os.Stat(path)
+			if err == nil {
 				return nil
 			}
-			fd, err := os.OpenFile(path, os.O_RDONLY, 0)
-			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					panic(fmt.Errorf("cannot open file: %v", err))
-				}
-				// factory file does not exist
-				fd, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o666)
-				if err != nil {
-					panic(err)
-				}
-				defer fd.Close()
-
-				data, err := fs.ReadFile(templateConfig, path)
-				if err != nil {
-					panic(err)
-				}
-
-				_, err = fd.Write(data)
-				if err != nil {
-					panic(err)
-				}
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("unexpected error when reading \"%s\" directory: %w", path, err)
 			}
-			// factory file exist
-			data, err := io.ReadAll(fd)
+			// ensure directories exists
+			err = os.Mkdir(path, 0o777)
 			if err != nil {
-				fd.Close()
-				panic(err)
+				return fmt.Errorf("cannot create \"%s\" directory: %w", path, err)
 			}
-			fd.Close()
-
-			newData, err := fs.ReadFile(templateConfig, path)
+			return nil
+		}
+		src, err := os.OpenFile(path, os.O_RDONLY, 0)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("cannot open \"%s\" file: %v", path, err)
+			}
+			// factory file does not exist
+			log.Info(fmt.Sprintf("Creating new factory configuration: \"%s\"", path), logger.Debug)
+			fd, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o666)
 			if err != nil {
-				panic(err)
-			}
-
-			if bytes.Equal(data, newData) {
-				log.Info(fmt.Sprintf("File \"%s\" not changed", path), logger.Debug)
-				return nil
-			}
-			log.Info(fmt.Sprintf("File \"%s\" changed, replacing data...", path), logger.Debug)
-			fd, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
-			if err != nil {
-				panic(err)
+				return fmt.Errorf("cannot open \"%s\" file for writing: %w", err)
 			}
 			defer fd.Close()
 
-			_, err = fd.Write(newData)
+			data, err := fs.ReadFile(templateConfig, path)
 			if err != nil {
-				panic(err)
+				return fmt.Errorf("cannot read \"%s\" file template: %w", path, err)
 			}
 
+			_, err = fd.Write(data)
+			if err != nil {
+				return fmt.Errorf("cannot write data into \"%s\" file: %w", path, err)
+			}
 			return nil
-		})
-
-		if err != nil {
-			panic(err)
 		}
+		defer src.Close()
+
+		// factory file exist, overwriting
+		data, err := io.ReadAll(src)
+		if err != nil {
+			return fmt.Errorf("cannot read \"%s\" file template: %w", path, err)
+		}
+
+		newData, err := fs.ReadFile(templateConfig, path)
+		if err != nil {
+			return fmt.Errorf("cannot open \"%s\" file template: %w", path, err)
+		}
+
+		if bytes.Equal(data, newData) {
+			log.Info(fmt.Sprintf("File \"%s\" not changed", path), logger.Debug)
+			return nil
+		}
+		log.Info(fmt.Sprintf("File \"%s\" changed, replacing data...", path), logger.Debug)
+		dst, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
+		if err != nil {
+			return fmt.Errorf("cannot open \"%s\" file: %w", path, err)
+		}
+		defer dst.Close()
+
+		_, err = dst.Write(newData)
+		if err != nil {
+			return fmt.Errorf("cannot overwrite \"%s\" file: %w", path, err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("update factory configs failed: %w", err)
 	}
+	return nil
 }

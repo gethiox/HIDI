@@ -1,6 +1,0 @@
-All files under "factory" directory will be automatically updated/overwritten
-when newer factory configurations are available in next HIDI releases.
-Configurations are stored along with executable.
-
-For custom device configurations, make use of "user" directory.
-These will be preserved after an update.

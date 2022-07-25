@@ -21,11 +21,15 @@ import (
 func runManager(
 	ctx context.Context, cfg HIDIConfig,
 	grab, noLogs bool, devices map[*midi.Device]*midi.Device,
-	midiEvents chan<- midi.Event, configNotifier chan<- validate.NotifyMessage,
+	midiEventsOut chan<- midi.Event, midiEventsin <-chan midi.Event,
+	configNotifier chan<- validate.NotifyMessage,
 ) {
 	deviceConfigChange := config.DetectDeviceConfigChanges(ctx)
 
 	wg := sync.WaitGroup{}
+	midiEventsInSpawner := newDynamicFanOut(midiEventsin)
+
+	ledSyncMutex := sync.Mutex{}
 
 	log.Info("Run manager", logger.Debug)
 root:
@@ -71,6 +75,7 @@ root:
 				log.Info(fmt.Sprintf("failed to load config for device: %v", err), zap.String("device_name", d.Name), logger.Error)
 				continue
 			}
+			log.Info(fmt.Sprintf("config loaded: %s", conf.ConfigFile), logger.Debug)
 
 			var inputEvents <-chan *input.InputEvent
 
@@ -93,7 +98,8 @@ root:
 			wg.Add(1)
 			go func(dev input.Device, conf config.DeviceConfig) {
 				defer wg.Done()
-				midiDev := midi.NewDevice(dev, conf, inputEvents, midiEvents, noLogs)
+				id, midiIn := midiEventsInSpawner.SpawnOutput()
+				midiDev := midi.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs)
 				devices[&midiDev] = &midiDev
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),
@@ -101,8 +107,15 @@ root:
 					logger.Info,
 				)
 				wg.Add(1)
-				midiDev.ProcessEvents(&wg)
+				midiDev.ProcessEvents(&wg, inputEvents, &ledSyncMutex)
 				log.Info("Device disconnected", zap.String("device_name", dev.Name), logger.Info)
+				err := midiEventsInSpawner.DespawnOutput(id)
+				if err != nil {
+					log.Info(
+						fmt.Sprintf("failed to despawn midi input channel: %s", err),
+						zap.String("device_name", dev.Name), logger.Error,
+					)
+				}
 				delete(devices, &midiDev)
 			}(d, conf)
 		}

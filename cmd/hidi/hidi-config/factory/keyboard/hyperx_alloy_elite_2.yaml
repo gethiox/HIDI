@@ -1,0 +1,308 @@
+identifier:
+  bus: 0x0003
+  vendor: 0x03f0
+  product: 0x058f
+  version: 0x0111
+  uniq: ""
+
+collision_mode: "interrupt"
+
+defaults:
+  octave: 0
+  semitone: 0
+  channel: 1
+  mapping: "Piano"
+
+action_mapping:
+  KEY_ESC: "panic"
+
+  KEY_F1: "octave_down"
+  KEY_F2: "octave_up"
+  KEY_F3: "semitone_down"
+  KEY_F4: "semitone_up"
+  KEY_F5: "channel_down"
+  KEY_F6: "channel_up"
+
+  KEY_F11: "mapping_down"
+  KEY_F12: "mapping_up"
+
+  KEY_F9: "multinote"
+
+midi_mappings:
+  - "Piano":
+      KEY_CAPSLOCK: a#-1
+      KEY_LEFTSHIFT: b-1
+      KEY_Z: c0
+      KEY_S: c#0
+      KEY_X: d0
+      KEY_D: d#0
+      KEY_C: e0
+      KEY_V: f0
+      KEY_G: f#0
+      KEY_B: g0
+      KEY_H: g#0
+      KEY_N: a0
+      KEY_J: a#0
+      KEY_M: b0
+
+      KEY_COMMA: c1
+      KEY_L: c#1
+      KEY_DOT: d1
+      KEY_SEMICOLON: d#1
+      KEY_SLASH: e1
+      KEY_RIGHTSHIFT: f1
+      KEY_ENTER: f#1
+
+      KEY_GRAVE: a#0
+      KEY_TAB: b0
+      KEY_Q: c1
+      KEY_2: c#1
+      KEY_W: d1
+      KEY_3: d#1
+      KEY_E: e1
+      KEY_R: f1
+      KEY_5: f#1
+      KEY_T: g1
+      KEY_6: g#1
+      KEY_Y: a1
+      KEY_7: a#1
+      KEY_U: b1
+
+      KEY_I: c2
+      KEY_9: c#2
+      KEY_O: d2
+      KEY_0: d#2
+      KEY_P: e2
+      KEY_LEFTBRACE: f2
+      KEY_EQUAL: f#2
+      KEY_RIGHTBRACE: g2
+      KEY_BACKSPACE: g#2
+      KEY_BACKSLASH: a2
+
+      # numpad drumpad
+      KEY_KP1: c0
+      KEY_KP2: c#0
+      KEY_KP3: d0
+      KEY_KP0: d#0
+      KEY_KP4: e0
+      KEY_KP5: f0
+      KEY_KP6: f#0
+      KEY_KPENTER: g0
+      KEY_KP7: g#0
+      KEY_KP8: a0
+      KEY_KP9: a#0
+      KEY_KPPLUS: b0
+      KEY_NUMLOCK: c1
+      KEY_KPSLASH: c#1
+      KEY_KPASTERISK: d1
+      KEY_KPMINUS: d#1
+
+  - "Chromatic":
+      KEY_GRAVE: g#-1
+      KEY_TAB: a-1
+      KEY_CAPSLOCK: a#-1
+      KEY_LEFTSHIFT: b-1
+
+      KEY_1: b-1
+      KEY_Q: c0
+      KEY_A: c#0
+      KEY_Z: d0
+
+      KEY_2: d0
+      KEY_W: d#0
+      KEY_S: e0
+      KEY_X: f0
+
+      KEY_3: f0
+      KEY_E: f#0
+      KEY_D: g0
+      KEY_C: g#0
+
+      KEY_4: g#0
+      KEY_R: a0
+      KEY_F: a#0
+      KEY_V: b0
+
+      KEY_5: b0
+      KEY_T: c1
+      KEY_G: c#1
+      KEY_B: d1
+
+      KEY_6: d1
+      KEY_Y: d#1
+      KEY_H: e1
+      KEY_N: f1
+
+      KEY_7: f1
+      KEY_U: f#1
+      KEY_J: g1
+      KEY_M: g#1
+
+      KEY_8: g#1
+      KEY_I: a1
+      KEY_K: a#1
+      KEY_COMMA: b1
+
+      KEY_9: b1
+      KEY_O: c2
+      KEY_L: c#2
+      KEY_DOT: d2
+
+      KEY_0: d2
+      KEY_P: d#2
+      KEY_SEMICOLON: e2
+      KEY_SLASH: f2
+
+      KEY_MINUS: f2
+      KEY_LEFTBRACE: f#2
+      KEY_APOSTROPHE: g2
+      KEY_RIGHTSHIFT: g#2
+
+      KEY_EQUAL: g#2
+      KEY_RIGHTBRACE: a2
+      KEY_ENTER: a#2
+
+      KEY_BACKSPACE: b2
+      KEY_BACKSLASH: c3
+
+      # numpad drumpad
+      KEY_KP1: c0
+      KEY_KP2: c#0
+      KEY_KP3: d0
+      KEY_KP0: d#0
+      KEY_KP4: e0
+      KEY_KP5: f0
+      KEY_KP6: f#0
+      KEY_KPENTER: g0
+      KEY_KP7: g#0
+      KEY_KP8: a0
+      KEY_KP9: a#0
+      KEY_KPPLUS: b0
+      KEY_NUMLOCK: c1
+      KEY_KPSLASH: c#1
+      KEY_KPASTERISK: d1
+      KEY_KPMINUS: d#1
+
+  - "Control": # unique midi events for every button
+      # main keyboard section
+      KEY_1: 0
+      KEY_Q: 1
+      KEY_A: 2
+      KEY_Z: 3
+      KEY_2: 4
+      KEY_W: 5
+      KEY_S: 6
+      KEY_X: 7
+      KEY_3: 8
+      KEY_E: 9
+      KEY_D: 10
+      KEY_C: 11
+      KEY_4: 12
+      KEY_R: 13
+      KEY_F: 14
+      KEY_V: 15
+      KEY_5: 16
+      KEY_T: 17
+      KEY_G: 18
+      KEY_B: 19
+      KEY_6: 20
+      KEY_Y: 21
+      KEY_H: 22
+      KEY_N: 23
+      KEY_7: 24
+      KEY_U: 25
+      KEY_J: 26
+      KEY_M: 27
+      KEY_8: 28
+      KEY_I: 29
+      KEY_K: 30
+      KEY_COMMA: 31
+      KEY_9: 32
+      KEY_O: 33
+      KEY_L: 34
+      KEY_DOT: 35
+      KEY_0: 36
+      KEY_P: 37
+      KEY_SEMICOLON: 38
+      KEY_SLASH: 39
+      KEY_MINUS: 40
+      KEY_LEFTBRACE: 41
+      KEY_APOSTROPHE: 42
+      KEY_EQUAL: 43
+      KEY_RIGHTBRACE: 44
+      KEY_ENTER: 45
+      KEY_BACKSPACE: 46
+      KEY_BACKSLASH: 47
+      KEY_GRAVE: 48
+      KEY_TAB: 49
+      KEY_CAPSLOCK: 50
+      KEY_LEFTSHIFT: 51
+      KEY_LEFTCTRL: 52
+      KEY_LEFTMETA: 53
+      KEY_LEFTALT: 54
+      KEY_SPACE: 55
+      KEY_RIGHTALT: 96
+      KEY_RIGHTMETA: 56
+      KEY_COMPOSE: 57
+      KEY_RIGHTCTRL: 58
+      KEY_RIGHTSHIFT: 59
+
+      # arrows
+      KEY_UP: 60
+      KEY_DOWN: 61
+      KEY_LEFT: 62
+      KEY_RIGHT: 63
+
+      KEY_INSERT: 64
+      KEY_DELETE: 65
+      KEY_HOME: 66
+      KEY_END: 67
+      KEY_PAGEUP: 68
+      KEY_PAGEDOWN: 69
+
+      KEY_SYSRQ: 70
+      KEY_SCROLLLOCK: 71
+      KEY_PAUSE: 72
+
+      # media control
+      KEY_PREVIOUSSONG: 73
+      KEY_PLAYPAUSE: 74
+      KEY_NEXTSONG: 75
+      KEY_MUTE: 76
+      KEY_VOLUMEUP: 77
+      KEY_VOLUMEDOWN: 78
+
+      # keypad
+      KEY_NUMLOCK: 79
+      KEY_KPSLASH: 80
+      KEY_KPASTERISK: 81
+      KEY_KPMINUS: 82
+      KEY_KP7: 83
+      KEY_KP8: 84
+      KEY_KP9: 85
+      KEY_KPPLUS: 86
+      KEY_KP4: 87
+      KEY_KP5: 88
+      KEY_KP6: 89
+      KEY_KP1: 90
+      KEY_KP2: 91
+      KEY_KP3: 92
+      KEY_KPENTER: 93
+      KEY_KP0: 94
+      KEY_KPDOT: 95
+
+  - "Debug": # empty mapping for debug purpose
+
+
+open_rgb:
+  name_identifier: "HyperX Alloy Elite 2 (HP)"
+  version: ""
+  serial: ""
+  colors:
+    white: 0x005500
+    black: 0x000055
+    c: 0x555500
+    unavailable: 0x440000
+    other: 0x440000
+    active: 0xffffff
+    active_external: 0x555555

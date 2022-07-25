@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	factoryGamepad  = "./config/factory/gamepad"
-	factoryKeyboard = "./config/factory/keyboard"
-	userGamepad     = "./config/user/gamepad"
-	userKeyboard    = "./config/user/keyboard"
+	factoryGamepad  = "hidi-config/factory/gamepad"
+	factoryKeyboard = "hidi-config/factory/keyboard"
+	userGamepad     = "hidi-config/user/gamepad"
+	userKeyboard    = "hidi-config/user/keyboard"
 )
 
 var (

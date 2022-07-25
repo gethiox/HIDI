@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -68,7 +69,7 @@ func Layout(g *gocui.Gui) error {
 		}
 		v.Title = "[lcd 20x4]"
 		v.Autoscroll = false
-		v.Wrap = true
+		v.Wrap = false
 		v.Frame = true
 	}
 	return nil
@@ -327,6 +328,12 @@ func prepareString(msg Entry, au aurora.Aurora, width, logLevel int) string {
 }
 
 func (f *Feeder) Write(data []byte) {
+	x, _ := f.view.Size()
+	if len(data) == 0 {
+		f.view.Write(bytes.Repeat([]byte{' '}, x))
+		f.view.Write([]byte{'\n'})
+		return
+	}
 	msg, err := unpack(data)
 	if err != nil {
 		f.view.Write(data)
@@ -334,17 +341,14 @@ func (f *Feeder) Write(data []byte) {
 		return
 	}
 
-	x, _ := f.view.Size()
-
 	s := prepareString(msg, f.au, x, f.logLevel)
 	if s != "" {
-		f.view.Write([]byte(s))
-		f.view.Write([]byte{'\n'})
+		f.view.WriteString(s + "\n")
 	}
 }
 
 func (f *Feeder) OverWrite(data []byte) {
-	f.view.Clear()
+	f.view.Rewind()
 	f.view.Write(data)
 	f.view.Write([]byte{'\n'})
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/holoplot/go-evdev"
+	"github.com/realbucksavage/openrgb-go"
 )
 
 const (
@@ -79,9 +80,30 @@ type KeyMapping struct {
 	Analog map[evdev.EvCode]Analog
 }
 
+type Defaults struct {
+	Octave, Semitone, Channel, Mapping int
+}
+
+type Colors struct {
+	White, Black, C openrgb.Color
+	Unavailable     openrgb.Color
+	Other           openrgb.Color
+	Active          openrgb.Color
+	ActiveExternal  openrgb.Color
+}
+
+type OpenRGB struct {
+	NameIdentifier string
+	Version        string
+	Serial         string
+	Colors         Colors
+}
+
 type Config struct {
 	KeyMappings     []KeyMapping
 	ActionMapping   map[evdev.EvCode]Action
-	AnalogDeadzones map[evdev.EvCode]float64 // 0.0 - 1.0 // TODO
+	AnalogDeadzones map[evdev.EvCode]float64
 	CollisionMode   CollisionMode
+	Defaults        Defaults
+	OpenRGB         OpenRGB
 }

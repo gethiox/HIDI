@@ -9,6 +9,7 @@ import (
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/holoplot/go-evdev"
+	"github.com/realbucksavage/openrgb-go"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,11 +22,33 @@ type YamlDeviceConfig struct {
 		Uniq    string `yaml:"uniq"`
 	} `yaml:"identifier"`
 
+	Defaults struct {
+		Octave   int    `yaml:"octave"`
+		Semitone int    `yaml:"semitone"`
+		Channel  int    `yaml:"channel"`
+		Mapping  string `yaml:"mapping"`
+	} `yaml:"defaults"`
+
 	CollisionMode   string                         `yaml:"collision_mode"`
 	Deadzones       map[string]float64             `yaml:"deadzones"`
 	DefaultDeadzone float64                        `yaml:"default_deadzone"`
 	ActionMapping   map[string]string              `yaml:"action_mapping"`
 	KeyMappings     []map[string]map[string]string `yaml:"midi_mappings"`
+
+	OpenRGB struct {
+		NameIdentifier string `yaml:"name_identifier"`
+		Version        string `yaml:"version"`
+		Serial         string `yaml:"serial"`
+		Colors         struct {
+			White          int `yaml:"white"`
+			Black          int `yaml:"black"`
+			C              int `yaml:"c"`
+			Unavailable    int `yaml:"unavailable"`
+			Other          int `yaml:"other"`
+			Active         int `yaml:"active"`
+			ActiveExternal int `yaml:"active_external"`
+		} `yaml:"colors"`
+	} `yaml:"open_rgb"`
 }
 
 type YamlCustomMapping struct {
@@ -225,6 +248,24 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 		return DeviceConfig{}, fmt.Errorf("[collision_mode] unsupported collision_mode: %s", collisionMode)
 	}
 
+	var mappingIndex = -1
+	for i, mapping := range keyMapping {
+		if mapping.Name == cfg.Defaults.Mapping {
+			mappingIndex = i
+		}
+	}
+	if mappingIndex == -1 {
+		return DeviceConfig{}, fmt.Errorf("default mapping \"%s\" not found", cfg.Defaults.Mapping)
+	}
+
+	convertToColor := func(v int) openrgb.Color {
+		return openrgb.Color{
+			Red:   byte(v >> 16),
+			Green: byte(v >> 8),
+			Blue:  byte(v),
+		}
+	}
+
 	devConfig := DeviceConfig{
 		ConfigFile: path2.Base(path),
 		ConfigType: configType,
@@ -240,6 +281,26 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 			ActionMapping:   actionMapping,
 			AnalogDeadzones: deadzones,
 			CollisionMode:   collisionMode,
+			Defaults: Defaults{
+				Octave:   cfg.Defaults.Octave,
+				Semitone: cfg.Defaults.Semitone,
+				Channel:  cfg.Defaults.Channel,
+				Mapping:  mappingIndex,
+			},
+			OpenRGB: OpenRGB{
+				NameIdentifier: cfg.OpenRGB.NameIdentifier,
+				Version:        cfg.OpenRGB.Version,
+				Serial:         cfg.OpenRGB.Serial,
+				Colors: Colors{
+					White:          convertToColor(cfg.OpenRGB.Colors.White),
+					Black:          convertToColor(cfg.OpenRGB.Colors.Black),
+					C:              convertToColor(cfg.OpenRGB.Colors.C),
+					Unavailable:    convertToColor(cfg.OpenRGB.Colors.Unavailable),
+					Other:          convertToColor(cfg.OpenRGB.Colors.Other),
+					Active:         convertToColor(cfg.OpenRGB.Colors.Active),
+					ActiveExternal: convertToColor(cfg.OpenRGB.Colors.ActiveExternal),
+				},
+			},
 		},
 	}
 	return devConfig, nil

@@ -51,23 +51,15 @@ func build(target target, project, basename string, buildErrors chan<- buildErro
 		envVars = append(envVars, fmt.Sprintf("GOARM=%s", target.goarm))
 	}
 
-	var targetFiles []string
-	files, err := os.ReadDir(project)
-	if err != nil {
-		return fmt.Errorf("failed to read source directory: %w", err)
+	params := []string{}
+	params = append(params, "build", "-o", binaryPath)
+
+	if openrgb {
+		tags := []string{"openrgb"}
+		params = append(params, "-tags", strings.Join(tags, ","))
 	}
 
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		if strings.HasSuffix(strings.ToLower(f.Name()), ".go") {
-			targetFiles = append(targetFiles, fmt.Sprintf("%s/%s", project, f.Name()))
-		}
-	}
-
-	params := []string{"build", "-o", binaryPath}
-	params = append(params, targetFiles...)
+	params = append(params, project)
 
 	cmd := exec.Command("go", params...)
 	cmd.Env = os.Environ()
@@ -78,7 +70,7 @@ func build(target target, project, basename string, buildErrors chan<- buildErro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 
 	if err != nil {
 		buildErrors <- buildError{
@@ -92,24 +84,26 @@ func build(target target, project, basename string, buildErrors chan<- buildErro
 	return err
 }
 
-func main() {
-	var list bool
-	var selection, project, basename string
+var selection, project, basename string
+var openrgb bool
 
-	flag.BoolVar(&list, "list", false, "list all available target platforms")
-	flag.StringVar(&selection, "platforms", "all", fmt.Sprintf("comma-separated target platrofm list"))
-	flag.StringVar(&project, "project", "cmd/hidi/", fmt.Sprintf("choose project directory"))
+func init() {
+	var targets []string
+	for _, target := range availableTargets {
+		targets = append(targets, fmt.Sprintf("%s", target.String()))
+	}
+	flag.StringVar(&selection, "platforms", "all", fmt.Sprintf(
+		"comma-separated target platrofm list\navailable: %s", strings.Join(targets, ",")),
+	)
+	flag.StringVar(&project, "project", "./cmd/hidi/", fmt.Sprintf("choose project directory"))
 	flag.StringVar(&basename, "base", "HIDI", fmt.Sprintf("base filename for output binaries"))
+	flag.BoolVar(&openrgb, "openrgb", false, "include openrgb binary")
 	flag.Parse()
+}
 
+func main() {
 	log.SetFlags(log.Ltime)
 
-	if list {
-		for _, target := range availableTargets {
-			fmt.Printf("%s\n", target.String())
-		}
-		os.Exit(0)
-	}
 	var selectedTargets []target
 
 	if selection != "all" {
@@ -153,7 +147,7 @@ func main() {
 		}
 	}()
 
-	var buildErrors = make(chan buildError, len(selectedTargets)) // "smart" buffering
+	var buildErrors = make(chan buildError, len(selectedTargets))
 
 	wgBuild := sync.WaitGroup{}
 	log.Printf("engaging parallel building for %d targets\n", len(selectedTargets))

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/logger"
+
 	"github.com/holoplot/go-evdev"
 	"go.uber.org/zap"
 )
@@ -43,38 +44,41 @@ func (e DeviceType) String() string {
 	}
 }
 
-func containsOnly(in map[HandlerType]DeviceInfo, handlerTypes ...HandlerType) bool {
+func containsOnly(in []DeviceInfo, handlerTypes ...HandlerType) bool {
 	if len(in) != len(handlerTypes) {
 		return false
 	}
 
+root:
 	for _, ht := range handlerTypes {
-		_, ok := in[ht]
-		if !ok {
-			return false
+		for _, di := range in {
+			if di.HandlerType() == ht {
+				continue root
+			}
 		}
-	}
-
-	return true
-}
-
-func contains(in map[HandlerType]DeviceInfo, handlerTypes ...HandlerType) bool {
-	for _, ht := range handlerTypes {
-		_, ok := in[ht]
-		if !ok {
-			return false
-		}
+		return false
 	}
 	return true
 }
 
-func DetermineDeviceType(handlers map[HandlerType]DeviceInfo) DeviceType {
+func contains(in []DeviceInfo, handlerTypes ...HandlerType) bool {
+root:
+	for _, ht := range handlerTypes {
+		for _, di := range in {
+			if di.HandlerType() == ht {
+				continue root
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func DetermineDeviceType(handlers []DeviceInfo) DeviceType {
 	switch {
 	case contains(handlers, DI_TYPE_JOYSTICK):
 		return JoystickDevice
-	case contains(handlers, DI_TYPE_STD_KBD, DI_TYPE_MULTIMEDIA):
-		return KeyboardDevice
-	case contains(handlers, DI_TYPE_STD_KBD, DI_TYPE_MULTIMEDIA, DI_TYPE_SYSTEM):
+	case contains(handlers, DI_TYPE_STD_KBD):
 		return KeyboardDevice
 	case containsOnly(handlers, DI_TYPE_MOUSE):
 		return MouseDevice
@@ -98,7 +102,7 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 	for devPhys, dis := range collection {
 		var dev = Device{
 			ID:       dis[0].ID,
-			Handlers: make(map[HandlerType]DeviceInfo),
+			Handlers: make([]DeviceInfo, 0),
 			AbsInfos: make(map[string]map[evdev.EvCode]evdev.AbsInfo),
 		}
 
@@ -135,12 +139,12 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 				uniq = di.Uniq
 			}
 
-			v, ok := dev.Handlers[di.HandlerType()]
-			if ok { // todo
-				panic(fmt.Errorf("handler already exist: %+v (want to overwrite by: %+v)", v, di))
+			var types = make([]string, 0)
+			for _, t := range di.CapableTypes {
+				types = append(types, evdev.TypeName(t))
 			}
 
-			dev.Handlers[di.HandlerType()] = di
+			dev.Handlers = append(dev.Handlers, di)
 		}
 
 		dev.DeviceType = DetermineDeviceType(dev.Handlers)
@@ -163,7 +167,7 @@ type Device struct {
 	Phys string
 
 	DeviceType DeviceType
-	Handlers   map[HandlerType]DeviceInfo
+	Handlers   []DeviceInfo
 
 	AbsInfos map[string]map[evdev.EvCode]evdev.AbsInfo // map key: DeviceInfo.Event()
 }
@@ -177,8 +181,12 @@ func (d *Device) String() string {
 
 // SupportsNKRO tells if device has N-Key rollover handler
 func (d *Device) SupportsNKRO() bool {
-	_, ok := d.Handlers[DI_TYPE_NKRO_KBD]
-	return ok
+	for _, di := range d.Handlers {
+		if di.HandlerType() == DI_TYPE_NKRO_KBD {
+			return true
+		}
+	}
+	return false
 }
 
 // DeviceID returns unique UUID for every device as much as possible, regardless of its connection source.
@@ -199,7 +207,8 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 	var events = make(chan *InputEvent, 8)
 
 	wg := sync.WaitGroup{}
-	for ht, h := range d.Handlers {
+	for _, h := range d.Handlers {
+		ht := h.HandlerType()
 		dev, err := evdev.Open(h.EventPath())
 		if err != nil {
 			return nil, fmt.Errorf("opening handler failed: %v", err)
@@ -308,8 +317,13 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 			defer close(absEvents)
 
 			if grab {
-				_ = dev.Grab()
 				log.Info("Grabbing device for exclusive usage", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
+				err = dev.Grab()
+				if err != nil {
+					log.Info("Exclusive device grab failed", zap.String("handler_event", event), zap.String("handler_name", name), logger.Warning)
+				} else {
+					log.Info("Grab success", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
+				}
 			}
 			log.Info("Reading input events", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
 
@@ -342,10 +356,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				}
 				events <- &outputEvent
 			}
-			if grab {
-				log.Info("Ungrabbing device", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
-				_ = dev.Ungrab()
-			}
+
 			log.Info("Reading input events finished", zap.String("handler_event", event), zap.String("handler_name", name), logger.Debug)
 		}(dev, ht, h, absEvents)
 	}
