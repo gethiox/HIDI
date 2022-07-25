@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/display"
-	"github.com/gethiox/HIDI/internal/pkg/midi"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device"
 )
 
 var blocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 var heart, randomChar = '❤', '░'
 
-func GenerateDisplayData(ctx context.Context, wg *sync.WaitGroup, cfg display.ScreenConfig, devices map[*midi.Device]*midi.Device, midiEventCounter, score *uint) <-chan display.DisplayData {
+func GenerateDisplayData(ctx context.Context, wg *sync.WaitGroup, cfg display.ScreenConfig, devices map[*device.Device]*device.Device, midiEventCounter, score *uint) <-chan display.DisplayData {
 	data := make(chan display.DisplayData)
 
 	go func() {

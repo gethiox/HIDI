@@ -13,6 +13,7 @@ import (
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device"
 	"go.uber.org/zap"
 )
 
@@ -20,7 +21,7 @@ import (
 // all goroutine execution has completed
 func runManager(
 	ctx context.Context, cfg HIDIConfig,
-	grab, noLogs bool, devices map[*midi.Device]*midi.Device,
+	grab, noLogs bool, devices map[*device.Device]*device.Device,
 	midiEventsOut chan<- midi.Event, midiEventsin <-chan midi.Event,
 	configNotifier chan<- validate.NotifyMessage,
 ) {
@@ -97,7 +98,7 @@ root:
 			go func(dev input.Device, conf config.DeviceConfig) {
 				defer wg.Done()
 				id, midiIn := midiEventsInSpawner.SpawnOutput()
-				midiDev := midi.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs)
+				midiDev := device.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs)
 				devices[&midiDev] = &midiDev
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),

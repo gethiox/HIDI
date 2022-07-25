@@ -22,6 +22,7 @@ import (
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device"
 	"github.com/logrusorgru/aurora"
 	"github.com/realbucksavage/openrgb-go"
 )
@@ -543,7 +544,7 @@ func main() {
 
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	processMidiEvents(eventCtx, &wg, ioDevice, midiEventsOut, otherMidiEvents, midiEventsIn)
-	var devices = make(map[*midi.Device]*midi.Device, 16)
+	var devices = make(map[*device.Device]*device.Device, 16)
 
 	wg.Add(1)
 	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)

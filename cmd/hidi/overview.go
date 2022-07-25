@@ -9,11 +9,11 @@ import (
 	"github.com/awesome-gocui/gocui"
 	"github.com/gethiox/HIDI/internal/pkg/display"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
-	"github.com/gethiox/HIDI/internal/pkg/midi"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device"
 	"github.com/logrusorgru/aurora"
 )
 
-type DevicePtrs []*midi.Device
+type DevicePtrs []*device.Device
 
 func (d DevicePtrs) Len() int {
 	return len(d)
@@ -27,7 +27,7 @@ func (d DevicePtrs) Swap(i, j int) {
 	d[i], d[j] = d[j], d[i]
 }
 
-func overviewView(g *gocui.Gui, colors bool, devices map[*midi.Device]*midi.Device) {
+func overviewView(g *gocui.Gui, colors bool, devices map[*device.Device]*device.Device) {
 	view, err := g.View(ViewOverview)
 	if err != nil {
 		panic(err)
