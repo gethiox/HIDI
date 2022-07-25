@@ -21,7 +21,8 @@ import (
 // all goroutine execution has completed
 func runManager(
 	ctx context.Context, cfg HIDIConfig,
-	grab, noLogs bool, devices map[*device.Device]*device.Device,
+	grab, noLogs bool,
+	devices map[*device.Device]*device.Device, devicesMutex *sync.Mutex,
 	midiEventsOut chan<- midi.Event, midiEventsin <-chan midi.Event,
 	configNotifier chan<- validate.NotifyMessage,
 	port int,
@@ -100,7 +101,9 @@ root:
 				defer wg.Done()
 				id, midiIn := midiEventsInSpawner.SpawnOutput()
 				midiDev := device.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs, port)
+				devicesMutex.Lock()
 				devices[&midiDev] = &midiDev
+				devicesMutex.Unlock()
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),
 					zap.String("device_type", dev.DeviceType.String()),
@@ -116,7 +119,9 @@ root:
 						zap.String("device_name", dev.Name), logger.Error,
 					)
 				}
+				devicesMutex.Lock()
 				delete(devices, &midiDev)
+				devicesMutex.Unlock()
 			}(d, conf)
 		}
 	}

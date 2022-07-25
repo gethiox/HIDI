@@ -13,7 +13,11 @@ import (
 var blocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 var heart, randomChar = '❤', '░'
 
-func GenerateDisplayData(ctx context.Context, wg *sync.WaitGroup, cfg display.ScreenConfig, devices map[*device.Device]*device.Device, midiEventCounter, score *uint) <-chan display.DisplayData {
+func GenerateDisplayData(
+	ctx context.Context, wg *sync.WaitGroup, cfg display.ScreenConfig,
+	devices map[*device.Device]*device.Device, devicesMutex *sync.Mutex,
+	midiEventCounter, score *uint,
+) <-chan display.DisplayData {
 	data := make(chan display.DisplayData)
 
 	go func() {
@@ -35,7 +39,16 @@ func GenerateDisplayData(ctx context.Context, wg *sync.WaitGroup, cfg display.Sc
 		for {
 			start := time.Now()
 
+			var handlerCount int
+
+			devicesMutex.Lock()
 			var devCount = len(devices)
+
+			for _, midiDev := range devices {
+				handlerCount += len(midiDev.InputDevice.Handlers)
+			}
+			devicesMutex.Unlock()
+
 			var eventsPerSecond uint
 
 			if lastMidiEventsEmitted > *midiEventCounter {
@@ -50,12 +63,6 @@ func GenerateDisplayData(ctx context.Context, wg *sync.WaitGroup, cfg display.Sc
 				graphPointer++
 			} else {
 				graphPointer = 0
-			}
-
-			var handlerCount int
-
-			for _, midiDev := range devices {
-				handlerCount += len(midiDev.InputDevice.Handlers)
 			}
 
 			buffer[0] = fmt.Sprintf("devices: %11d", devCount)

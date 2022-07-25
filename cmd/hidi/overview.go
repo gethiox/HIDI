@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/awesome-gocui/gocui"
@@ -27,7 +28,7 @@ func (d DevicePtrs) Swap(i, j int) {
 	d[i], d[j] = d[j], d[i]
 }
 
-func overviewView(g *gocui.Gui, colors bool, devices map[*device.Device]*device.Device) {
+func overviewView(g *gocui.Gui, colors bool, devices map[*device.Device]*device.Device, devicesMutex *sync.Mutex) {
 	view, err := g.View(ViewOverview)
 	if err != nil {
 		panic(err)
@@ -39,6 +40,8 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*device.Device]*device.
 		var viewData []string
 
 		var ptrs DevicePtrs
+
+		devicesMutex.Lock()
 
 		for _, d := range devices {
 			ptrs = append(ptrs, d)
@@ -86,6 +89,7 @@ func overviewView(g *gocui.Gui, colors bool, devices map[*device.Device]*device.
 			viewData = append(viewData, fmt.Sprintf("%s%s", header, strings.Repeat(" ", headerFreeSpace)))
 			viewData = append(viewData, fmt.Sprintf("%s%s", description, strings.Repeat(" ", descriptionFreeSpace)))
 		}
+		devicesMutex.Unlock()
 
 		view.Rewind()
 		for i := 0; i < y; i++ {

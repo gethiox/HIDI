@@ -464,9 +464,10 @@ func main() {
 	eventCtx, cancelEvents := context.WithCancel(context.Background())
 	processMidiEvents(eventCtx, &wg, ioDevice, midiEventsOut, otherMidiEvents, midiEventsIn)
 	var devices = make(map[*device.Device]*device.Device, 16)
+	var devicesMutex = sync.Mutex{}
 
 	wg.Add(1)
-	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &midiEventsEmitted, &score)
+	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &devicesMutex, &midiEventsEmitted, &score)
 	dd1, dd2 := FanOut(dd)
 
 	if cfg.Screen.Enabled {
@@ -481,7 +482,7 @@ func main() {
 
 	if *ui && !*silent {
 		go logView(g, !*nocolor, *logLevel, cfg.HIDI.LogBufferSize)
-		go overviewView(g, !*nocolor, devices)
+		go overviewView(g, !*nocolor, devices, &devicesMutex)
 		go lcdView(g, dd2)
 	} else {
 		go func() {
@@ -511,7 +512,7 @@ func main() {
 		}()
 	}
 
-	runManager(ctx, cfg, *grab, *silent, devices, midiEventsOut, midiEventsIn, confNotifier, port)
+	runManager(ctx, cfg, *grab, *silent, devices, &devicesMutex, midiEventsOut, midiEventsIn, confNotifier, port)
 
 	cancelEvents()
 	log.Info(fmt.Sprintf("waiting..."), logger.Debug)
