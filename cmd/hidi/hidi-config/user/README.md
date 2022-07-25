@@ -85,7 +85,7 @@ files.
 ### OpenRGB
 
 - `open_rgb`: main configuration section
-  - `name_identifier` - device name reported by OpenRGB
+  - `name_identifier` - device name reported by OpenRGB, to find identifier use `-openrgb-list` hidi option
   - `version` - optional
   - `serial` - optional
   - `colors` - MIDI-related LED color configuration.  
