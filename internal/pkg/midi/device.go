@@ -501,7 +501,7 @@ root:
 		default:
 			break
 		}
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 10)
 
 		d.tmpMutex.Lock()
 		offset := int(d.semitone) + int(d.octave)*12

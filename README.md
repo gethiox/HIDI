@@ -16,7 +16,7 @@ These are things that I want to finalize for 1.0 release:
 
 # improvements since beta release
 
-- OpenRGB support
+- OpenRGB support ([Demo](https://youtu.be/QF_z6LHcSkE))
 - YAML configurations for devices. automatic reload on user configuration changes
 - Monitoring of input handlers is now a magnitude more efficient
 - Graceful app termination
