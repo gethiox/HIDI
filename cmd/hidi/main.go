@@ -23,6 +23,7 @@ import (
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 	"github.com/logrusorgru/aurora"
+	"github.com/realbucksavage/openrgb-go"
 )
 
 var midiEventsEmitted, score uint // counter for display info
@@ -259,6 +260,7 @@ func runProfileServer(wg *sync.WaitGroup) *http.Server {
 }
 
 var (
+	orgblist = flag.Bool("openrgb-list", false, "list available OpenRGB devices and exit")
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
 	ui       = flag.Bool("ui", false, "engage debug ui")
@@ -393,7 +395,88 @@ func runBinary(wg *sync.WaitGroup, ctx context.Context) {
 
 }
 
+func listOpenRGB() {
+	go func() {
+		au := aurora.NewAurora(false)
+		for data := range logger.Messages {
+			msg, err := unpack(data)
+			if err != nil {
+				fmt.Printf("%s\n", string(data))
+				continue
+			}
+			m := prepareString(msg, au, -1, *logLevel)
+			if m != "" {
+				fmt.Printf("%s\n", m)
+			}
+		}
+	}()
+
+	wg := sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
+
+	wg.Add(1)
+	go runBinary(&wg, ctx)
+
+	var c *openrgb.Client
+	var err error
+	host, port := "localhost", 6742
+
+	fmt.Printf("Connecting to %s:%d...", host, port)
+	timeout := time.Now().Add(time.Second * 5)
+	for {
+		if time.Now().After(timeout) {
+			fmt.Printf("Connecting to server: Giving up")
+			return
+		}
+
+		c, err = openrgb.Connect(host, port)
+		if err != nil {
+			time.Sleep(time.Millisecond * 250)
+			continue
+		}
+		break
+	}
+
+	if err != nil {
+		fmt.Printf("Cannot connect to server: %s", err)
+		return
+	}
+
+	time.Sleep(time.Second)
+
+	count, err := c.GetControllerCount()
+	if err != nil {
+		fmt.Printf("cannot get controller count: %s", err)
+		return
+	}
+
+	for i := 0; i < count; i++ {
+		d, err := c.GetDeviceController(i)
+		if err != nil {
+			fmt.Printf("failed to get device %d/%d: %s", i+1, count+1, err)
+			return
+		}
+
+		fmt.Printf("OpenRGB device:\n"+
+			"- name: \"%s\"\n"+
+			"- serial: \"%s\"\n"+
+			"- version: \"%s\"\n"+
+			"- location: \"%s\"\n"+
+			"- description: \"%s\"\n\n",
+			d.Name, d.Serial, d.Version, d.Location, d.Description)
+	}
+}
+
 func main() {
+	if *orgblist {
+		listOpenRGB()
+		os.Exit(0)
+	}
+
 	if *force256 == true {
 		os.Setenv("TERM", "xterm-256color")
 	}
