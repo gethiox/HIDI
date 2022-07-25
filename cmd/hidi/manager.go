@@ -29,8 +29,6 @@ func runManager(
 	wg := sync.WaitGroup{}
 	midiEventsInSpawner := newDynamicFanOut(midiEventsin)
 
-	ledSyncMutex := sync.Mutex{}
-
 	log.Info("Run manager", logger.Debug)
 root:
 	for {
@@ -107,7 +105,7 @@ root:
 					logger.Info,
 				)
 				wg.Add(1)
-				midiDev.ProcessEvents(&wg, inputEvents, &ledSyncMutex)
+				midiDev.ProcessEvents(&wg, inputEvents)
 				log.Info("Device disconnected", zap.String("device_name", dev.Name), logger.Info)
 				err := midiEventsInSpawner.DespawnOutput(id)
 				if err != nil {

@@ -365,7 +365,7 @@ func findController(c *openrgb.Client, name string) (openrgb.Device, int, error)
 	return openrgb.Device{}, 0, fmt.Errorf("controller \"%s\" not found", name)
 }
 
-func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context, ledMutex *sync.Mutex) {
+func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
 
 	host, port := "localhost", 6742
@@ -656,9 +656,7 @@ root:
 			}
 		}
 
-		ledMutex.Lock()
 		err = c.UpdateLEDs(index, ledArray)
-		ledMutex.Unlock()
 		if err != nil {
 			updateFails++
 			now := time.Now()
@@ -681,14 +679,14 @@ root:
 	c.UpdateLEDs(index, ledArray)
 }
 
-func (d *Device) ProcessEvents(wg *sync.WaitGroup, inputEvents <-chan *input.InputEvent, ledMutex *sync.Mutex) {
+func (d *Device) ProcessEvents(wg *sync.WaitGroup, inputEvents <-chan *input.InputEvent) {
 	defer wg.Done()
 	log.Info("start ProcessEvents", d.logFields(logger.Debug)...)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	wg.Add(1)
-	go d.handleOpenrgb(wg, ctx, ledMutex)
+	go d.handleOpenrgb(wg, ctx)
 	wg.Add(1)
 	go d.handleInputEvents(wg, ctx)
 
