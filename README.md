@@ -5,19 +5,16 @@
 ## In progress
 
 These are things that I want to finalize for 1.0 release:
-- cli:
-  - [x] regenerate buffer output on terminal size change
-  - [x] avoid flickering of buffers without scrolling 
-  - [x] Optimize output writing to buffers, avoid infinity "memory leak"
-- logic:
-  - [x] note collision handlers (off, no_repeat, retrigger, interrupt)
-  - [ ] General code cleanup
-- test coverage
+- [ ] General code cleanup
+- [ ] test coverage
 
 # improvements since beta release
 
-- OpenRGB support ([Demo](https://youtu.be/QF_z6LHcSkE))
+- OpenRGB support ([Demo](https://youtu.be/QF_z6LHcSkE))  
+  known issues:
+  - it doesn't work well when there is more than 1 (one) RGB keyboard
 - YAML configurations for devices. automatic reload on user configuration changes
+- note collision handlers, see [guide](cmd/hidi/hidi-config/user/README.md) for details
 - Monitoring of input handlers is now a magnitude more efficient
 - Graceful app termination
 - greatly improved speed of application start and termination
