@@ -28,6 +28,16 @@ action_mapping:
 
   KEY_F9: "multinote"
 
+open_rgb:
+  colors:
+    white: 0x005500
+    black: 0x000055
+    c: 0x555500
+    unavailable: 0x440000
+    other: 0x440000
+    active: 0xffffff
+    active_external: 0x555555
+
 midi_mappings:
   - "Piano":
       KEY_CAPSLOCK: a#-1
