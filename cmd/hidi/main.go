@@ -322,7 +322,7 @@ func newLogBuffer(size int) logBuffer {
 	}
 }
 
-func runBinary(wg *sync.WaitGroup, ctx context.Context) {
+func runBinary(wg *sync.WaitGroup, ctx context.Context, port int) {
 	defer wg.Done()
 	exe, err := memexec.New(OpenRGB)
 	if err != nil {
@@ -336,8 +336,6 @@ func runBinary(wg *sync.WaitGroup, ctx context.Context) {
 			log.Info(fmt.Sprintf("failed to close memory exec: %s", err), logger.Error)
 		}
 	}()
-
-	port := 6742
 
 	cmd := exe.Command("--server", "--noautoconnect", "--server-port", fmt.Sprintf("%d", port))
 
@@ -363,6 +361,7 @@ func runBinary(wg *sync.WaitGroup, ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
+		time.Sleep(time.Millisecond * 200)
 		err := cmd.Process.Signal(os.Interrupt)
 		if err != nil {
 			log.Info(fmt.Sprintf("[OpenRGB] failed to send signal: %s", err), logger.Error)
@@ -420,11 +419,13 @@ func listOpenRGB() {
 	}()
 
 	wg.Add(1)
-	go runBinary(&wg, ctx)
+	host := "localhost"
+	port := 6742
+
+	go runBinary(&wg, ctx, port)
 
 	var c *openrgb.Client
 	var err error
-	host, port := "localhost", 6742
 
 	fmt.Printf("Connecting to %s:%d...", host, port)
 	timeout := time.Now().Add(time.Second * 5)
@@ -498,11 +499,14 @@ func main() {
 	// this wait-group has to be propagated everywhere where usual logging appear
 	wg := sync.WaitGroup{}
 
+	port := rand.Intn(65535 - 1024)
+	port += 1024
+
 	if *orgb {
 		if len(OpenRGB) != 0 {
 			log.Info(fmt.Sprintf("starting OpenRGB server (%s)", OpenRGBVersion), logger.Info)
 			wg.Add(1)
-			go runBinary(&wg, ctx)
+			go runBinary(&wg, ctx, port)
 		} else {
 			log.Info("OpenRGB is not supported in that build", logger.Warning)
 		}
@@ -592,7 +596,7 @@ func main() {
 		}()
 	}
 
-	runManager(ctx, cfg, *grab, *silent, devices, midiEventsOut, midiEventsIn, confNotifier)
+	runManager(ctx, cfg, *grab, *silent, devices, midiEventsOut, midiEventsIn, confNotifier, port)
 
 	cancelEvents()
 	log.Info(fmt.Sprintf("waiting..."), logger.Debug)

@@ -36,10 +36,7 @@ type YamlDeviceConfig struct {
 	KeyMappings     []map[string]map[string]string `yaml:"midi_mappings"`
 
 	OpenRGB struct {
-		NameIdentifier string `yaml:"name_identifier"`
-		Version        string `yaml:"version"`
-		Serial         string `yaml:"serial"`
-		Colors         struct {
+		Colors struct {
 			White          int `yaml:"white"`
 			Black          int `yaml:"black"`
 			C              int `yaml:"c"`
@@ -288,9 +285,6 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 				Mapping:  mappingIndex,
 			},
 			OpenRGB: OpenRGB{
-				NameIdentifier: cfg.OpenRGB.NameIdentifier,
-				Version:        cfg.OpenRGB.Version,
-				Serial:         cfg.OpenRGB.Serial,
 				Colors: Colors{
 					White:          convertToColor(cfg.OpenRGB.Colors.White),
 					Black:          convertToColor(cfg.OpenRGB.Colors.Black),

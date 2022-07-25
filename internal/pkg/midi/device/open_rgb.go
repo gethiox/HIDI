@@ -3,9 +3,11 @@ package device
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/pkg/fs"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi/config"
 	"github.com/holoplot/go-evdev"
@@ -134,7 +136,48 @@ var KeyToLedName = map[evdev.EvCode]string{ // hardware button to OpenRGB LED na
 	evdev.KEY_KPENTER:      "Key: Number Pad Enter",
 }
 
-func findController(c *openrgb.Client, name string) (openrgb.Device, int, error) {
+// resolveHidraw returns event name that relates to given hidraw device
+// "/dev/hidraw0" > "event0"
+func resolveHidraw(dev string) (string, error) {
+	regex1 := regexp.MustCompile(`/dev/(hidraw\d+)`)
+	out := regex1.FindStringSubmatch(dev)
+	if len(out) != 2 {
+		return "", fmt.Errorf("unexpected dev format: %s", dev)
+	}
+
+	path := fmt.Sprintf("/sys/class/hidraw/%s/device/input", out[1])
+
+	rootEntry := fs.NewEntry(path)
+	dirs, err := rootEntry.Dirs()
+	if err != nil {
+		return "", fmt.Errorf("failed to list root entry: %s", err)
+	}
+
+	if len(dirs) != 1 {
+		return "", fmt.Errorf("unexpected dir length")
+	}
+
+	var entry fs.Entry
+	for _, entry = range dirs {
+		break
+	}
+
+	dirs, err = entry.Dirs()
+	if err != nil {
+		return "", fmt.Errorf("failed to list \"%s\": %s", entry.Path(), err)
+	}
+
+	regex2 := regexp.MustCompile(`event\d+`)
+
+	for name := range dirs {
+		if regex2.MatchString(name) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("event not found")
+}
+
+func findController(c *openrgb.Client, events map[string]bool) (openrgb.Device, int, error) {
 	count, err := c.GetControllerCount()
 	if err != nil {
 		return openrgb.Device{}, 0, fmt.Errorf("failed to get controller count: %s", err)
@@ -143,6 +186,8 @@ func findController(c *openrgb.Client, name string) (openrgb.Device, int, error)
 	if count == 0 {
 		return openrgb.Device{}, 0, fmt.Errorf("no supported controllers available")
 	}
+
+	regex := regexp.MustCompile(`.*(/dev/hidraw\d+)`)
 
 	for i := 0; i < count; i++ {
 		dev, err := c.GetDeviceController(i)
@@ -154,18 +199,28 @@ func findController(c *openrgb.Client, name string) (openrgb.Device, int, error)
 			continue
 		}
 
-		if dev.Name == name {
+		out := regex.FindStringSubmatch(dev.Location)
+		if len(out) != 2 {
+			continue
+		}
+
+		event, err := resolveHidraw(out[1])
+		if err != nil {
+			return openrgb.Device{}, 0, fmt.Errorf("resolve hidraw failed (%d/%d): %s", i, count, err)
+		}
+
+		if events[event] == true {
 			return dev, i, nil
 		}
 	}
 
-	return openrgb.Device{}, 0, fmt.Errorf("controller \"%s\" not found", name)
+	return openrgb.Device{}, 0, fmt.Errorf("controller not found")
 }
 
 func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
 
-	host, port := "localhost", 6742
+	host, port := "localhost", d.openrgbPort
 
 	log.Info(fmt.Sprintf("[OpenRGB] Connecting: %s:%d...", host, port), d.logFields(logger.Debug)...)
 
@@ -175,14 +230,20 @@ func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 	timeout := time.Now().Add(time.Second * 5)
 
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Millisecond * 250):
+			break
+		}
+
 		if time.Now().After(timeout) {
 			log.Info("[OpenRGB] Connecting to server: Giving up", d.logFields(logger.Debug)...)
-			return
+			break
 		}
 
 		c, err = openrgb.Connect(host, port)
 		if err != nil {
-			time.Sleep(time.Millisecond * 250)
 			continue
 		}
 		break
@@ -193,22 +254,33 @@ func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 		return
 	}
 
-	log.Info(fmt.Sprintf("[OpenRGB] Connected, finding controller: \"%s\"...", d.config.OpenRGB.NameIdentifier), d.logFields(logger.Debug)...)
+	log.Info(fmt.Sprintf("[OpenRGB] Connected, finding controller..."), d.logFields(logger.Debug)...)
 
 	var dev openrgb.Device
 	var index int
 
+	var events = make(map[string]bool)
+	for _, di := range d.InputDevice.Handlers {
+		events[di.Event()] = true
+	}
+
 	timeout = time.Now().Add(time.Second * 2)
 
 	for {
-		if time.Now().After(timeout) {
-			log.Info("[OpenRGB] find controller: Giving up", d.logFields(logger.Debug)...)
+		select {
+		case <-ctx.Done():
 			return
+		case <-time.After(time.Millisecond * 250):
+			break
 		}
 
-		dev, index, err = findController(c, d.config.OpenRGB.NameIdentifier)
+		if time.Now().After(timeout) {
+			log.Info("[OpenRGB] find controller: Giving up", d.logFields(logger.Debug)...)
+			break
+		}
+
+		dev, index, err = findController(c, events)
 		if err != nil {
-			time.Sleep(time.Millisecond * 250)
 			continue
 		}
 		break
@@ -440,18 +512,18 @@ root:
 			}
 		}
 
-		if d.config.OpenRGB.NameIdentifier == "HyperX Alloy Elite 2 (HP)" {
-			// HSV animation on LED strip
-			for i := 1; i < 19; i++ {
-				id := nameToIndex[fmt.Sprintf("RGB Strip %d", i)]
-				c := colorful.Hsv(float64(((i-1)*20+someCounter)%360), 1, 1)
-				ledArray[id] = openrgb.Color{
-					Red:   uint8(c.R * 255),
-					Green: uint8(c.G * 255),
-					Blue:  uint8(c.B * 255),
-				}
-			}
-		}
+		// if d.config.OpenRGB.NameIdentifier == "HyperX Alloy Elite 2 (HP)" {
+		// 	// HSV animation on LED strip
+		// 	for i := 1; i < 19; i++ {
+		// 		id := nameToIndex[fmt.Sprintf("RGB Strip %d", i)]
+		// 		c := colorful.Hsv(float64(((i-1)*20+someCounter)%360), 1, 1)
+		// 		ledArray[id] = openrgb.Color{
+		// 			Red:   uint8(c.R * 255),
+		// 			Green: uint8(c.G * 255),
+		// 			Blue:  uint8(c.B * 255),
+		// 		}
+		// 	}
+		// }
 
 		err = c.UpdateLEDs(index, ledArray)
 		if err != nil {

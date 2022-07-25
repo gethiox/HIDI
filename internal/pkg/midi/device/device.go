@@ -25,6 +25,7 @@ type Device struct {
 	noLogs      bool // skips producing most of the log entries for maximum performance
 	config      config.Config
 	InputDevice input.Device
+	openrgbPort int
 
 	effectEvents chan<- midi.Event
 	outputEvents chan<- midi.Event
@@ -66,7 +67,11 @@ type Device struct {
 	actionsRelease map[config.Action]func(*Device)
 }
 
-func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, midiEvents chan<- midi.Event, midiIn <-chan midi.Event, noLogs bool) Device {
+func NewDevice(
+	inputDevice input.Device, cfg config.DeviceConfig,
+	midiEvents chan<- midi.Event, midiIn <-chan midi.Event,
+	noLogs bool, openrgbPort int,
+) Device {
 	var activeNoteCounter = make(map[byte]map[byte]int)
 	for ch := byte(0); ch < 16; ch++ {
 		var t = make(map[byte]int)
@@ -92,6 +97,7 @@ func NewDevice(inputDevice input.Device, cfg config.DeviceConfig, midiEvents cha
 		eventProcessMutex:    &sync.Mutex{},
 		externalTrackerMutex: &sync.Mutex{},
 		externalNoteTracker:  inmap,
+		openrgbPort:          openrgbPort,
 
 		noteTracker:        make(map[evdev.EvCode][2]byte, 32),
 		analogNoteTracker:  make(map[string][2]byte, 32),

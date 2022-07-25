@@ -93,10 +93,7 @@ type Colors struct {
 }
 
 type OpenRGB struct {
-	NameIdentifier string
-	Version        string
-	Serial         string
-	Colors         Colors
+	Colors Colors
 }
 
 type Config struct {

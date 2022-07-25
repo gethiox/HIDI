@@ -293,11 +293,7 @@ midi_mappings:
 
   - "Debug": # empty mapping for debug purpose
 
-
 open_rgb:
-  name_identifier: "HyperX Alloy Elite 2 (HP)"
-  version: ""
-  serial: ""
   colors:
     white: 0x005500
     black: 0x000055

@@ -291,9 +291,6 @@ midi_mappings:
       KEY_KPDOT: 95
 
 open_rgb:
-  name_identifier: "Razer Ornata Chroma"
-  version: ""
-  serial: ""
   colors:
     white: 0x005500
     black: 0x000055

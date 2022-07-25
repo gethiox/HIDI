@@ -24,6 +24,7 @@ func runManager(
 	grab, noLogs bool, devices map[*device.Device]*device.Device,
 	midiEventsOut chan<- midi.Event, midiEventsin <-chan midi.Event,
 	configNotifier chan<- validate.NotifyMessage,
+	port int,
 ) {
 	deviceConfigChange := config.DetectDeviceConfigChanges(ctx)
 
@@ -98,7 +99,7 @@ root:
 			go func(dev input.Device, conf config.DeviceConfig) {
 				defer wg.Done()
 				id, midiIn := midiEventsInSpawner.SpawnOutput()
-				midiDev := device.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs)
+				midiDev := device.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs, port)
 				devices[&midiDev] = &midiDev
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),
