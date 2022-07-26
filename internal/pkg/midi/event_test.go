@@ -3,6 +3,8 @@ package midi
 import (
 	"testing"
 
+	"github.com/gethiox/HIDI/internal/pkg/midi/config"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -172,9 +174,27 @@ func TestStringToNote(t *testing.T) {
 		{string: "G8", expected: 127},
 	} {
 		t.Run(tc.string, func(t *testing.T) {
-			note, err := StringToNote(tc.string)
+			note, err := config.StringToNote(tc.string)
 			assert.Equal(t, nil, err)
 			assert.Equal(t, tc.expected, note)
+		})
+	}
+}
+
+func TestStringToNoteFail(t *testing.T) {
+	for _, tc := range []string{
+		"b-3", // outside of bottom range
+		"g#8", // outside of upper range
+		"",
+		// unaligned
+		" c-2",
+		"c-2 ",
+		"BLAH junk text c-2",
+	} {
+		t.Run(tc, func(t *testing.T) {
+			note, err := config.StringToNote(tc)
+			assert.Equal(t, byte(0), note)
+			assert.NotEqual(t, nil, err)
 		})
 	}
 }
