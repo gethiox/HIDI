@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -33,11 +34,11 @@ func NewPlayer(data []byte) Player {
 	}
 }
 
-func (p *Player) Play(events chan<- midi.Event, ctx context.Context, bpm int) {
+func (p *Player) Play(events chan<- midi.Event, ctx context.Context, bpm int) error {
 	parser := mmidi.NewParser(p.data)
 	mevents, err := parser.Parse()
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("parse failed: %w", err)
 	}
 
 root:
@@ -67,6 +68,8 @@ root:
 	for n, ch := range p.enabledNotes {
 		events <- midi.NoteEvent(midi.NoteOff, ch, n, 0)
 	}
+
+	return nil
 }
 
 func monitorConfChanges(ctx context.Context, wg *sync.WaitGroup, c <-chan validate.NotifyMessage, events chan midi.Event) {

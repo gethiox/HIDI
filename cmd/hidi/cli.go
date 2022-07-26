@@ -181,7 +181,6 @@ func colorForString(au aurora.Aurora, s string) aurora.Value {
 	}
 
 	return au.Index(16+36*r+6*g+b, s)
-	// return color(uint8(sum), uint8(sum>>8), uint8(sum>>16))
 }
 
 func secondProgress(t time.Time) float64 {

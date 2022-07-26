@@ -112,7 +112,7 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 		for _, di := range dis {
 			d, err := evdev.Open(di.EventPath())
 			if err != nil {
-				panic(err) // todo
+				continue
 			}
 			defer d.Close()
 

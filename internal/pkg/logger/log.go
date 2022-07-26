@@ -43,7 +43,6 @@ func (w *chanWriter) Write(p []byte) (n int, err error) {
 	w.Lock()
 	var newSlice = make([]byte, len(p))
 	copy(newSlice, p)
-	// Messages <- []byte(strings.Replace(string(newSlice), "\n", "", -1))
 	Messages <- newSlice
 	w.Unlock()
 	return len(p), nil
@@ -58,12 +57,6 @@ func (w *chanWriter) Sync() error {
 
 type gkeJsonEncoder struct {
 	zapcore.Encoder
-}
-
-func newGkeJsonEncoder(cfg zapcore.EncoderConfig) zapcore.Encoder {
-	return gkeJsonEncoder{
-		Encoder: zapcore.NewJSONEncoder(cfg),
-	}
 }
 
 func (enc gkeJsonEncoder) Clone() zapcore.Encoder {
@@ -93,27 +86,13 @@ func (c entryCaller) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 func GetLogger() *zap.Logger {
 	writer := &chanWriter{}
 	cfg := zap.NewProductionEncoderConfig()
-	// // cfg := zap.NewDevelopmentEncoderConfig()
+
 	cfg.SkipLineEnding = true
 	cfg.EncodeTime = zapcore.EpochNanosTimeEncoder
 	cfg.LevelKey = ""
 	encoder := zapcore.NewJSONEncoder(cfg)
 	noSync := zapcore.Lock(writer)
-	// core := zapcore.NewCore(encoder, noSync, zap.DebugLevel)
-	// return zap.New(core)
 
-	// encoderConfig := zapcore.EncoderConfig{
-	// 	TimeKey:       "time",
-	// 	LevelKey:      "severity",
-	// 	NameKey:       "logger",
-	// 	MessageKey:    "message",
-	// 	StacktraceKey: "stacktrace",
-	// 	EncodeLevel:   zapcore.LowercaseLevelEncoder,
-	// 	EncodeTime:    zapcore.RFC3339NanoTimeEncoder,
-	//
-	// 	SkipLineEnding: true,
-	// }
-	// encoder := newGkeJsonEncoder(encoderConfig)
 	logger := zap.New(
 		zapcore.NewCore(encoder, noSync, zap.DebugLevel),
 		zap.AddCaller(),

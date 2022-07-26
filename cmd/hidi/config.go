@@ -29,107 +29,105 @@ type HIDIConfig struct {
 	Screen display.ScreenConfig
 }
 
-func LoadHIDIConfig(path string) HIDIConfig {
+func LoadHIDIConfig(path string) (HIDIConfig, error) {
 	// TODO: remove bloat
+	var c HIDIConfig
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot read \"%s\" file: %w", path, err)
 	}
 
 	cfg, err := ini.Load(data)
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot load ini file: %w", err)
 	}
-
-	var c HIDIConfig
 
 	// [HIDI]
 	hidi, _ := cfg.GetSection("HIDI")
 	evThrottling, _ := hidi.GetKey("pool_rate")
 	i, err := evThrottling.Int()
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot parse integer for pool_rate: %w", err)
 	}
 	c.HIDI.EVThrottling = time.Second / time.Duration(i)
 	discoveryRate, _ := hidi.GetKey("discovery_rate")
 	i, err = discoveryRate.Int()
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot parse integer for discovery_rate: %w", err)
 	}
 	c.HIDI.DiscoveryRate = time.Second / time.Duration(i)
 
 	stabilizationPeriod, _ := hidi.GetKey("stabilization_period")
 	i, err = stabilizationPeriod.Int()
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot parse integer for stabilization_period: %w", err)
 	}
 	c.HIDI.StabilizationPeriod = time.Millisecond * time.Duration(i)
 
 	logViewRate, _ := hidi.GetKey("log_view_rate")
 	i, err = logViewRate.Int()
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot parse integer for log_view_rate: %s", err)
 	}
 	c.HIDI.LogViewRate = time.Second / time.Duration(i)
 
 	logBufferSize, _ := hidi.GetKey("log_buffer_size")
 	i, err = logBufferSize.Int()
 	if err != nil {
-		panic(err)
+		return c, fmt.Errorf("cannot parse integer for log_buffer_size: %s", err)
 	}
 	c.HIDI.LogBufferSize = i
 
 	// [screen]
 	screen, _ := cfg.GetSection("screen")
+
 	screenSupport, _ := screen.GetKey("enabled")
+	b, err := screenSupport.Bool()
+	if err != nil {
+		return c, fmt.Errorf("cannot parse boolean for enabled: %s", err)
+	}
+	c.Screen.Enabled = b
+
 	screenType, _ := screen.GetKey("type")
-	screenAddress, _ := screen.GetKey("address")
+	switch t := screenType.Value(); t {
+	case "20x4":
+		c.Screen.LcdType = hd44780.LCD_20x4
+	default:
+		return c, fmt.Errorf("screen type %s is not supported", t)
+	}
+
 	screenBus, _ := screen.GetKey("bus")
+	i, err = screenBus.Int()
+	if err != nil {
+		return c, fmt.Errorf("cannot parse integer for log_buffer_size: %w", err)
+	}
+	c.Screen.Bus = i
+
+	screenAddress, _ := screen.GetKey("address")
+	i, err = screenAddress.Int()
+	if err != nil {
+		return c, fmt.Errorf("cannot parse integer for address: %w", err)
+	}
+	c.Screen.Address = uint8(i)
+
 	updateRate, _ := screen.GetKey("update_rate")
+	i, err = updateRate.Int()
+	if err != nil {
+		return c, fmt.Errorf("cannot parse integer for update_rate: %w", err)
+	}
+	c.Screen.UpdateRate = i
+
 	message1, _ := screen.GetKey("exit_message1")
 	message2, _ := screen.GetKey("exit_message2")
 	message3, _ := screen.GetKey("exit_message3")
 	message4, _ := screen.GetKey("exit_message4")
-
-	b, err := screenSupport.Bool()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.Enabled = b
-
-	switch t := screenType.Value(); t {
-	case "16x2":
-		c.Screen.LcdType = hd44780.LCD_16x2
-	case "20x4":
-		c.Screen.LcdType = hd44780.LCD_20x4
-	default:
-		panic("oof")
-	}
-
-	i, err = screenBus.Int()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.Bus = i
-
-	i, err = screenAddress.Int()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.Address = uint8(i)
-
-	i, err = updateRate.Int()
-	if err != nil {
-		panic(err)
-	}
-	c.Screen.UpdateRate = i
-
 	c.Screen.ExitMessage[0] = message1.String()
 	c.Screen.ExitMessage[1] = message2.String()
 	c.Screen.ExitMessage[2] = message3.String()
 	c.Screen.ExitMessage[3] = message4.String()
 
-	return c
+	return c, nil
 }
 
 //go:embed hidi-config/hidi.config
@@ -144,7 +142,7 @@ func createConfigDirectoryIfNeeded() error {
 	cdir, err := os.OpenFile(configDir, os.O_RDONLY, 0)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("cannot open config directory: %v", err)
+			return fmt.Errorf("cannot open config directory: %w", err)
 		}
 		log.Info("config not exist, generating tree...", logger.Info)
 
@@ -179,7 +177,7 @@ func createConfigDirectoryIfNeeded() error {
 		})
 
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("failed to create config directory: %w", err)
 		}
 		log.Info("config generation done", logger.Info)
 
@@ -207,7 +205,7 @@ func createConfigDirectoryIfNeeded() error {
 		src, err := os.OpenFile(path, os.O_RDONLY, 0)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("cannot open \"%s\" file: %v", path, err)
+				return fmt.Errorf("cannot open \"%s\" file: %w", path, err)
 			}
 			// factory file does not exist
 			log.Info(fmt.Sprintf("Creating new factory configuration: \"%s\"", path), logger.Debug)

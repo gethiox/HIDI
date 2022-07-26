@@ -361,7 +361,6 @@ func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 
 	nextFailedLedUpdateReport := time.Now()
 	updateFails := 0
-	someCounter := 0
 root:
 	for {
 		select {
@@ -512,19 +511,6 @@ root:
 			}
 		}
 
-		// if d.config.OpenRGB.NameIdentifier == "HyperX Alloy Elite 2 (HP)" {
-		// 	// HSV animation on LED strip
-		// 	for i := 1; i < 19; i++ {
-		// 		id := nameToIndex[fmt.Sprintf("RGB Strip %d", i)]
-		// 		c := colorful.Hsv(float64(((i-1)*20+someCounter)%360), 1, 1)
-		// 		ledArray[id] = openrgb.Color{
-		// 			Red:   uint8(c.R * 255),
-		// 			Green: uint8(c.G * 255),
-		// 			Blue:  uint8(c.B * 255),
-		// 		}
-		// 	}
-		// }
-
 		err = c.UpdateLEDs(index, ledArray)
 		if err != nil {
 			updateFails++
@@ -534,10 +520,6 @@ root:
 				updateFails = 0
 				nextFailedLedUpdateReport = now.Add(time.Second * 2)
 			}
-		}
-		someCounter++
-		if someCounter == 360 {
-			someCounter = 0
 		}
 		d.eventProcessMutex.Unlock()
 	}

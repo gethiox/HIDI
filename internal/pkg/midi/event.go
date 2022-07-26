@@ -183,7 +183,7 @@ func ExtractEvents(d []byte) ([]Event, []byte) {
 		case b >= 0b11110100: // 2x undefined, system messages
 			length = 1
 		default:
-			panic(fmt.Sprintf("oUuUu: %v", data[start:]))
+			panic(fmt.Sprintf("unexpected data: %v", data[start:]))
 		}
 
 		if start+length-1 > max {
@@ -197,14 +197,14 @@ func ExtractEvents(d []byte) ([]Event, []byte) {
 	return events, leftover
 }
 
-func DetectDevices() []IODevice {
+func DetectDevices() ([]IODevice, error) {
 	fd, err := os.Open("/dev/snd")
 	if err != nil {
-		panic(err)
+		return []IODevice{}, fmt.Errorf("cannot open /dev/snd direcotry: %w", err)
 	}
 	entries, err := fd.ReadDir(0)
 	if err != nil {
-		panic(err)
+		return []IODevice{}, fmt.Errorf("cannot read /dev/snd directory: %w", err)
 	}
 
 	var devices = make([]IODevice, 0)
@@ -219,7 +219,7 @@ func DetectDevices() []IODevice {
 		}
 	}
 
-	return devices
+	return devices, nil
 }
 
 type IODevice struct {

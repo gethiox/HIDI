@@ -263,7 +263,7 @@ var (
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
 	ui       = flag.Bool("ui", false, "engage debug ui")
-	orgb     = flag.Bool("openrgb", false, "TBA")
+	orgb     = flag.Bool("openrgb", false, "enable OpenRGB support")
 	force256 = flag.Bool("256", false, "force 256 color mode")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
 	logLevel = flag.Int("loglevel", 3,
@@ -317,6 +317,27 @@ func newLogBuffer(size int) logBuffer {
 		buffer:   make([][]byte, size),
 		size:     size,
 		position: 0,
+	}
+}
+
+func processSimpleOutput() {
+	if *silent {
+		for range logger.Messages { // silently consume incoming messages
+		}
+	} else {
+		fmt.Printf("for nicer output use -ui flag\n")
+		au := aurora.NewAurora(!*nocolor)
+		for data := range logger.Messages {
+			msg, err := unpack(data)
+			if err != nil {
+				fmt.Printf("%s\n", string(data))
+				continue
+			}
+			m := prepareString(msg, au, -1, *logLevel)
+			if m != "" {
+				fmt.Printf("%s\n", m)
+			}
+		}
 	}
 }
 
@@ -394,21 +415,52 @@ func runBinary(wg *sync.WaitGroup, ctx context.Context, port int) {
 }
 
 func main() {
-	if *force256 == true {
-		os.Setenv("TERM", "xterm-256color")
+	ioDevices, err := midi.DetectDevices()
+	if err != nil {
+		fmt.Printf("MIDI Device detection failed: %s\n", err)
+		os.Exit(1)
 	}
-	err := createConfigDirectoryIfNeeded()
+
+	if len(ioDevices) == 0 {
+		fmt.Printf("There is no midi devices available, we're deeply sorry\n")
+		os.Exit(1)
+	}
+
+	if len(ioDevices) < *midiDevice+1 {
+		fmt.Printf(
+			"MIDI device with \"%d\" ID does not exist. There is %d MIDI devices available in total\n",
+			midiDevice, len(ioDevices))
+		os.Exit(1)
+	}
+
+	ioDevice, err := ioDevices[*midiDevice].Open()
+	if err != nil {
+		fmt.Printf("Failed to open MIDI device: %v\n", err)
+		os.Exit(1)
+	}
+
+	err = createConfigDirectoryIfNeeded()
 	if err != nil {
 		log.Info(fmt.Sprintf("configuration upkeep task failed: %s", err), logger.Warning)
 	}
 
-	var cfg = LoadHIDIConfig(configDir + "/hidi.config")
+	cfg, err := LoadHIDIConfig(configDir + "/hidi.config")
+	if err != nil {
+		fmt.Printf("Failed to load hidi.config: %s\n", err)
+		os.Exit(1)
+	}
+
+	// end of critical checks
+
 	log.Info(fmt.Sprintf("HIDI config: %+v", cfg), logger.Debug)
 
 	var sigs = make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	if *force256 == true {
+		os.Setenv("TERM", "xterm-256color")
+	}
 	g := runUI(cfg, *ui && !*silent, sigs)
 
 	// this wait-group has to be propagated everywhere where usual logging appear
@@ -423,7 +475,7 @@ func main() {
 			wg.Add(1)
 			go runBinary(&wg, ctx, port)
 		} else {
-			log.Info("OpenRGB is not supported in that build", logger.Warning)
+			log.Info("OpenRGB is not included in that build", logger.Warning)
 		}
 	}
 
@@ -431,27 +483,6 @@ func main() {
 
 	wg.Add(1)
 	go handleSigs(&wg, sigs, cancel, server, g)
-
-	ioDevices := midi.DetectDevices()
-	if len(ioDevices) == 0 {
-		// TODO: able to log things
-		log.Info("There is no midi devices available, we're deeply sorry", logger.Error)
-		os.Exit(1)
-	}
-
-	if len(ioDevices) < *midiDevice+1 {
-		log.Info(fmt.Sprintf(
-			"MIDI device with \"%d\" ID does not exist. There is %d MIDI devices available in total",
-			midiDevice, len(ioDevices),
-		), logger.Error)
-		os.Exit(1)
-	}
-
-	ioDevice, err := ioDevices[*midiDevice].Open()
-	if err != nil {
-		log.Info(fmt.Sprintf("Failed to open MIDI device: %v", err), logger.Error)
-		os.Exit(1)
-	}
 
 	var midiEventsOut = make(chan midi.Event, 8)
 	var midiEventsIn = make(chan midi.Event, 8)
@@ -468,48 +499,27 @@ func main() {
 
 	wg.Add(1)
 	dd := GenerateDisplayData(ctx, &wg, cfg.Screen, devices, &devicesMutex, &midiEventsEmitted, &score)
-	dd1, dd2 := FanOut(dd)
+	ddFanOut := newDynamicFanOut(dd)
 
 	if cfg.Screen.Enabled {
 		wg.Add(1)
-		go display.HandleDisplay(&wg, cfg.Screen, dd1)
-	} else {
 		go func() {
-			for range dd1 {
-			}
+			id, dd := ddFanOut.SpawnOutput()
+			display.HandleDisplay(&wg, cfg.Screen, dd)
+			_ = ddFanOut.DespawnOutput(id)
 		}()
 	}
 
 	if *ui && !*silent {
 		go logView(g, !*nocolor, *logLevel, cfg.HIDI.LogBufferSize)
 		go overviewView(g, !*nocolor, devices, &devicesMutex)
-		go lcdView(g, dd2)
+		go func() {
+			id, dd := ddFanOut.SpawnOutput()
+			lcdView(g, dd)
+			_ = ddFanOut.DespawnOutput(id)
+		}()
 	} else {
-		go func() {
-			for range dd2 {
-			}
-		}()
-		go func() {
-			if *silent {
-				for range logger.Messages {
-				}
-			} else {
-				fmt.Printf("for nicer output use -ui flag\n")
-				au := aurora.NewAurora(!*nocolor)
-				for data := range logger.Messages {
-					msg, err := unpack(data)
-					if err != nil {
-						fmt.Printf("%s\n", string(data))
-						continue
-					}
-					m := prepareString(msg, au, -1, *logLevel)
-					if m != "" {
-						fmt.Printf("%s\n", m)
-					}
-				}
-			}
-
-		}()
+		go processSimpleOutput()
 	}
 
 	runManager(ctx, cfg, *grab, *silent, devices, &devicesMutex, midiEventsOut, midiEventsIn, confNotifier, port)
