@@ -1,0 +1,54 @@
+identifier:
+  bus: 0
+  vendor: 0
+  product: 0
+  version: 0
+  uniq: "" # optional
+
+collision_mode: "interrupt"
+
+defaults:
+  octave: 0
+  semitone: 0
+  channel: 1
+  mapping: "Default"
+
+action_mapping:
+  BTN_SELECT: "channel_down"
+  BTN_START: "channel_up"
+  BTN_MODE: "panic"
+  BTN_TL: "cc_learning"
+
+midi_mappings:
+  - "Default":
+      # buttons
+      BTN_A: 0
+      BTN_B: 1
+      BTN_X: 2
+      BTN_Y: 3
+      BTN_C: 4
+      BTN_Z: 6
+      BTN_TL2: 7
+      BTN_TR2: 8
+      BTN_THUMBL: 9
+      BTN_THUMBR: 10
+      BTN_TL: 11
+      BTN_TR: 12
+
+      # analog (value needs to be a string, quotes are important)
+      ABS_X: "{type: cc, cc: 0}"
+      ABS_Y: "{type: pitch_bend, flip_axis: true}"
+      ABS_RX: "{type: cc, cc: 1, cc_negative: 2}"
+      ABS_RY: "{type: cc, cc: 3, cc_negative: 4, flip_axis: true}"
+      ABS_Z: "{type: cc, cc: 5}"
+      ABS_RZ: "{type: cc, cc: 6}"
+      ABS_HAT0X: "{type: action, action: octave_up, action_negative: octave_down}"
+      ABS_HAT0Y: "{type: action, action: mapping_up, action_negative: mapping_down, flip_axis: true}"
+
+deadzones:
+  ABS_Z: 0
+  ABS_RZ: 0
+  ABS_HAT0X: 0
+  ABS_HAT0Y: 0
+
+default_deadzone: 0.1 # deadzone for all analog events not defined in "deadzones"
