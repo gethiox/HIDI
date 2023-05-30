@@ -590,7 +590,7 @@ root:
 
 		var hsvOfsset float64
 
-	asdf:
+	outer:
 		for activationKey, descs := range d.config.Gyro {
 			for i, desc := range descs {
 				if desc.Type != config.AnalogPitchBend {
@@ -618,7 +618,7 @@ root:
 					}
 				}
 
-				break asdf
+				break outer
 			}
 		}
 
@@ -733,7 +733,7 @@ root:
 		d.eventProcessMutex.Unlock()
 	}
 
-	for i, _ := range ledArray {
+	for i := range ledArray {
 		ledArray[i] = openrgb.Color{Red: 0xff}
 	}
 	c.UpdateLEDs(index, ledArray) // todo remove 80
