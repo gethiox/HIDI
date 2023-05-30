@@ -162,12 +162,6 @@ func main() {
 
 		fmt.Printf("Pat the keyboard that you want to keep as computer input device\n")
 		pattedDevice := <-pattedKeyboards
-		// go func() { // consume leftovers in the background
-		// 	for range pattedKeyboards {
-		// 		// cleaning up the channel
-		// 	}
-		// }()
-		// time.Sleep(time.Millisecond * 200)
 		cancel()
 		wg.Wait()
 		close(pattedKeyboards)
