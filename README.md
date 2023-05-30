@@ -14,31 +14,6 @@ and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 ![downloads latest](https://img.shields.io/github/downloads/gethiox/HIDI/latest/total)
 ![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 
-# improvements since beta release
-
-
-  
-  known issues:
-  - it doesn't work well when there is more than 1 (one) RGB keyboard
-- ~~YAML~~ TOML configurations for devices. automatic reload on user configuration changes
-- note collision handlers, see [guide](cmd/hidi/hidi-config/user/README.md) for details
-- Monitoring of input handlers is now a magnitude more efficient
-- Graceful app termination
-- exit sequence (default alt+esc), useful when `-grab` is being used
-- ALSA integration, standalone mode for Linux users, no SoC and MIDI interface required
-- greatly improved speed of application start and termination
-- Fixed input device grabbing for exclusive usage
-- CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
-- configurable deadzones for analog input
-- analog events throttling
-- improved overall performance when logging is disabled
-- Precompiled builds for various platforms
-- Embedded config directory, if config directory doesn't exist, application will create default one
-- Automatic update of factory configurations (if there are new ones or modified).
-- Gyroscope support - pitch-bend and CC control (hardware sensor and arm platform required)
-- Relatively good default configurations for keyboards and gamepads
-- informative and eye-candy debug/logging
-
 # Purpose
 
 HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface, it also supports ALSA for standalone linux users.  
@@ -68,7 +43,7 @@ the best user experience possible.
 
 # Requirements
 
-- Machine with Linux, either dedicated one for bridging with hardware midi interface or just your local machine
+- Machine with Linux, either dedicated one for bridging with hardware MIDI interface or just your local machine
 - **Optional MIDI interface**, please avoid cheap china USB interfaces,
   [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work just fine).
