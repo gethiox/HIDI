@@ -440,9 +440,9 @@ func (d *Device) ProcessEvents(inputEvents <-chan *input.InputEvent) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	wg.Add(3)
-	go d.handleOpenrgb(ctx, &wg)     // exiting
-	go d.handleInputEvents(ctx, &wg) // exiting
-	go d.handleGyroEvents(ctx, &wg)  //
+	go d.handleOpenrgb(ctx, &wg)
+	go d.handleInputEvents(ctx, &wg)
+	go d.handleGyroEvents(ctx, &wg)
 
 	for ie := range inputEvents {
 		d.processEvent(ie)
