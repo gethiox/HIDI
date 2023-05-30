@@ -368,7 +368,6 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		wg.Wait()
 		log.Info(fmt.Sprintf("All handlers done, closing events channel"), logger.Debug)
 		close(events)
-		log.Info(fmt.Sprintf("events closed"), logger.Debug)
 	}()
 
 	return events, nil
