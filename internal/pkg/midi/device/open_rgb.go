@@ -326,23 +326,6 @@ func valueToColor(value, s, v float64) openrgb.Color {
 }
 
 func (d *Device) handleOpenrgb(ctx context.Context, wg *sync.WaitGroup) {
-	// time.Sleep(time.Second) // todo remove
-	// still panics:
-	// panic: runtime error: index out of range [3] with length 0
-	//
-	// goroutine 73 [running]:
-	// encoding/binary.littleEndian.Uint32(...)
-	//        /home/pi/bin/go/src/encoding/binary/binary.go:64
-	// github.com/realbucksavage/openrgb-go.(*Client).GetControllerCount(0x4000288210?)
-	//        /home/pi/go/pkg/mod/github.com/realbucksavage/openrgb-go@v0.0.0-20220821164356-dc79903db082/client.go:52 +0x9c
-	// github.com/gethiox/HIDI/internal/pkg/midi/device.findController(0x0?, 0x0?)
-	//        /home/pi/HIDI/internal/pkg/midi/device/open_rgb.go:181 +0x48
-	// github.com/gethiox/HIDI/internal/pkg/midi/device.(*Device).handleOpenrgb(0x40002bac00, {0x890be8, 0x400007c300}, 0x40000242a0?)
-	//        /home/pi/HIDI/internal/pkg/midi/device/open_rgb.go:282 +0x910
-	// created by github.com/gethiox/HIDI/internal/pkg/midi/device.(*Device).ProcessEvents
-	//        /home/pi/HIDI/internal/pkg/midi/device/events.go:398 +0x24c
-	// panic: runtime error: index out of range [3] with length 0
-
 	defer wg.Done()
 
 	host, port := "localhost", d.openrgbPort
