@@ -211,7 +211,6 @@ func main() {
 
 	var sigs = make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	// signal.Notify(sigs, syscall.SIGTERM, syscall.SIGTERM)
 
 	go handleSigs(sigs, cancel)
 
