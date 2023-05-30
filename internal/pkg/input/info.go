@@ -153,7 +153,5 @@ func (d *DeviceInfo) HandlerType() HandlerType {
 // PhysicalUUID returns unique UUID based on connection of given USB port
 // The main usage is to identify groups of handlers that represent one physical device
 func (d *DeviceInfo) PhysicalUUID() PhysicalID {
-	// phys := strings.Split(d.Phys, "/")
-	// return PhysicalID(phys[0])
-	return PhysicalID(d.Phys) // TODO: fix
+	return PhysicalID(d.Phys)
 }
