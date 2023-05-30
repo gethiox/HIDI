@@ -62,13 +62,8 @@ func ProcessGyro(ctx context.Context, address, bus byte) (chan Vector, error) {
 	fs_sel := uint8(3)
 	err = i2c.WriteToReg(address, 0x1b, []byte{fs_sel << 3}) // set resolution
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to set resolution: %w", err)
 	}
-
-	// err = bus.WriteToReg(gyroAddr, 0x19, []byte{255}) // set sample rate divider
-	// if err != nil {
-	// 	panic(err)
-	// }
 
 	data := make(chan Vector, 10)
 
