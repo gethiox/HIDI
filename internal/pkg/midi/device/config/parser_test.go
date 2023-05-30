@@ -323,13 +323,13 @@ func TestParseDefaultKeyboard(t *testing.T) {
 		},
 		OpenRGB: OpenRGB{
 			Colors: Colors{
-				White:          openrgb.Color{0x00, 0x55, 0x00},
-				Black:          openrgb.Color{0x00, 0x00, 0x55},
-				C:              openrgb.Color{0x55, 0x55, 0x00},
-				Unavailable:    openrgb.Color{0x44, 0x00, 0x00},
-				Other:          openrgb.Color{0x44, 0x00, 0x00},
-				Active:         openrgb.Color{0xff, 0xff, 0xff},
-				ActiveExternal: openrgb.Color{0xff, 0xff, 0xff},
+				White:          openrgb.Color{Red: 0x00, Green: 0x55, Blue: 0x00},
+				Black:          openrgb.Color{Red: 0x00, Green: 0x00, Blue: 0x55},
+				C:              openrgb.Color{Red: 0x55, Green: 0x55, Blue: 0x00},
+				Unavailable:    openrgb.Color{Red: 0x44, Green: 0x00, Blue: 0x00},
+				Other:          openrgb.Color{Red: 0x44, Green: 0x00, Blue: 0x00},
+				Active:         openrgb.Color{Red: 0xff, Green: 0xff, Blue: 0xff},
+				ActiveExternal: openrgb.Color{Red: 0xff, Green: 0xff, Blue: 0xff},
 			},
 		},
 		Gyro: map[evdev.EvCode][]GyroDesc{
