@@ -74,6 +74,8 @@ func LoadHIDIConfig(path string) (HIDIConfig, error) {
 
 //go:embed hidi-config/hidi.toml
 //go:embed hidi-config/*/*/*
+//go:embed hidi-config/factory/README
+//go:embed hidi-config/user/README.md
 var templateConfig embed.FS
 
 const configDir = "hidi-config"
@@ -153,7 +155,7 @@ func updateHIDIConfiguration() error {
 			log.Info(fmt.Sprintf("Creating new factory configuration: \"%s\"", path), logger.Debug)
 			fd, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o666)
 			if err != nil {
-				return fmt.Errorf("cannot open \"%s\" file for writing: %w", err)
+				return fmt.Errorf("cannot open \"%s\" file for writing: %w", path, err)
 			}
 			defer fd.Close()
 
