@@ -106,7 +106,7 @@ func LoadDeviceConfigs(ctx context.Context, wg *sync.WaitGroup) (DeviceConfigs, 
 		{userGamepad, cfg.User.Gamepads, "user"},
 		{userKeyboard, cfg.User.Keyboards, "user"},
 	} {
-		err, _, _ := loadDirectory(pair.root, pair.identifier, pair.configMap)
+		err := loadDirectory(pair.root, pair.identifier, pair.configMap)
 
 		if err != nil {
 			return cfg, fmt.Errorf("loading \"%s\" directory failed: %w", pair.root, err)
@@ -115,7 +115,7 @@ func LoadDeviceConfigs(ctx context.Context, wg *sync.WaitGroup) (DeviceConfigs, 
 	return cfg, nil
 }
 
-func loadDirectory(root, configType string, configMap ConfigMap) (err error, fails, success int) {
+func loadDirectory(root, configType string, configMap ConfigMap) (err error) {
 	err = filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
@@ -123,16 +123,6 @@ func loadDirectory(root, configType string, configMap ConfigMap) (err error, fai
 
 		name := strings.ToLower(info.Name())
 
-		// if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-		// 	devCfg, err := readDeviceConfig(path, configType)
-		// 	if err != nil {
-		// 		log.Info(fmt.Sprintf("device config %s load failed: %s", name, err), logger.Warning)
-		// 		fails++
-		// 		return nil
-		// 	}
-		// 	success++
-		// 	configMap[devCfg.ID] = devCfg
-		// }
 		if !strings.HasSuffix(name, ".toml") {
 			return nil
 		}
@@ -140,16 +130,14 @@ func loadDirectory(root, configType string, configMap ConfigMap) (err error, fai
 		devCfg, err := readDeviceConfigTOML(path, configType)
 		if err != nil {
 			log.Info(fmt.Sprintf("device config %s load failed: %s", name, err), logger.Warning)
-			fails++
 			return nil
 		}
-		success++
 		configMap[devCfg.Config.ID] = devCfg
 
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("walk failed: %w", err), fails, success
+		return fmt.Errorf("walk failed: %w", err)
 	}
-	return nil, fails, success
+	return nil
 }
