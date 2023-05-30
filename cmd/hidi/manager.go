@@ -13,7 +13,7 @@ import (
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/device"
-	config2 "github.com/gethiox/HIDI/internal/pkg/midi/device/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device/config"
 	"github.com/gethiox/HIDI/internal/pkg/utils"
 	"go.uber.org/zap"
 )
@@ -58,7 +58,7 @@ func NewManager(
 // Run is the main program process, before exiting from that function it needs to ensure that
 // all goroutine execution has completed
 func (m Manager) Run(ctx context.Context) {
-	deviceConfigChange := config2.DetectDeviceConfigChanges(ctx)
+	deviceConfigChange := config.DetectDeviceConfigChanges(ctx)
 
 	wg := sync.WaitGroup{}
 	midiEventsInSpawner := utils.NewDynamicFanOut(m.midiIn)
@@ -89,7 +89,7 @@ root:
 			break
 		}
 
-		configs, err := config2.LoadDeviceConfigs(ctx, &wg)
+		configs, err := config.LoadDeviceConfigs(ctx, &wg)
 		if err != nil {
 			log.Info(fmt.Sprintf("Device Configs load failed: %s", err), logger.Error)
 			os.Exit(1)
@@ -123,7 +123,7 @@ root:
 			log.Info("Loading config for device...", zap.String("device_name", d.Name), logger.Debug)
 			conf, err := configs.FindConfig(d.ID, d.DeviceType)
 			if err != nil {
-				if errors.Is(err, config2.UnsupportedDeviceType) {
+				if errors.Is(err, config.UnsupportedDeviceType) {
 					log.Info(fmt.Sprintf("failed to load config for device: %v", err), zap.String("device_name", d.Name), logger.Warning)
 					continue
 				}
@@ -151,7 +151,7 @@ root:
 			}
 
 			wg.Add(1)
-			go func(dev input.Device, conf config2.DeviceConfig) {
+			go func(dev input.Device, conf config.DeviceConfig) {
 				defer wg.Done()
 				id, midiIn, err := midiEventsInSpawner.SpawnOutput()
 				if err != nil {
