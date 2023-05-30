@@ -127,7 +127,7 @@ func loadDirectory(root, configType string, configMap ConfigMap) (err error) {
 			return nil
 		}
 
-		devCfg, err := readDeviceConfigTOML(path, configType)
+		devCfg, err := readDeviceConfig(path, configType)
 		if err != nil {
 			log.Info(fmt.Sprintf("device config %s load failed: %s", name, err), logger.Warning)
 			return nil
