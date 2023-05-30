@@ -17,10 +17,18 @@ type MIDIOut interface {
 	MIDIPort
 	SendChannel() chan<- []byte
 }
+
 type Port struct {
 	// specific port may be nil if unavailable
 	Input  MIDIIn
 	Output MIDIOut
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (p *Port) String() string {

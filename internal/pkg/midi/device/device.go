@@ -39,8 +39,6 @@ type Device struct {
 	externalNoteTracker  map[byte]map[byte]bool // channel: note
 	externalTrackerMutex *sync.Mutex
 
-	effectManager EffectManager
-
 	// instead of generating NoteOff events based on the current Device state (lazy approach), every emitted note
 	// is being tracked and released precisely on related hardware button release.
 	// This approach gives much nicer user experience as the User may conveniently hold some keys
@@ -64,7 +62,7 @@ type Device struct {
 	channel  uint8
 	velocity uint8
 	// warning: currently lazy implementation
-	multiNote  multiNote // list of additional note intervals (offsets)
+	multiNote  []int // list of additional note intervals (offsets)
 	mapping    int
 	ccLearning bool
 
@@ -160,22 +158,13 @@ func NewDevice(
 		octave:     int8(cfg.Config.Defaults.Octave),
 		semitone:   int8(cfg.Config.Defaults.Semitone),
 		channel:    uint8(cfg.Config.Defaults.Channel - 1),
-		multiNote:  multiNote{},
+		multiNote:  []int{},
 		mapping:    cfg.Config.Defaults.Mapping,
 		ccLearning: false,
 		velocity:   64,
 
 		gyroAnalog: gyroAnalog,
 	}
-
-	effectManager := EffectManager{
-		target:       nil,
-		effectEvents: nil,
-		outputEvents: nil,
-		effects:      nil,
-	}
-
-	device.effectManager = effectManager
 
 	return device
 }
@@ -453,7 +442,7 @@ func (d *Device) Multinote() {
 
 	d.multiNote = noteOffsets
 	if !d.noLogs {
-		log.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v/[%s]", d.multiNote, d.multiNote.String()), d.logFields(logger.Action)...)
+		log.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v", d.multiNote), d.logFields(logger.Action)...)
 	}
 }
 
@@ -494,13 +483,12 @@ func (d *Device) CCLearningOff() {
 
 func (d *Device) Status() string {
 	return fmt.Sprintf(
-		"octave: %3d, semitone: %3d, channel: %2d, notes: %2d, map: %s, multinote: %s",
+		"octave: %3d, semitone: %3d, channel: %2d, notes: %2d, map: %s",
 		d.octave,
 		d.semitone,
 		d.channel+1,
 		len(d.noteTracker)+len(d.analogNoteTracker),
 		d.config.KeyMappings[d.mapping].Name,
-		d.multiNote.String(),
 	)
 }
 
@@ -536,21 +524,19 @@ func (d *Device) Gyro(ev *input.InputEvent, pressed bool) {
 }
 
 type State struct {
-	Octave    int8
-	Semitone  int8
-	Channel   uint8
-	Notes     int
-	MultiNote string
-	Mapping   string
+	Octave   int8
+	Semitone int8
+	Channel  uint8
+	Notes    int
+	Mapping  string
 }
 
 func (d *Device) State() State {
 	return State{
-		Octave:    d.octave,
-		Semitone:  d.semitone,
-		Channel:   d.channel,
-		Notes:     len(d.noteTracker) + len(d.analogNoteTracker),
-		MultiNote: d.multiNote.String(),
-		Mapping:   d.config.KeyMappings[d.mapping].Name,
+		Octave:   d.octave,
+		Semitone: d.semitone,
+		Channel:  d.channel,
+		Notes:    len(d.noteTracker) + len(d.analogNoteTracker),
+		Mapping:  d.config.KeyMappings[d.mapping].Name,
 	}
 }
