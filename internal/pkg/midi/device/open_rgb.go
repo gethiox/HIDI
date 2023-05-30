@@ -703,7 +703,7 @@ root:
 			}
 		}
 
-		err = c.UpdateLEDs(index, ledArray) // todo remove 80
+		err = c.UpdateLEDs(index, ledArray)
 		if err != nil {
 			updateFails++
 			now := time.Now()
@@ -719,6 +719,6 @@ root:
 	for i := range ledArray {
 		ledArray[i] = openrgb.Color{Red: 0xff}
 	}
-	c.UpdateLEDs(index, ledArray) // todo remove 80
+	c.UpdateLEDs(index, ledArray)
 	log.Info(fmt.Sprintf("[OpenRGB] device thread exited"), d.logFields(logger.Debug)...)
 }
