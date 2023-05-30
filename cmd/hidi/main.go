@@ -107,7 +107,7 @@ func (d SortabeDevices) Less(i, j int) bool { return d[i].Name < d[j].Name }
 func main() {
 	defer gomidi.CloseDriver()
 
-	var ignoredIDs = make([]input.InputID, 0)
+	var ignoredIDs = make([]input.PhysicalID, 0)
 
 	switch {
 	case *listMidiDevices:
@@ -134,7 +134,7 @@ func main() {
 
 		sort.Sort(devices)
 
-		var pattedKeyboards = make(chan input.InputID)
+		var pattedKeyboards = make(chan input.PhysicalID)
 		wg := sync.WaitGroup{}
 		ctx, cancel = context.WithCancel(context.Background())
 
@@ -148,7 +148,7 @@ func main() {
 			fmt.Printf("device %d: %s (listening on this device)\n", i, d.String())
 
 			wg.Add(1)
-			go func(events <-chan *input.InputEvent, ID input.InputID) {
+			go func(events <-chan *input.InputEvent, ID input.PhysicalID) {
 				defer wg.Done()
 				for ev := range events {
 					if ev.Event.Type != evdev.EV_KEY {
@@ -157,7 +157,7 @@ func main() {
 
 					pattedKeyboards <- ID
 				}
-			}(events, d.ID)
+			}(events, d.PhysicalUUID())
 		}
 
 		fmt.Printf("Pat the keyboard that you want to keep as computer input device\n")
@@ -168,7 +168,7 @@ func main() {
 
 		var found bool
 		for _, d := range devices {
-			if d.ID == pattedDevice {
+			if d.PhysicalUUID() == pattedDevice {
 				fmt.Printf("patted keybaord: %s\n", d.String())
 				found = true
 				ignoredIDs = append(ignoredIDs, pattedDevice)
@@ -177,7 +177,7 @@ func main() {
 		}
 
 		if !found {
-			fmt.Printf("critical error: received device id: \"%s\", but device not found in listed ones", pattedDevice.String())
+			fmt.Printf("critical error: received device id: \"%s\", but device not found in listed ones", pattedDevice)
 			os.Exit(1)
 		}
 	}

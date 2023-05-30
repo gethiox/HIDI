@@ -34,7 +34,7 @@ type ManagerConfig struct {
 	HIDI           HIDIConfig
 	Grab, NoLogs   bool
 	OpenRGBPort    int
-	IgnoredDevices []input.InputID
+	IgnoredDevices []input.PhysicalID
 }
 
 func NewManager(
@@ -112,7 +112,7 @@ root:
 			log.Info(fmt.Sprintf("ignored devices: %+v", m.config.IgnoredDevices), zap.String("device_name", d.Name), logger.Debug)
 			log.Info(fmt.Sprintf("device id: %+v", d.ID), zap.String("device_name", d.Name), logger.Debug)
 			for _, id := range m.config.IgnoredDevices {
-				if d.ID == id {
+				if d.PhysicalUUID() == id {
 					log.Info("ignoring device", zap.String("device_name", d.Name), logger.Debug)
 					continue device
 				} else {
