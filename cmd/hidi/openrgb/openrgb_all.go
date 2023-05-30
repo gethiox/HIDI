@@ -1,6 +1,6 @@
 //go:build !openrgb
 
-package main
+package openrgb
 
 import _ "embed"
 

@@ -3,13 +3,14 @@ package device
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"sync"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/pkg/fs"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
-	"github.com/gethiox/HIDI/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device/config"
 	"github.com/holoplot/go-evdev"
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/realbucksavage/openrgb-go"
@@ -136,6 +137,82 @@ var KeyToLedName = map[evdev.EvCode]string{ // hardware button to OpenRGB LED na
 	evdev.KEY_KPENTER:      "Key: Number Pad Enter",
 }
 
+type DeviceLedStrip struct {
+	ledStrip  LedStrip
+	ledNumber int
+	ledSeq    []string
+}
+
+func NewDeviceLedStrip(ledStrip LedStrip) DeviceLedStrip {
+	return DeviceLedStrip{
+		ledStrip:  ledStrip,
+		ledNumber: len(ledStrip.LEDSequence()),
+		ledSeq:    ledStrip.LEDSequence(),
+	}
+}
+
+func (s *DeviceLedStrip) Value(value float64, width float64) map[string]float64 {
+	if s.ledNumber == 0 {
+		return map[string]float64{}
+	}
+
+	value = (value + 1.0) / 2
+	center := value * (float64(s.ledNumber) - 1) // eg. led index 3.21
+
+	var leds = make(map[string]float64)
+
+	low := center - 0.5*width
+	high := center + 0.5*width
+
+	if low < 0 {
+		low = 0
+	}
+	if high > float64(s.ledNumber)-1 {
+		high = float64(s.ledNumber) - 1
+	}
+
+	for i := int(low); i < int(high); i++ {
+		leds[s.ledSeq[i]] = 1.0
+	}
+
+	leds[s.ledSeq[int(low)]] = 1 - (low - float64(int(low)))
+	leds[s.ledSeq[int(high)]] = high - float64(int(high))
+
+	return leds
+}
+
+type LedStrip interface {
+	Device() string
+	LEDSequence() []string
+}
+
+type NoLeds struct{}
+
+func (n NoLeds) Device() string {
+	return ""
+}
+func (n NoLeds) LEDSequence() []string {
+	return []string{}
+}
+
+type HyperXAlloyElite2 struct{}
+
+func (h HyperXAlloyElite2) Device() string {
+	return "HyperX Alloy Elite 2 (HP)"
+}
+
+var ledStrips = map[string]LedStrip{
+	"HyperX Alloy Elite 2 (HP)": HyperXAlloyElite2{},
+}
+
+func (h HyperXAlloyElite2) LEDSequence() []string {
+	var leds = make([]string, 0, 18)
+	for i := 1; i <= 18; i++ {
+		leds = append(leds, fmt.Sprintf("RGB Strip %d", i))
+	}
+	return leds
+}
+
 // resolveHidraw returns event name that relates to given hidraw device
 // "/dev/hidraw0" > "event0"
 func resolveHidraw(dev string) (string, error) {
@@ -209,7 +286,7 @@ func findController(c *openrgb.Client, events map[string]bool) (openrgb.Device, 
 			return openrgb.Device{}, 0, fmt.Errorf("resolve hidraw failed (%d/%d): %s", i, count, err)
 		}
 
-		if events[event] == true {
+		if events[event] {
 			return dev, i, nil
 		}
 	}
@@ -217,7 +294,55 @@ func findController(c *openrgb.Client, events map[string]bool) (openrgb.Device, 
 	return openrgb.Device{}, 0, fmt.Errorf("controller not found")
 }
 
-func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
+// value range -1.0 - 1.0
+func shiftColor(color openrgb.Color, value float64) openrgb.Color {
+	c := colorful.Color{
+		R: float64(color.Red) / 255,
+		G: float64(color.Green) / 255,
+		B: float64(color.Blue) / 255,
+	}
+	h, s, v := c.Hsv()
+
+	hue := math.Mod(math.Mod(h+value*120, 360)+360, 360)
+
+	nc := colorful.Hsv(hue, s, v)
+	return openrgb.Color{
+		Red:   byte(nc.R * 255),
+		Green: byte(nc.G * 255),
+		Blue:  byte(nc.B * 255),
+	}
+}
+
+// value range -1.0 - 1.0
+func valueToColor(value, s, v float64) openrgb.Color {
+	value = 120 - value*120
+
+	c := colorful.Hsv(value, s, v)
+	return openrgb.Color{
+		Red:   byte(c.R * 255),
+		Green: byte(c.G * 255),
+		Blue:  byte(c.B * 255),
+	}
+}
+
+func (d *Device) handleOpenrgb(ctx context.Context, wg *sync.WaitGroup) {
+	// time.Sleep(time.Second) // todo remove
+	// still panics:
+	// panic: runtime error: index out of range [3] with length 0
+	//
+	// goroutine 73 [running]:
+	// encoding/binary.littleEndian.Uint32(...)
+	//        /home/pi/bin/go/src/encoding/binary/binary.go:64
+	// github.com/realbucksavage/openrgb-go.(*Client).GetControllerCount(0x4000288210?)
+	//        /home/pi/go/pkg/mod/github.com/realbucksavage/openrgb-go@v0.0.0-20220821164356-dc79903db082/client.go:52 +0x9c
+	// github.com/gethiox/HIDI/internal/pkg/midi/device.findController(0x0?, 0x0?)
+	//        /home/pi/HIDI/internal/pkg/midi/device/open_rgb.go:181 +0x48
+	// github.com/gethiox/HIDI/internal/pkg/midi/device.(*Device).handleOpenrgb(0x40002bac00, {0x890be8, 0x400007c300}, 0x40000242a0?)
+	//        /home/pi/HIDI/internal/pkg/midi/device/open_rgb.go:282 +0x910
+	// created by github.com/gethiox/HIDI/internal/pkg/midi/device.(*Device).ProcessEvents
+	//        /home/pi/HIDI/internal/pkg/midi/device/events.go:398 +0x24c
+	// panic: runtime error: index out of range [3] with length 0
+
 	defer wg.Done()
 
 	host, port := "localhost", d.openrgbPort
@@ -301,6 +426,12 @@ func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 
 	ledSequence := dev.LEDs
 
+	leds := make([]string, 0)
+	for _, l := range ledSequence {
+		leds = append(leds, l.Name)
+	}
+	log.Info(fmt.Sprintf("[OpenRGB] LED sequence: %#v", leds), d.logFields(logger.Debug)...)
+
 	var indexMap = make(map[evdev.EvCode]int)
 
 	for i, led := range ledSequence {
@@ -357,6 +488,15 @@ func (d *Device) handleOpenrgb(wg *sync.WaitGroup, ctx context.Context) {
 		}
 	}
 
+	var ledstrip LedStrip
+	var ok bool
+	ledstrip, ok = ledStrips[dev.Name]
+	if !ok {
+		ledstrip = NoLeds{}
+	}
+
+	strip := NewDeviceLedStrip(ledstrip)
+
 	log.Info(fmt.Sprintf("[OpenRGB] LED update loop started"), d.logFields(logger.Debug)...)
 
 	nextFailedLedUpdateReport := time.Now()
@@ -374,8 +514,12 @@ root:
 		d.eventProcessMutex.Lock()
 		offset := int(d.semitone) + int(d.octave)*12
 
-		for code := range indexMap {
-			ledArray[indexMap[code]] = d.config.OpenRGB.Colors.Unavailable
+		for i := 0; i < len(ledArray); i++ {
+			ledArray[i] = d.config.OpenRGB.Colors.Unavailable
+		}
+
+		for _, key := range strip.ledSeq {
+			ledArray[nameToIndex[key]] = openrgb.Color{}
 		}
 
 		ledArray[indexMap[actionToEvcode[config.Panic]]] = openrgb.Color{Red: 0xff}
@@ -444,7 +588,47 @@ root:
 
 		ledArray[indexMap[actionToEvcode[config.Multinote]]] = white1
 
+		var hsvOfsset float64
+
+	asdf:
+		for activationKey, descs := range d.config.Gyro {
+			for i, desc := range descs {
+				if desc.Type != config.AnalogPitchBend {
+					continue
+				}
+
+				hsvOfsset = d.gyroAnalog[activationKey][i].value
+				if hsvOfsset > 1.0 {
+					hsvOfsset = 1.0
+				}
+				if hsvOfsset < -1.0 {
+					hsvOfsset = -1.0
+				}
+
+				// update ledstrip
+				if !d.gyroAnalog[activationKey][i].active {
+					break
+				}
+
+				for k, v := range strip.Value(hsvOfsset*-1, 2.0) {
+					ledArray[nameToIndex[k]] = openrgb.Color{
+						Red:   byte(v * 255),
+						Green: byte(v * 255),
+						Blue:  byte(v * 255),
+					}
+				}
+
+				break asdf
+			}
+		}
+
+		// keyboard mapping
 		for code, note := range d.config.KeyMappings[d.mapping].Midi {
+			id, ok := indexMap[code]
+			if !ok {
+				continue
+			}
+
 			x := int(note) + offset
 			if x < 0 || x > 127 {
 				continue
@@ -465,13 +649,12 @@ root:
 				}
 			}
 
-			id, ok := indexMap[code]
-			if !ok {
-				continue
-			}
+			color = shiftColor(color, hsvOfsset*0.5)
+
 			ledArray[id] = color
 		}
 
+		// active external
 		d.externalTrackerMutex.Lock()
 		for ch := 15; ch >= 0; ch-- {
 			for note := range d.externalNoteTracker[byte(ch)] {
@@ -486,10 +669,10 @@ root:
 			}
 		}
 
+		// current channel
 		for note := range d.externalNoteTracker[d.channel] {
 			note = note - byte(offset)
 			for _, code := range MidiKeyMappings[d.mapping][note] {
-				// duplicated code
 				id, ok := indexMap[code]
 				if !ok {
 					continue
@@ -499,6 +682,7 @@ root:
 		}
 		d.externalTrackerMutex.Unlock()
 
+		// other channels
 		for _, noteAndChannel := range d.noteTracker {
 			note := noteAndChannel[0] - byte(offset)
 
@@ -511,7 +695,32 @@ root:
 			}
 		}
 
-		err = c.UpdateLEDs(index, ledArray)
+		// update gyro keys
+		for activationKey, states := range d.gyroAnalog {
+			for _, state := range states { // warning, next occurrence will override led color
+				id, ok := indexMap[activationKey]
+				if !ok {
+					continue
+				}
+
+				value := state.value
+
+				if value > 1.0 {
+					value = 1.0
+				}
+				if value < -1.0 {
+					value = -1.0
+				}
+
+				if state.active {
+					ledArray[id] = valueToColor(value, 0.95, 1)
+				} else {
+					ledArray[id] = valueToColor(value, 1, 0.4)
+				}
+			}
+		}
+
+		err = c.UpdateLEDs(index, ledArray) // todo remove 80
 		if err != nil {
 			updateFails++
 			now := time.Now()
@@ -527,5 +736,6 @@ root:
 	for i, _ := range ledArray {
 		ledArray[i] = openrgb.Color{Red: 0xff}
 	}
-	c.UpdateLEDs(index, ledArray)
+	c.UpdateLEDs(index, ledArray) // todo remove 80
+	log.Info(fmt.Sprintf("[OpenRGB] device thread exited"), d.logFields(logger.Debug)...)
 }

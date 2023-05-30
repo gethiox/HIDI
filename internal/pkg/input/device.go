@@ -174,8 +174,8 @@ type Device struct {
 
 func (d *Device) String() string {
 	return fmt.Sprintf(
-		"[%s], \"%s\", %d handlers (0x%04x, 0x%04x, 0x%04x, 0x%04x, \"%s\")",
-		d.DeviceType, d.Name, len(d.Handlers), d.ID.Bus, d.ID.Vendor, d.ID.Product, d.ID.Version, d.Uniq,
+		"[%s], \"%s\", %d handlers (Bus: 0x%04x, Vendor: 0x%04x, Product: 0x%04x, Version: 0x%04x)",
+		d.DeviceType, d.Name, len(d.Handlers), d.ID.Bus, d.ID.Vendor, d.ID.Product, d.ID.Version,
 	)
 }
 
@@ -306,6 +306,9 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 					lock.Unlock()
 				}
 			}
+			for _, t := range timerMap {
+				t.Stop()
+			}
 		}(absEvents)
 
 		wg.Add(1)
@@ -365,6 +368,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		wg.Wait()
 		log.Info(fmt.Sprintf("All handlers done, closing events channel"), logger.Debug)
 		close(events)
+		log.Info(fmt.Sprintf("events closed"), logger.Debug)
 	}()
 
 	return events, nil

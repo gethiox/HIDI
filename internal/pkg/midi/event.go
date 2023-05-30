@@ -2,11 +2,9 @@ package midi
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/gethiox/HIDI/internal/pkg/logger"
-	"github.com/gethiox/HIDI/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device/config"
 )
 
 var log = logger.GetLogger()
@@ -145,87 +143,4 @@ func PitchBendEvent(channel uint8, val float64) Event {
 	msb := uint8((target >> 7) & 0b01111111)                // filtering bit that is beyond valid pitch-bend range when val>1.0, just in case
 	lsb := uint8(target & 0b01111111)                       // filtering out one bit of msb, feels good man
 	return Event{PitchWheelChange | channel, lsb, msb}
-}
-
-// todo:
-//   implement system exclusive - System Exclusive (data dump) 2nd byte= Vendor ID followed by more data bytes and ending with EOX
-func ExtractEvents(d []byte) ([]Event, []byte) {
-	if len(d) == 0 {
-		return []Event{}, []byte{}
-	}
-	var data = make([]byte, len(d))
-	var leftover = make([]byte, 0)
-	copy(data, d)
-
-	events := make([]Event, 0)
-
-	start := 0
-	max := len(data) - 1
-
-	var length = 0
-
-	for {
-		if start > max {
-			break
-		}
-		b := data[start]
-		switch { // 0b10010000
-		case b >= 0b10000000 && b <= 0b10111111: // note on/off, poly aftertouch, mode change,
-			length = 3
-		case b >= 0b11000000 && b <= 0b11011111: // program change, channel aftertouch
-			length = 2
-		case b >= 0b11100000 && b <= 0b11101111: // pitch-bend
-			length = 3
-		case b >= 0b11110000 && b <= 0b11110010: // sys exclusive, midi time frame, song position
-			length = 2
-		case b == 0b11110011: // song select
-			length = 2
-		case b >= 0b11110100: // 2x undefined, system messages
-			length = 1
-		default:
-			panic(fmt.Sprintf("unexpected data: %v", data[start:]))
-		}
-
-		if start+length-1 > max {
-			log.Info(fmt.Sprintf("end index greater than max range: %d, max: %d", start+length-1, max), logger.Warning)
-			break
-		}
-		events = append(events, data[start:start+length])
-		start += length
-	}
-	leftover = append(leftover, data[start:]...)
-	return events, leftover
-}
-
-func DetectDevices() ([]IODevice, error) {
-	fd, err := os.Open("/dev/snd")
-	if err != nil {
-		return []IODevice{}, fmt.Errorf("cannot open /dev/snd direcotry: %w", err)
-	}
-	entries, err := fd.ReadDir(0)
-	if err != nil {
-		return []IODevice{}, fmt.Errorf("cannot read /dev/snd directory: %w", err)
-	}
-
-	var devices = make([]IODevice, 0)
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		if strings.HasPrefix(entry.Name(), "midi") {
-			devices = append(devices, IODevice{path: fmt.Sprintf("/dev/snd/%s", entry.Name())})
-		}
-	}
-
-	return devices, nil
-}
-
-type IODevice struct {
-	path string
-}
-
-func (d *IODevice) Open() (*os.File, error) {
-	return os.OpenFile(d.path, os.O_RDWR|os.O_SYNC, 0)
 }

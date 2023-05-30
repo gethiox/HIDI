@@ -50,6 +50,11 @@ func build(target target, project, basename string, buildErrors chan<- buildErro
 	if target.goarm != "" {
 		envVars = append(envVars, fmt.Sprintf("GOARM=%s", target.goarm))
 	}
+	if cgo {
+		envVars = append(envVars, "CGO_ENABLED=1")
+	} else {
+		envVars = append(envVars, "CGO_ENABLED=0")
+	}
 
 	params := []string{}
 	params = append(params, "build", "-o", binaryPath)
@@ -57,6 +62,10 @@ func build(target target, project, basename string, buildErrors chan<- buildErro
 	if openrgb {
 		tags := []string{"openrgb"}
 		params = append(params, "-tags", strings.Join(tags, ","))
+	}
+
+	if race {
+		params = append(params, "-race")
 	}
 
 	params = append(params, project)
@@ -85,7 +94,7 @@ func build(target target, project, basename string, buildErrors chan<- buildErro
 }
 
 var selection, project, basename string
-var openrgb bool
+var openrgb, cgo, race bool
 
 func init() {
 	var targets []string
@@ -98,6 +107,8 @@ func init() {
 	flag.StringVar(&project, "project", "./cmd/hidi/", fmt.Sprintf("choose project directory"))
 	flag.StringVar(&basename, "base", "HIDI", fmt.Sprintf("base filename for output binaries"))
 	flag.BoolVar(&openrgb, "openrgb", false, "include openrgb binary")
+	flag.BoolVar(&cgo, "cgo", false, "cgo")
+	flag.BoolVar(&race, "race", false, "include race detector")
 	flag.Parse()
 }
 

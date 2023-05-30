@@ -1,0 +1,12 @@
+[HIDI]
+# analog events throttling, pool rate per each unique EvCode
+pool_rate = 120 # Hz
+# input handlers discovery rate
+discovery_rate = 1 # Hz
+# timeout for collecting input handlers to input device groups
+stabilization_period = 500 # Milliseconds
+
+[gyro]
+enabled = false
+address = 0x68
+bus = 1
