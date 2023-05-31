@@ -312,7 +312,7 @@ func TestParseDefaultKeyboard(t *testing.T) {
 			evdev.KEY_F11: "mapping_down",
 			evdev.KEY_F12: "mapping_up",
 		},
-		ExitSequence:  []evdev.EvCode{evdev.KEY_LEFTALT, evdev.KEY_F4},
+		ExitSequence:  []evdev.EvCode{evdev.KEY_LEFTALT, evdev.KEY_ESC},
 		Deadzone:      Deadzone{Deadzones: map[evdev.EvCode]float64{}},
 		CollisionMode: CollisionInterrupt,
 		Defaults: Defaults{
@@ -336,35 +336,14 @@ func TestParseDefaultKeyboard(t *testing.T) {
 			evdev.KEY_LEFTALT: {
 				{
 					Type:                "cc",
-					CC:                  0,
-					Axis:                1,
-					ActivationMode:      "toggle",
-					ResetOnDeactivation: false,
-					FlipAxis:            true,
-					ValueMultiplier:     0.2,
-				},
-				{
-					Type:                "cc",
-					CC:                  2,
-					Axis:                1,
-					ActivationMode:      "toggle",
-					ResetOnDeactivation: false,
-					FlipAxis:            true,
-					ValueMultiplier:     0.2,
-				},
-			},
-			evdev.KEY_LEFTCTRL: {
-				{
-					Type:                "cc",
 					CC:                  1,
-					Axis:                0,
-					ActivationMode:      "hold",
+					Axis:                1,
+					ActivationMode:      "toggle",
 					ResetOnDeactivation: false,
-					FlipAxis:            false,
+					FlipAxis:            true,
 					ValueMultiplier:     0.2,
 				},
 			},
-
 			evdev.KEY_SPACE: {
 				{
 					Type:                "pitch_bend",
