@@ -2,13 +2,15 @@ package device
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 
+	"github.com/gethiox/HIDI/internal/pkg/gyro"
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
-	"github.com/gethiox/HIDI/internal/pkg/midi/config"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device/config"
 	"github.com/holoplot/go-evdev"
 	"go.uber.org/zap"
 )
@@ -31,12 +33,11 @@ type Device struct {
 	outputEvents chan<- midi.Event
 	target       *chan<- midi.Event
 	midiIn       <-chan midi.Event
+	gyro         <-chan gyro.Vector
 
 	// keeps track of currently active notes on midi input
 	externalNoteTracker  map[byte]map[byte]bool // channel: note
 	externalTrackerMutex *sync.Mutex
-
-	effectManager EffectManager
 
 	// instead of generating NoteOff events based on the current Device state (lazy approach), every emitted note
 	// is being tracked and released precisely on related hardware button release.
@@ -45,12 +46,14 @@ type Device struct {
 	noteTracker       map[evdev.EvCode][2]byte // 1: note, 2: channel
 	analogNoteTracker map[string][2]byte       // 1: note, 2: channel
 	// used to track active occurrence number for given channel/note for purpose of handling clashed notes.
-	// more info in hidi.config at "collision_mode" option.
+	// more info in hidi.toml at "collision_mode" option.
 	activeNotesCounter map[byte]map[byte]int // map[channel]map[note]occurrence_number
 	lastAnalogValue    map[evdev.EvCode]float64
 
 	actionTracker map[config.Action]bool
 	ccZeroed      map[byte]bool // 1: positive, 2: negative
+	keyTracker    map[evdev.EvCode]struct{}
+	sigs          chan os.Signal
 
 	eventProcessMutex *sync.Mutex
 
@@ -59,18 +62,27 @@ type Device struct {
 	channel  uint8
 	velocity uint8
 	// warning: currently lazy implementation
-	multiNote  multiNote // list of additional note intervals (offsets)
+	multiNote  []int // list of additional note intervals (offsets)
 	mapping    int
 	ccLearning bool
 
+	gyroAnalog map[evdev.EvCode][]gyroState
+
 	actionsPress   map[config.Action]func(*Device)
 	actionsRelease map[config.Action]func(*Device)
+}
+
+type gyroState struct {
+	active bool
+	value  float64
 }
 
 func NewDevice(
 	inputDevice input.Device, cfg config.DeviceConfig,
 	midiEvents chan<- midi.Event, midiIn <-chan midi.Event,
 	noLogs bool, openrgbPort int,
+	gyroEvents <-chan gyro.Vector,
+	sigs chan os.Signal,
 ) Device {
 	var activeNoteCounter = make(map[byte]map[byte]int)
 	for ch := byte(0); ch < 16; ch++ {
@@ -86,6 +98,37 @@ func NewDevice(
 		inmap[i] = make(map[byte]bool)
 	}
 
+	actionsPress := map[config.Action]func(*Device){
+		config.Panic:        (*Device).Panic,
+		config.MappingUp:    (*Device).MappingUp,
+		config.MappingDown:  (*Device).MappingDown,
+		config.OctaveUp:     (*Device).OctaveUp,
+		config.OctaveDown:   (*Device).OctaveDown,
+		config.SemitoneUp:   (*Device).SemitoneUp,
+		config.SemitoneDown: (*Device).SemitoneDown,
+		config.ChannelUp:    (*Device).ChannelUp,
+		config.ChannelDown:  (*Device).ChannelDown,
+		config.Multinote:    func(*Device) {}, // on key release only
+		config.Learning:     (*Device).CCLearningOn,
+	}
+	actionsRelease := map[config.Action]func(*Device){
+		config.Learning: (*Device).CCLearningOff,
+	}
+
+	var gyroAnalog = make(map[evdev.EvCode][]gyroState)
+
+	for ActivationKey, descs := range cfg.Config.Gyro {
+		for range descs {
+			_, ok := gyroAnalog[ActivationKey]
+			if !ok {
+				gyroAnalog[ActivationKey] = []gyroState{{false, 0}}
+			} else {
+				gyroAnalog[ActivationKey] = append(gyroAnalog[ActivationKey], gyroState{false, 0})
+			}
+
+		}
+	}
+
 	device := Device{
 		noLogs:               noLogs,
 		config:               cfg.Config,
@@ -94,52 +137,34 @@ func NewDevice(
 		effectEvents:         make(chan midi.Event, 8),
 		target:               &midiEvents,
 		midiIn:               midiIn,
+		gyro:                 gyroEvents,
+		sigs:                 sigs,
 		eventProcessMutex:    &sync.Mutex{},
 		externalTrackerMutex: &sync.Mutex{},
 		externalNoteTracker:  inmap,
 		openrgbPort:          openrgbPort,
 
 		noteTracker:        make(map[evdev.EvCode][2]byte, 32),
+		keyTracker:         make(map[evdev.EvCode]struct{}, 32),
 		analogNoteTracker:  make(map[string][2]byte, 32),
 		activeNotesCounter: activeNoteCounter,
 		actionTracker:      make(map[config.Action]bool, 16),
 		ccZeroed:           make(map[byte]bool, 32),
 		lastAnalogValue:    make(map[evdev.EvCode]float64, 32),
 
-		actionsPress: map[config.Action]func(*Device){
-			config.Panic:        (*Device).Panic,
-			config.MappingUp:    (*Device).MappingUp,
-			config.MappingDown:  (*Device).MappingDown,
-			config.OctaveUp:     (*Device).OctaveUp,
-			config.OctaveDown:   (*Device).OctaveDown,
-			config.SemitoneUp:   (*Device).SemitoneUp,
-			config.SemitoneDown: (*Device).SemitoneDown,
-			config.ChannelUp:    (*Device).ChannelUp,
-			config.ChannelDown:  (*Device).ChannelDown,
-			config.Multinote:    func(*Device) {}, // on key release only
-			config.Learning:     (*Device).CCLearningOn,
-		},
-		actionsRelease: map[config.Action]func(*Device){
-			config.Learning: (*Device).CCLearningOff,
-		},
+		actionsPress:   actionsPress,
+		actionsRelease: actionsRelease,
 
 		octave:     int8(cfg.Config.Defaults.Octave),
 		semitone:   int8(cfg.Config.Defaults.Semitone),
 		channel:    uint8(cfg.Config.Defaults.Channel - 1),
-		multiNote:  multiNote{},
+		multiNote:  []int{},
 		mapping:    cfg.Config.Defaults.Mapping,
 		ccLearning: false,
 		velocity:   64,
-	}
 
-	effectManager := EffectManager{
-		target:       nil,
-		effectEvents: nil,
-		outputEvents: nil,
-		effects:      nil,
+		gyroAnalog: gyroAnalog,
 	}
-
-	device.effectManager = effectManager
 
 	return device
 }
@@ -417,7 +442,7 @@ func (d *Device) Multinote() {
 
 	d.multiNote = noteOffsets
 	if !d.noLogs {
-		log.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v/[%s]", d.multiNote, d.multiNote.String()), d.logFields(logger.Action)...)
+		log.Info(fmt.Sprintf("Multinote mode engaged, intervals: %v", d.multiNote), d.logFields(logger.Action)...)
 	}
 }
 
@@ -458,32 +483,60 @@ func (d *Device) CCLearningOff() {
 
 func (d *Device) Status() string {
 	return fmt.Sprintf(
-		"octave: %3d, semitone: %3d, channel: %2d, notes: %2d, map: %s, multinote: %s",
+		"octave: %3d, semitone: %3d, channel: %2d, notes: %2d, map: %s",
 		d.octave,
 		d.semitone,
 		d.channel+1,
 		len(d.noteTracker)+len(d.analogNoteTracker),
 		d.config.KeyMappings[d.mapping].Name,
-		d.multiNote.String(),
 	)
 }
 
+func (d *Device) Gyro(ev *input.InputEvent, pressed bool) {
+	for i, desc := range d.config.Gyro[ev.Event.Code] {
+		switch desc.ActivationMode {
+		case config.GyroHold:
+			d.gyroAnalog[ev.Event.Code][i].active = pressed
+
+			if !d.noLogs {
+				name := d.config.Gyro[ev.Event.Code][i].String()
+				if pressed {
+					log.Info(fmt.Sprintf("Gyro engaged: %s", name), d.logFields(logger.Action)...)
+				} else {
+					log.Info(fmt.Sprintf("Gyro disengaged: %s", name), d.logFields(logger.Action)...)
+				}
+			}
+
+		case config.GyroToggle:
+			if pressed {
+				d.gyroAnalog[ev.Event.Code][i].active = !d.gyroAnalog[ev.Event.Code][i].active
+				if !d.noLogs {
+					name := d.config.Gyro[ev.Event.Code][i].String()
+					if d.gyroAnalog[ev.Event.Code][i].active {
+						log.Info(fmt.Sprintf("Gyro engaged: %s", name), d.logFields(logger.Action)...)
+					} else {
+						log.Info(fmt.Sprintf("Gyro disengaged: %s", name), d.logFields(logger.Action)...)
+					}
+				}
+			}
+		}
+	}
+}
+
 type State struct {
-	Octave    int8
-	Semitone  int8
-	Channel   uint8
-	Notes     int
-	MultiNote string
-	Mapping   string
+	Octave   int8
+	Semitone int8
+	Channel  uint8
+	Notes    int
+	Mapping  string
 }
 
 func (d *Device) State() State {
 	return State{
-		Octave:    d.octave,
-		Semitone:  d.semitone,
-		Channel:   d.channel,
-		Notes:     len(d.noteTracker) + len(d.analogNoteTracker),
-		MultiNote: d.multiNote.String(),
-		Mapping:   d.config.KeyMappings[d.mapping].Name,
+		Octave:   d.octave,
+		Semitone: d.semitone,
+		Channel:  d.channel,
+		Notes:    len(d.noteTracker) + len(d.analogNoteTracker),
+		Mapping:  d.config.KeyMappings[d.mapping].Name,
 	}
 }
