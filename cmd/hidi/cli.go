@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -10,74 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/awesome-gocui/gocui"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/logrusorgru/aurora"
 )
-
-func a() {
-	aurora.Red("asdf")
-}
 
 const (
 	ViewLogs     = "logs"
 	ViewOverview = "overview"
 	ViewLCD      = "lcd"
 )
-
-func GetCli() (*gocui.Gui, error) {
-	g, err := gocui.NewGui(gocui.Output256, true)
-	if err != nil {
-		return nil, err
-	}
-
-	g.SetManagerFunc(Layout)
-
-	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
-		return nil, err
-	}
-
-	return g, nil
-}
-
-func Layout(g *gocui.Gui) error {
-	maxX, maxY := g.Size()
-
-	if v, err := g.SetView(ViewOverview, 0, 0, maxX-1, 9, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = "[Devices]"
-		v.Autoscroll = false
-		v.Wrap = false
-		v.Frame = true
-	}
-
-	if v, err := g.SetView(ViewLogs, 0, 9, maxX-1, maxY-1, gocui.TOP); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = "[Logs]"
-		v.Autoscroll = false
-		v.Wrap = false
-		v.Frame = true
-	}
-
-	if v, err := g.SetView(ViewLCD, maxX-22, 0, maxX-1, 5, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = "[lcd 20x4]"
-		v.Autoscroll = false
-		v.Wrap = false
-		v.Frame = true
-	}
-	return nil
-}
-
-func quit(g *gocui.Gui, v *gocui.View) error {
-	return gocui.ErrQuit
-}
 
 type TimeNanosecond time.Time
 
@@ -111,21 +51,6 @@ func unpack(data []byte) (Entry, error) {
 	var v Entry
 	err := json.Unmarshal(data, &v)
 	return v, err
-}
-
-type Feeder struct {
-	view     *gocui.View
-	au       aurora.Aurora
-	logLevel int
-}
-
-func NewFeeder(gui *gocui.Gui, viewName string, logLevel int, au aurora.Aurora) (Feeder, error) {
-	v, err := gui.View(viewName)
-	if err != nil {
-		return Feeder{}, err
-	}
-
-	return Feeder{view: v, logLevel: logLevel, au: au}, nil
 }
 
 func gray(v uint8) aurora.Color {
@@ -324,30 +249,4 @@ func prepareString(msg Entry, au aurora.Aurora, width, logLevel int) string {
 		return fmt.Sprintf("%s %s %s", timestamp, m, fields)
 	}
 
-}
-
-func (f *Feeder) Write(data []byte) {
-	x, _ := f.view.Size()
-	if len(data) == 0 {
-		f.view.Write(bytes.Repeat([]byte{' '}, x))
-		f.view.Write([]byte{'\n'})
-		return
-	}
-	msg, err := unpack(data)
-	if err != nil {
-		f.view.Write(data)
-		f.view.Write([]byte{'\n'})
-		return
-	}
-
-	s := prepareString(msg, f.au, x, f.logLevel)
-	if s != "" {
-		f.view.WriteString(s + "\n")
-	}
-}
-
-func (f *Feeder) OverWrite(data []byte) {
-	f.view.Rewind()
-	f.view.Write(data)
-	f.view.Write([]byte{'\n'})
 }

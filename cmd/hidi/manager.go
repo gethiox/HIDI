@@ -8,31 +8,78 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/pkg/gyro"
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
-	"github.com/gethiox/HIDI/internal/pkg/midi/config"
-	"github.com/gethiox/HIDI/internal/pkg/midi/config/validate"
 	"github.com/gethiox/HIDI/internal/pkg/midi/device"
+	"github.com/gethiox/HIDI/internal/pkg/midi/device/config"
+	"github.com/gethiox/HIDI/internal/pkg/utils"
 	"go.uber.org/zap"
 )
 
-// runManager is the main program process, before exiting from that function it needs to ensure that
+type Manager struct {
+	config ManagerConfig
+
+	midiOut chan<- midi.Event
+	midiIn  <-chan midi.Event
+
+	devicesMutex *sync.Mutex
+	devices      map[*device.Device]*device.Device
+
+	sigs chan os.Signal
+}
+
+type ManagerConfig struct {
+	HIDI           HIDIConfig
+	Grab, NoLogs   bool
+	OpenRGBPort    int
+	IgnoredDevices []input.PhysicalID
+}
+
+func NewManager(
+	config ManagerConfig,
+	midiOut chan<- midi.Event,
+	midiIn <-chan midi.Event,
+	devicesMutex *sync.Mutex,
+	devices map[*device.Device]*device.Device,
+	sigs chan os.Signal,
+) Manager {
+	return Manager{
+		config:       config,
+		midiOut:      midiOut,
+		midiIn:       midiIn,
+		devicesMutex: devicesMutex,
+		devices:      devices,
+		sigs:         sigs,
+	}
+}
+
+// Run is the main program process, before exiting from that function it needs to ensure that
 // all goroutine execution has completed
-func runManager(
-	ctx context.Context, cfg HIDIConfig,
-	grab, noLogs bool,
-	devices map[*device.Device]*device.Device, devicesMutex *sync.Mutex,
-	midiEventsOut chan<- midi.Event, midiEventsin <-chan midi.Event,
-	configNotifier chan<- validate.NotifyMessage,
-	port int,
-) {
+func (m Manager) Run(ctx context.Context) {
 	deviceConfigChange := config.DetectDeviceConfigChanges(ctx)
 
 	wg := sync.WaitGroup{}
-	midiEventsInSpawner := newDynamicFanOut(midiEventsin)
+	midiEventsInSpawner := utils.NewDynamicFanOut(m.midiIn)
+
+	var gyroSpawner *utils.DynamicFanOut[gyro.Vector]
+
+	if m.config.HIDI.Gyro.Enabled {
+		gyroEvents, err := gyro.ProcessGyro(ctx, m.config.HIDI.Gyro.Address, m.config.HIDI.Gyro.Bus)
+		if err != nil {
+			log.Info(fmt.Sprintf("failed to start gyro: %s", err), logger.Error)
+		}
+		gyroSpawner = utils.NewDynamicFanOut(gyroEvents)
+	} else {
+		var gyroEvents = make(chan gyro.Vector)
+		defer close(gyroEvents)
+		gyroSpawner = utils.NewDynamicFanOut(gyroEvents)
+	}
 
 	log.Info("Run manager", logger.Debug)
+	log.Info(fmt.Sprintf("ignored keyboards: %+v", m.config.IgnoredDevices), logger.Debug)
+
 root:
 	for {
 		select {
@@ -42,7 +89,7 @@ root:
 			break
 		}
 
-		configs, err := config.LoadDeviceConfigs(ctx, &wg, configNotifier)
+		configs, err := config.LoadDeviceConfigs(ctx, &wg)
 		if err != nil {
 			log.Info(fmt.Sprintf("Device Configs load failed: %s", err), logger.Error)
 			os.Exit(1)
@@ -50,9 +97,7 @@ root:
 
 		ctxDevice, cancel := context.WithCancel(context.Background())
 
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			select {
 			case <-deviceConfigChange:
 				log.Info("handling config change", logger.Debug)
@@ -63,8 +108,17 @@ root:
 		}()
 
 	device:
-		for d := range input.MonitorNewDevices(ctxDevice, cfg.HIDI.StabilizationPeriod, cfg.HIDI.DiscoveryRate) {
-			// TODO: inspect this code against possible race-condition
+		for d := range input.MonitorNewDevices(ctxDevice, m.config.HIDI.HIDI.StabilizationPeriod, m.config.HIDI.HIDI.DiscoveryRate) {
+			log.Info(fmt.Sprintf("ignored devices: %+v", m.config.IgnoredDevices), zap.String("device_name", d.Name), logger.Debug)
+			log.Info(fmt.Sprintf("device id: %+v", d.ID), zap.String("device_name", d.Name), logger.Debug)
+			for _, id := range m.config.IgnoredDevices {
+				if d.PhysicalUUID() == id {
+					log.Info("ignoring device", zap.String("device_name", d.Name), logger.Debug)
+					continue device
+				} else {
+					log.Info("not ignoring device", zap.String("device_name", d.Name), logger.Debug)
+				}
+			}
 
 			log.Info("Loading config for device...", zap.String("device_name", d.Name), logger.Debug)
 			conf, err := configs.FindConfig(d.ID, d.DeviceType)
@@ -84,7 +138,7 @@ root:
 
 			log.Info("Opening device...", zap.String("device_name", d.Name), logger.Debug)
 			for {
-				inputEvents, err = d.ProcessEvents(ctxDevice, grab, cfg.HIDI.EVThrottling)
+				inputEvents, err = d.ProcessEvents(ctxDevice, m.config.Grab, m.config.HIDI.HIDI.EVThrottling)
 				if err != nil {
 					if time.Now().Sub(appearedAt) > time.Second*5 {
 						log.Info("failed to open device on time, giving up", zap.String("device_name", d.Name), logger.Warning)
@@ -99,32 +153,51 @@ root:
 			wg.Add(1)
 			go func(dev input.Device, conf config.DeviceConfig) {
 				defer wg.Done()
-				id, midiIn := midiEventsInSpawner.SpawnOutput()
-				midiDev := device.NewDevice(dev, conf, midiEventsOut, midiIn, noLogs, port)
-				devicesMutex.Lock()
-				devices[&midiDev] = &midiDev
-				devicesMutex.Unlock()
+				id, midiIn, err := midiEventsInSpawner.SpawnOutput()
+				if err != nil {
+					panic(err)
+				}
+
+				idG, gyroEv, err := gyroSpawner.SpawnOutput()
+				if err != nil {
+					panic(err)
+				}
+
+				midiDev := device.NewDevice(dev, conf, m.midiOut, midiIn, m.config.NoLogs, m.config.OpenRGBPort, gyroEv, m.sigs)
+				m.devicesMutex.Lock()
+				m.devices[&midiDev] = &midiDev
+				m.devicesMutex.Unlock()
 				log.Info("Device connected", zap.String("device_name", dev.Name),
 					zap.String("config", fmt.Sprintf("%s (%s)", conf.ConfigFile, conf.ConfigType)),
 					zap.String("device_type", dev.DeviceType.String()),
 					logger.Info,
 				)
-				wg.Add(1)
-				midiDev.ProcessEvents(&wg, inputEvents)
+
+				midiDev.ProcessEvents(inputEvents)
+
 				log.Info("Device disconnected", zap.String("device_name", dev.Name), logger.Info)
-				err := midiEventsInSpawner.DespawnOutput(id)
+				err = midiEventsInSpawner.DespawnOutput(id)
 				if err != nil {
 					log.Info(
 						fmt.Sprintf("failed to despawn midi input channel: %s", err),
 						zap.String("device_name", dev.Name), logger.Error,
 					)
 				}
-				devicesMutex.Lock()
-				delete(devices, &midiDev)
-				devicesMutex.Unlock()
+				err = gyroSpawner.DespawnOutput(idG)
+				if err != nil {
+					log.Info(
+						fmt.Sprintf("failed to despawn gyro channel: %s", err),
+						zap.String("device_name", dev.Name), logger.Error,
+					)
+				}
+				m.devicesMutex.Lock()
+				delete(m.devices, &midiDev)
+				m.devicesMutex.Unlock()
 			}(d, conf)
 		}
 	}
+
+	log.Info("Waiting in manager", logger.Debug)
 	wg.Wait()
 	log.Info("Exit manager", logger.Debug)
 }

@@ -10,135 +10,79 @@ import (
 	"os"
 	"time"
 
-	"github.com/d2r2/go-hd44780"
-	"github.com/gethiox/HIDI/internal/pkg/display"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
-	"github.com/go-ini/ini"
+	"github.com/pelletier/go-toml/v2"
 )
 
 type HIDI struct {
 	EVThrottling        time.Duration
-	LogViewRate         time.Duration
-	LogBufferSize       int
 	DiscoveryRate       time.Duration
 	StabilizationPeriod time.Duration
 }
 
+type Gyro struct {
+	Enabled bool
+	Address byte
+	Bus     byte
+}
+
 type HIDIConfig struct {
-	HIDI   HIDI
-	Screen display.ScreenConfig
+	HIDI HIDI
+	Gyro Gyro
+}
+
+type HIDIConfigRaw struct {
+	HIDI struct {
+		PoolRate            int `toml:"pool_rate"`
+		DiscoveryRate       int `toml:"discovery_rate"`
+		StabilizationPeriod int `toml:"stabilization_period"`
+		LogViewRate         int `toml:"log_view_rate"`
+		LogBufferSize       int `toml:"log_buffer_size"`
+	} `toml:"HIDI"`
+
+	Gyro struct {
+		Enabled bool `toml:"enabled"`
+		Address int  `toml:"address"`
+		Bus     int  `toml:"bus"`
+	} `toml:"gyro"`
 }
 
 func LoadHIDIConfig(path string) (HIDIConfig, error) {
-	// TODO: remove bloat
-	var c HIDIConfig
-
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return c, fmt.Errorf("cannot read \"%s\" file: %w", path, err)
+		return HIDIConfig{}, fmt.Errorf("cannot read \"%s\" file: %w", path, err)
 	}
 
-	cfg, err := ini.Load(data)
+	var rawConfig HIDIConfigRaw
+	err = toml.Unmarshal(data, &rawConfig)
 	if err != nil {
-		return c, fmt.Errorf("cannot load ini file: %w", err)
+		return HIDIConfig{}, err
 	}
 
-	// [HIDI]
-	hidi, _ := cfg.GetSection("HIDI")
-	evThrottling, _ := hidi.GetKey("pool_rate")
-	i, err := evThrottling.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for pool_rate: %w", err)
-	}
-	c.HIDI.EVThrottling = time.Second / time.Duration(i)
-	discoveryRate, _ := hidi.GetKey("discovery_rate")
-	i, err = discoveryRate.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for discovery_rate: %w", err)
-	}
-	c.HIDI.DiscoveryRate = time.Second / time.Duration(i)
+	var config HIDIConfig
 
-	stabilizationPeriod, _ := hidi.GetKey("stabilization_period")
-	i, err = stabilizationPeriod.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for stabilization_period: %w", err)
-	}
-	c.HIDI.StabilizationPeriod = time.Millisecond * time.Duration(i)
+	config.HIDI.EVThrottling = time.Second / time.Duration(rawConfig.HIDI.PoolRate)
+	config.HIDI.DiscoveryRate = time.Second / time.Duration(rawConfig.HIDI.DiscoveryRate)
+	config.HIDI.StabilizationPeriod = time.Millisecond * time.Duration(rawConfig.HIDI.StabilizationPeriod)
 
-	logViewRate, _ := hidi.GetKey("log_view_rate")
-	i, err = logViewRate.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for log_view_rate: %s", err)
-	}
-	c.HIDI.LogViewRate = time.Second / time.Duration(i)
+	config.Gyro.Enabled = rawConfig.Gyro.Enabled
+	config.Gyro.Address = byte(rawConfig.Gyro.Address)
+	config.Gyro.Bus = byte(rawConfig.Gyro.Bus)
 
-	logBufferSize, _ := hidi.GetKey("log_buffer_size")
-	i, err = logBufferSize.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for log_buffer_size: %s", err)
-	}
-	c.HIDI.LogBufferSize = i
-
-	// [screen]
-	screen, _ := cfg.GetSection("screen")
-
-	screenSupport, _ := screen.GetKey("enabled")
-	b, err := screenSupport.Bool()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse boolean for enabled: %s", err)
-	}
-	c.Screen.Enabled = b
-
-	screenType, _ := screen.GetKey("type")
-	switch t := screenType.Value(); t {
-	case "20x4":
-		c.Screen.LcdType = hd44780.LCD_20x4
-	default:
-		return c, fmt.Errorf("screen type %s is not supported", t)
-	}
-
-	screenBus, _ := screen.GetKey("bus")
-	i, err = screenBus.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for log_buffer_size: %w", err)
-	}
-	c.Screen.Bus = i
-
-	screenAddress, _ := screen.GetKey("address")
-	i, err = screenAddress.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for address: %w", err)
-	}
-	c.Screen.Address = uint8(i)
-
-	updateRate, _ := screen.GetKey("update_rate")
-	i, err = updateRate.Int()
-	if err != nil {
-		return c, fmt.Errorf("cannot parse integer for update_rate: %w", err)
-	}
-	c.Screen.UpdateRate = i
-
-	message1, _ := screen.GetKey("exit_message1")
-	message2, _ := screen.GetKey("exit_message2")
-	message3, _ := screen.GetKey("exit_message3")
-	message4, _ := screen.GetKey("exit_message4")
-	c.Screen.ExitMessage[0] = message1.String()
-	c.Screen.ExitMessage[1] = message2.String()
-	c.Screen.ExitMessage[2] = message3.String()
-	c.Screen.ExitMessage[3] = message4.String()
-
-	return c, nil
+	return config, err
 }
 
-//go:embed hidi-config/hidi.config
+//go:embed hidi-config/hidi.toml
 //go:embed hidi-config/*/*/*
+//go:embed hidi-config/factory/README
+//go:embed hidi-config/user/README.md
 var templateConfig embed.FS
 
 const configDir = "hidi-config"
 
 // createConfigDirectory creates config directory if necessary.
-// It also updates Factory device configs, hidi.config stays intact.
-func createConfigDirectoryIfNeeded() error {
+// It also updates Factory device configs, hidi.toml stays intact.
+func updateHIDIConfiguration() error {
 	cdir, err := os.OpenFile(configDir, os.O_RDONLY, 0)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -211,7 +155,7 @@ func createConfigDirectoryIfNeeded() error {
 			log.Info(fmt.Sprintf("Creating new factory configuration: \"%s\"", path), logger.Debug)
 			fd, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o666)
 			if err != nil {
-				return fmt.Errorf("cannot open \"%s\" file for writing: %w", err)
+				return fmt.Errorf("cannot open \"%s\" file for writing: %w", path, err)
 			}
 			defer fd.Close()
 

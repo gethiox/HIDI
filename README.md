@@ -9,44 +9,16 @@ and [keyboard3000](https://github.com/gethiox/keyboard3000) projects
 
 ![Linux](https://img.shields.io/badge/OS-Linux-blue)
 ![go version](https://img.shields.io/github/go-mod/go-version/gethiox/HIDI)
-[![reference](https://img.shields.io/badge/godoc-reference-blue)](https://godoc.org/github.com/gethiox/HIDI)
 [![go report](https://goreportcard.com/badge/github.com/gethiox/HIDI)](https://goreportcard.com/report/github.com/gethiox/HIDI)    
 ![last release](https://img.shields.io/github/v/release/gethiox/HIDI)
 ![downloads latest](https://img.shields.io/github/downloads/gethiox/HIDI/latest/total)
 ![downloads](https://img.shields.io/github/downloads/gethiox/HIDI/total)
 
-# improvements since beta release
-
-- OpenRGB support for arm-v6/v7, arm64 and amd64 ([Demo](https://youtu.be/QF_z6LHcSkE))
-  Check `Direct Mode` section [here](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards) for
-  supported devices.  
-  known issues:
-  - it doesn't work well when there is more than 1 (one) RGB keyboard
-- YAML configurations for devices. automatic reload on user configuration changes
-- note collision handlers, see [guide](cmd/hidi/hidi-config/user/README.md) for details
-- Monitoring of input handlers is now a magnitude more efficient
-- Graceful app termination
-- greatly improved speed of application start and termination
-- Fixed input device grabbing for exclusive usage
-- CC learn action - easier way to learn CC with unstable analog input, also useful for multi-axis analog sticks
-- configurable deadzones for analog input
-- analog events throttling
-- improved overall performance when logging is disabled
-- Precompiled builds for various platforms
-- Embedded config directory, if config directory doesn't exist, application will create default one
-- Automatic update of factory configurations (if there are new ones or modified).
-- Support for optional HD44780 screen (20x4) for displaying statistics
-- Relatively good default configurations for keyboards and gamepads
-- informative and eye-candy debug/logging
-
 # Purpose
 
-HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface.  
+HIDI is a translation layer between HID devices like keyboards or gamepads and hardware MIDI interface, it also supports ALSA for standalone linux users.  
 This way you can play on your **computer keyboard as MIDI device**, use gamepad analog sticks to control
 pitch-bend and CC. As many devices as you want, simultaneously.
-
-Because it's just a standard MIDI device **you can use it with both PC/DAW environment
-and hardware synthesizers**.
 
 Easy to use, easy to customize, and it has many quality of life features, carefully crafted with love to provide
 the best user experience possible.
@@ -60,51 +32,47 @@ the best user experience possible.
   (octave, semitone, mapping, channel) even while still pressing keyboard keys, due to careful design
   notes will be not interrupted, will be released correctly on key release and only new key presses will emit
   notes respectively to the new internal state.
-- NKRO keyboards support (if it can be enabled in hardware by some key-sequence)
+- NKRO keyboards support (if it can be enabled in your hardware or enabled by default)
 - You can connect as many HID devices as you have free USB slots
 - **All devices are loaded/unloaded completely dynamically**
 - Application will reload configuration when new one will appear or existing one was changed.
   Very useful when user want to craft their own configuration
+- Gyroscope sensor support (arm platforms) for pitch-bend and CC controls
+- OpenRGB support ([Demo](https://youtu.be/QF_z6LHcSkE)) (Check `Direct Mode` section [here](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards) for
+  supported devices.)
 
 # Requirements
 
-- Dedicated machine with Linux
-- The most desirable choices are platforms like Raspberry Pi. It can easily run with one-core under Pi zero v1.
-  However, there are no limits, it can be run on practically all Linux-supported platforms.
-- In the case of Pi Zero, USB HAT may be useful
-- **Decent MIDI interface**, please avoid cheap china USB interfaces,
+- Machine with Linux, either dedicated one for bridging with hardware MIDI interface or just your local machine
+- **Optional MIDI interface**, please avoid cheap china USB interfaces,
   [it has problem with receiving data](http://www.arvydas.co.uk/2013/07/cheap-usb-midi-cable-some-self-assembly-may-be-required/)
   (unless you have old version lying around, it may work just fine).
-- If you don't have spare MIDI ports on your PC, two identical USB MIDI interfaces with some DIN 5p bridges may be useful
 - **Keyboards**, **gamepads** :)
 
 # Usage
 
-![](docs/interface.png)
-
 Download the latest version from [releases](https://github.com/gethiox/HIDI/releases) for the platform of your choice.
-Place binary on your system and run it with `./HIDI`.  
+Place binary on your system and run it with `sudo ./HIDI`.  
 See `-h` flag for available optional arguments
 
 - If necessary, add permission for execution with `chmod +x HIDI`
-- If you're connected with wifi to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
+- If you're connected via network to your Pi, it may be useful to run it under **[tmux](https://github.com/tmux/tmux/wiki)**
   to avoid program termination on connection loss, just type `tmux` to run multiplexer, `ctr+b -> d` to leave tmux
   running in the backgroud, `tmux a` to re-enter your session
 - During application use you probably don't want to propagate keyboard events into your system  
-  To avoid that use `-grab` parameter  
-  **Warning**: If you're starting application with your directly connected keyboard it may be impossible to terminate it
-  in that case  
-  Proper solution coming soon™
+  To avoid that use `-grab` parameter, use exit sequence (default alt+esc) to terminate program
 - ~~Standard user may not have permission to read input devices directly for security reasons.  
   The best way of running this program is to grant temporary privilege to `input` group with:  
   `sudo -u your_username -g input ./HIDI`  
   Try to avoid running untrusted software directly with root privilege~~
-  Due to some other complications (e.g. OpenRGB root requirement), it's the easiest to run it with `sudo`.
+  Due to some complications (e.g. OpenRGB root requirement), it's the easiest to run it with `sudo`.
+- for standalone linux users, use `-standalone` parameter which preserves one keyboard for user standard input, requires more hardware than one keyboard. `-virtual` parameter will create ready to use ALSA port instead of connecting to existing ports/hardware.
+- If you're bridging keyboards with hardware midi interface, see `-listmididevices` for available interfaces and select them with `-mididevice X`
 
 # Configuration
 
 There are two types of configurations:
-- `hidi.config` - minor behavior settings
+- `hidi.toml` - minor behavior settings
 - device configurations, see [guide](cmd/hidi/hidi-config/user/README.md) for details.
 
 Have fun!
@@ -114,18 +82,16 @@ Have fun!
 ### Building
 
 Make sure you have `go >= 1.18` installed  
-Just run `go run build.go`  
+run `go run build.go -cgo -platforms linux-amd64`  
 By default, it will build all defined platforms without OpenRGB support,
-to select specific platforms or enable OpenRGB, see `go run build.go -h` for usage
+to select specific platforms or enable OpenRGB (requires precompiled binaries), see `go run build.go -h` for usage
 
 ### Wishlist
 
 Features that are possible to achieve. With enough interest and support I may be motivated to implement these.
 
-- Utilize relative mouse input
 - configurable modifier key/keys for expanded mapping (key sequence like `modifier+KEY_A`)
-- localhost mode for Linux users without requirement of separate machine (jack/alsa)
-- default device state in specific device configuration (octave, semitone, channel, mapping)
+- ~~localhost mode for Linux users without requirement of separate machine (jack/alsa)~~ done!
 - Network MIDI
 - Bluetooth MIDI device
 - Arpeggiator (with MIDI clock sync), note latch, multinote MIDI effects
@@ -176,8 +142,3 @@ Please make sure that all default mappings are working and arranged correctly.
 # License
 
 Project is released under **GPLv3**, for detailed information see [LICENSE](./LICENSE)
-
-# Support
-
-If you like my project, appreciate my time and effort and most importantly you had a lot of fun with it,
-consider supporting it by `Sponsor` GitHub button.

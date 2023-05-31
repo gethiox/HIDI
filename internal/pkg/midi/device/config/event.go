@@ -28,6 +28,14 @@ func StringToNote(note string) (byte, error) {
 	return calculated, nil
 }
 
+func StringToNoteUnsafe(note string) byte {
+	n, err := StringToNote(note)
+	if err != nil {
+		panic(err)
+	}
+	return n
+}
+
 var valToPitch = map[uint8]string{
 	0: "C", 1: "C#", 2: "D", 3: "D#",
 	4: "E", 5: "F", 6: "F#", 7: "G",
