@@ -1,9 +1,9 @@
 //go:build linux && arm64 && openrgb
 
-package main
+package openrgb
 
 import _ "embed"
 
-//go:embed OpenRGB/openrgb-arm64
+//go:embed bin/openrgb-arm64
 var OpenRGB []byte
 var OpenRGBVersion = "arm64"

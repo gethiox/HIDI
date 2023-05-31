@@ -2,7 +2,6 @@ package input
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/holoplot/go-evdev"
 )
@@ -61,7 +60,10 @@ type InputID struct {
 }
 
 func (i *InputID) String() string {
-	return fmt.Sprintf("0x%4x 0x%4x 0x%4x 0x%4x", i.Bus, i.Vendor, i.Product, i.Version)
+	return fmt.Sprintf(
+		"Bus: 0x%04x, Vendor: 0x%04x, Product: 0x%04x, Version: 0x%04x",
+		i.Bus, i.Vendor, i.Product, i.Version,
+	)
 }
 
 // Event returns event name, like "event0" for /dev/input/event0
@@ -151,6 +153,5 @@ func (d *DeviceInfo) HandlerType() HandlerType {
 // PhysicalUUID returns unique UUID based on connection of given USB port
 // The main usage is to identify groups of handlers that represent one physical device
 func (d *DeviceInfo) PhysicalUUID() PhysicalID {
-	phys := strings.Split(d.Phys, "/")
-	return PhysicalID(phys[0])
+	return PhysicalID(d.Phys)
 }

@@ -67,7 +67,7 @@ files.
     For this kind of events there is a special format that covers few different use cases:
     - `{type: cc, cc: 0}` - CC control for CC0 (for non-negative analog input like trigger)
     - `{type: cc, cc: 0, cc_negative: 1}` - CC control for CC0 and CC1, useful when you want to have
-      two different CC messages on positive and negative values
+      two different CC messages for positive and negative values
       (like one axis of analog stick with neutral center position)
     - `{type: key, note: c0}` - note emulation, useful for D-pad which is recognized as analog input.
       `note_negative` may be optionally defined as well.
@@ -90,6 +90,24 @@ files.
     - `other` - all other LEDs supported by keyboard but not used by application, eg. additional LED strip
     - `active` - notes pressed on keyboard directly
     - `active_external` - notes enabled by external midi input on current channel
+
+### Gyro
+
+Gyro requires hardware i2c sensor and configuration in `hidi.toml` to work properly.
+
+You can configure several different keys for different CC values, even when using
+the same axis, just fill up another `[[gyro]]` section
+
+- `gyro`: main configuration section
+  - `type` - `cc` or `pitch_bend`
+  - `cc` - ControlChange number (ignored for `pitch_bend`)
+  - `activation_key` - keyboard activation key
+  - `activation_mode` - `toggle` or `hold`
+  - `axis` - `x`, `y` or `z`, respective gyro axis
+  - `reset_on_deactivation` - bool, set value back to 0 on release/deactivation
+  - `flip_axis` - flip direction
+  - `value_multipier` - float, strength setting on axis rotation
+
 
 # Tip
 
