@@ -50,7 +50,7 @@ var (
 	listMidiDevices = flag.Bool("listmididevices", false, "list available midi devices")
 	silent          = flag.Bool("silent", false, "no output logging, best performance")
 	virtual         = flag.Bool("virtual", false, "create virtual alsa midi port instead of connecting to existing one")
-	standalone      = flag.Bool("standalone", false, "TBA")
+	standalone      = flag.Bool("standalone", false, "start application and preserve selected by user keyboard as standard input device")
 )
 
 var log = logger.GetLogger()
@@ -242,7 +242,7 @@ func main() {
 	score := midi.Score{}
 
 	midi.ProcessMidiEvents(ctx, midiPort, midiEventsOut, midiEventsIn, &score)
-	go func() {}()
+
 	var devices = make(map[*device.Device]*device.Device, 16)
 	var devicesMutex = sync.Mutex{}
 
