@@ -247,6 +247,8 @@ func (d *Device) NoteOn(ev *input.InputEvent) {
 		if !d.noLogs {
 			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
+	default:
+		panic("unsupported collision mode")
 	}
 
 	d.noteTracker[ev.Event.Code] = [2]byte{note, d.channel}

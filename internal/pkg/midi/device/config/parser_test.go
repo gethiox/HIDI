@@ -14,7 +14,7 @@ func TestParseDefaultKeyboard(t *testing.T) {
 	data, err := os.ReadFile("../../../../../cmd/hidi/hidi-config/factory/keyboard/0_default.toml")
 	assert.Equal(t, nil, err)
 
-	c, err := parseData(data)
+	c, err := ParseData(data)
 	assert.Equal(t, nil, err)
 
 	expectedConfig := Config{
@@ -364,7 +364,7 @@ func TestParseDefaultGamepad(t *testing.T) {
 	data, err := os.ReadFile("../../../../../cmd/hidi/hidi-config/factory/gamepad/0_default.toml")
 	assert.Equal(t, nil, err)
 
-	c, err := parseData(data)
+	c, err := ParseData(data)
 	assert.Equal(t, nil, err)
 
 	expectedConfig := Config{

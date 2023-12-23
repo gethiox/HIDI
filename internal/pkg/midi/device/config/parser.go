@@ -132,7 +132,7 @@ type DeviceConfig struct {
 	Config     Config
 }
 
-func parseData(data []byte) (Config, error) {
+func ParseData(data []byte) (Config, error) {
 	cfg := TOMLDeviceConfig{}
 
 	d := toml.NewDecoder(bytes.NewReader(data))
@@ -443,7 +443,7 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 		return DeviceConfig{}, fmt.Errorf("reading file data failed: %w", err)
 	}
 
-	conf, err := parseData(data)
+	conf, err := ParseData(data)
 	if err != nil {
 		return DeviceConfig{}, err
 	}
