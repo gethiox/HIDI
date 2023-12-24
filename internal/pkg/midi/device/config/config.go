@@ -108,14 +108,21 @@ type Analog struct {
 	MappingType       MappingType
 	CC, CCNeg         byte
 	Note, NoteNeg     byte
+	ChannelOffset     byte
+	ChannelOffsetNeg  byte
 	Action, ActionNeg Action
 	FlipAxis          bool
 	Bidirectional     bool
 }
 
+type Key struct {
+	Note          byte
+	ChannelOffset byte
+}
+
 type KeyMapping struct {
 	Name   string
-	Midi   map[evdev.EvCode]byte
+	Midi   map[evdev.EvCode]Key
 	Analog map[evdev.EvCode]Analog
 }
 

@@ -175,53 +175,57 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	case config.AnalogCC:
 		var adjustedValue float64
 
+		channel := (d.channel + analog.ChannelOffset) % 16
+		channelNeg := (d.channel + analog.ChannelOffsetNeg) % 16
+
 		switch {
 		case canBeNegative && analog.Bidirectional:
 			adjustedValue = math.Abs(value)
 			if value < 0 {
-				d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+				d.outputEvents <- midi.ControlChangeEvent(channelNeg, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
 				if !d.ccZeroed[analog.CC] {
-					d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CC, 0)
+					d.outputEvents <- midi.ControlChangeEvent(channel, analog.CC, 0)
 					d.ccZeroed[analog.CC] = true
 				}
 				d.ccZeroed[analog.CCNeg] = false
 			} else {
-				d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+				d.outputEvents <- midi.ControlChangeEvent(channel, analog.CC, byte(int(float64(127)*adjustedValue)))
 				if !d.ccZeroed[analog.CCNeg] {
-					d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CCNeg, 0)
+					d.outputEvents <- midi.ControlChangeEvent(channelNeg, analog.CCNeg, 0)
 					d.ccZeroed[analog.CCNeg] = true
 				}
 				d.ccZeroed[analog.CC] = false
 			}
 		case canBeNegative && !analog.Bidirectional:
 			adjustedValue = (value + 1) / 2
-			d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+			d.outputEvents <- midi.ControlChangeEvent(channel, analog.CC, byte(int(float64(127)*adjustedValue)))
 		case !canBeNegative && analog.Bidirectional:
 			adjustedValue = math.Abs(value*2 - 1)
 			if value < 0.5 {
-				d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
+				d.outputEvents <- midi.ControlChangeEvent(channelNeg, analog.CCNeg, byte(int(float64(127)*adjustedValue)))
 				if !d.ccZeroed[analog.CC] {
-					d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CC, 0)
+					d.outputEvents <- midi.ControlChangeEvent(channel, analog.CC, 0)
 					d.ccZeroed[analog.CC] = true
 				}
 				d.ccZeroed[analog.CCNeg] = false
 			} else {
-				d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+				d.outputEvents <- midi.ControlChangeEvent(channel, analog.CC, byte(int(float64(127)*adjustedValue)))
 				if !d.ccZeroed[analog.CCNeg] {
-					d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CCNeg, 0)
+					d.outputEvents <- midi.ControlChangeEvent(channelNeg, analog.CCNeg, 0)
 					d.ccZeroed[analog.CCNeg] = true
 				}
 				d.ccZeroed[analog.CC] = false
 			}
 		case !canBeNegative && !analog.Bidirectional:
 			adjustedValue = value
-			d.outputEvents <- midi.ControlChangeEvent(d.channel, analog.CC, byte(int(float64(127)*adjustedValue)))
+			d.outputEvents <- midi.ControlChangeEvent(channel, analog.CC, byte(int(float64(127)*adjustedValue)))
 		}
 	case config.AnalogPitchBend:
+		channel := (d.channel + analog.ChannelOffset) % 16
 		if canBeNegative {
-			d.outputEvents <- midi.PitchBendEvent(d.channel, value)
+			d.outputEvents <- midi.PitchBendEvent(channel, value)
 		} else {
-			d.outputEvents <- midi.PitchBendEvent(d.channel, value*2-1.0)
+			d.outputEvents <- midi.PitchBendEvent(channel, value*2-1.0)
 		}
 	case config.AnalogKeySim:
 		if !canBeNegative {
@@ -235,7 +239,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		case value <= -0.5:
 			_, ok := d.analogNoteTracker[identifierNeg]
 			if !ok {
-				d.AnalogNoteOn(identifierNeg, analog.NoteNeg)
+				d.AnalogNoteOn(identifierNeg, analog.NoteNeg, analog.ChannelOffsetNeg)
 			}
 			d.AnalogNoteOff(identifier)
 		case value > -0.49 && value < 0.49:
@@ -244,7 +248,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		case value >= 0.5:
 			_, ok := d.analogNoteTracker[identifier]
 			if !ok {
-				d.AnalogNoteOn(identifier, analog.Note)
+				d.AnalogNoteOn(identifier, analog.Note, analog.ChannelOffset)
 			}
 			d.AnalogNoteOff(identifierNeg)
 		}

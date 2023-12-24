@@ -435,12 +435,12 @@ func (d *Device) handleOpenrgb(ctx context.Context, wg *sync.WaitGroup) {
 
 	for _, m := range d.config.KeyMappings {
 		var midiKeyMapping = make(map[byte][]evdev.EvCode)
-		for code, note := range m.Midi {
-			_, ok := midiKeyMapping[note]
+		for code, key := range m.Midi {
+			_, ok := midiKeyMapping[key.Note]
 			if !ok {
-				midiKeyMapping[note] = []evdev.EvCode{code}
+				midiKeyMapping[key.Note] = []evdev.EvCode{code}
 			} else {
-				midiKeyMapping[note] = append(midiKeyMapping[note], code)
+				midiKeyMapping[key.Note] = append(midiKeyMapping[key.Note], code)
 			}
 		}
 		MidiKeyMappings = append(MidiKeyMappings, midiKeyMapping)
@@ -606,12 +606,13 @@ root:
 		}
 
 		// keyboard mapping
-		for code, note := range d.config.KeyMappings[d.mapping].Midi {
+		for code, key := range d.config.KeyMappings[d.mapping].Midi {
 			id, ok := indexMap[code]
 			if !ok {
 				continue
 			}
 
+			note := key.Note
 			x := int(note) + offset
 			if x < 0 || x > 127 {
 				continue

@@ -232,9 +232,9 @@ func TestCollisionOff(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]byte{
-						evdev.KEY_A: 0,
-						evdev.KEY_B: 0,
+					Midi: map[evdev.EvCode]config.Key{
+						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
 					},
 					Analog: map[evdev.EvCode]config.Analog{},
 				},
@@ -292,9 +292,9 @@ func TestCollisionNoRepeat(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]byte{
-						evdev.KEY_A: 0,
-						evdev.KEY_B: 0,
+					Midi: map[evdev.EvCode]config.Key{
+						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
 					},
 					Analog: map[evdev.EvCode]config.Analog{},
 				},
@@ -350,9 +350,9 @@ func TestCollisionInterrupt(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]byte{
-						evdev.KEY_A: 0,
-						evdev.KEY_B: 0,
+					Midi: map[evdev.EvCode]config.Key{
+						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
 					},
 					Analog: map[evdev.EvCode]config.Analog{},
 				},
@@ -410,9 +410,9 @@ func TestCollisionRetrigger(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]byte{
-						evdev.KEY_A: 0,
-						evdev.KEY_B: 0,
+					Midi: map[evdev.EvCode]config.Key{
+						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
 					},
 					Analog: map[evdev.EvCode]config.Analog{},
 				},
@@ -454,4 +454,75 @@ func TestCollisionRetrigger(t *testing.T) {
 	close(kbdEvents)
 	wg.Wait()
 	close(midiEvents)
+}
+
+func TestChannelOffset(t *testing.T) {
+	inputDevice := input.Device{
+		Name:       "Dummy",
+		DeviceType: input.KeyboardDevice,
+	}
+
+	cfg := config.DeviceConfig{
+		ConfigFile: "/virtual",
+		ConfigType: "factory",
+		Config: config.Config{
+			KeyMappings: []config.KeyMapping{
+				{
+					Name: "Default",
+					Midi: map[evdev.EvCode]config.Key{
+						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+						evdev.KEY_B: {Note: 0, ChannelOffset: 4},
+					},
+					Analog: map[evdev.EvCode]config.Analog{},
+				},
+			},
+			ActionMapping: map[evdev.EvCode]config.Action{
+				evdev.KEY_F1: config.ChannelDown,
+				evdev.KEY_F2: config.ChannelUp,
+			},
+			ExitSequence:  []evdev.EvCode{},
+			CollisionMode: config.CollisionOff,
+			Defaults: config.Defaults{
+				Octave:   0,
+				Semitone: 0,
+				Channel:  1,
+				Mapping:  0,
+			},
+		},
+	}
+
+	kbdEvents := make(chan *input.InputEvent)
+	midiEvents := make(chan midi.Event, 2560)
+
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		d.ProcessEvents(kbdEvents)
+		wg.Done()
+	}()
+
+	kbdEvents <- key(evdev.KEY_A, EV_KEY_PRESS)
+	kbdEvents <- key(evdev.KEY_A, EV_KEY_RELEASE)
+	kbdEvents <- key(evdev.KEY_B, EV_KEY_PRESS)
+	kbdEvents <- key(evdev.KEY_B, EV_KEY_RELEASE)
+	// channel uo
+	kbdEvents <- key(evdev.KEY_F2, EV_KEY_PRESS)
+	kbdEvents <- key(evdev.KEY_F2, EV_KEY_RELEASE)
+	kbdEvents <- key(evdev.KEY_A, EV_KEY_PRESS)
+	kbdEvents <- key(evdev.KEY_A, EV_KEY_RELEASE)
+	kbdEvents <- key(evdev.KEY_B, EV_KEY_PRESS)
+	kbdEvents <- key(evdev.KEY_B, EV_KEY_RELEASE)
+
+	events, err := readN(midiEvents, 8)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, midi.NoteEvent(midi.NoteOn, 0, 0, 64), events[0])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOff, 0, 0, 0), events[1])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOn, 4, 0, 64), events[2])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOff, 4, 0, 0), events[3])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOn, 1, 0, 64), events[4])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOff, 1, 0, 0), events[5])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOn, 5, 0, 64), events[6])
+	assert.Equal(t, midi.NoteEvent(midi.NoteOff, 5, 0, 0), events[7])
+
 }
