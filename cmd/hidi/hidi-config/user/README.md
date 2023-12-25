@@ -111,7 +111,7 @@ with channel offsets, those parameters will move along with `channel_up`/`channe
 For example, key Z has default offset 0 (first channel), key X has offset 1 (second channel), channels will shift when
 `channel_up` was triggered, now key Z is at second channel where key X is at third channel.
 
-When channel offset + current channel will exceed expected 1-16 range, it will wrap around back to beginning when needed. 
+When channel offset + current channel will exceed expected 1-16 range, it will wrap around back to beginning. 
  
 ### OpenRGB
 
