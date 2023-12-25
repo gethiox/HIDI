@@ -239,8 +239,9 @@ func ParseData(data []byte) (Config, error) {
 				}
 			case AnalogPitchBend:
 				analogMapping[evcode] = Analog{
-					MappingType: mappingType,
-					FlipAxis:    analog.FlipAxis,
+					MappingType:   mappingType,
+					FlipAxis:      analog.FlipAxis,
+					ChannelOffset: byte(analog.ChannelOffset),
 				}
 			case AnalogActionSim:
 				var bidirectional bool
