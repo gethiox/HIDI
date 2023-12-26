@@ -206,51 +206,55 @@ func (d *Device) checkDoubleActions() bool {
 }
 
 func (d *Device) NoteOn(ev *input.InputEvent) {
-	note, ok := d.config.KeyMappings[d.mapping].Midi[ev.Event.Code]
+	key, ok := d.config.KeyMappings[d.mapping].Midi[ev.Event.Code]
 	if !ok {
 		return
 	}
+	note := key.Note
 	noteCalculatored := int(note) + int(d.octave*12) + int(d.semitone)
 	if noteCalculatored < 0 || noteCalculatored > 127 {
 		return
 	}
 	note = uint8(noteCalculatored)
+	channel := (d.channel + key.ChannelOffset) % 16
 
 	var event midi.Event
 	switch d.config.CollisionMode {
 	case config.CollisionOff, config.CollisionRetrigger:
-		event = midi.NoteEvent(midi.NoteOn, d.channel, note, d.velocity)
+		event = midi.NoteEvent(midi.NoteOn, channel, note, d.velocity)
 		d.outputEvents <- event
 		if !d.noLogs { // TODO: maybe move logging outside of device, but it will need InputEvent and Device reference tho
 			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
 	case config.CollisionNoRepeat:
-		if d.activeNotesCounter[d.channel][note] > 0 {
+		if d.activeNotesCounter[channel][note] > 0 {
 			break
 		}
-		event = midi.NoteEvent(midi.NoteOn, d.channel, note, d.velocity)
+		event = midi.NoteEvent(midi.NoteOn, channel, note, d.velocity)
 		d.outputEvents <- event
 		if !d.noLogs {
 			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
 	case config.CollisionInterrupt:
-		if d.activeNotesCounter[d.channel][note] > 0 {
-			event = midi.NoteEvent(midi.NoteOff, d.channel, note, 0)
+		if d.activeNotesCounter[channel][note] > 0 {
+			event = midi.NoteEvent(midi.NoteOff, channel, note, 0)
 			d.outputEvents <- event
 			if !d.noLogs {
 				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 			}
 		}
 
-		event = midi.NoteEvent(midi.NoteOn, d.channel, note, d.velocity)
+		event = midi.NoteEvent(midi.NoteOn, channel, note, d.velocity)
 		d.outputEvents <- event
 		if !d.noLogs {
 			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 		}
+	default:
+		panic("unsupported collision mode")
 	}
 
-	d.noteTracker[ev.Event.Code] = [2]byte{note, d.channel}
-	d.activeNotesCounter[d.channel][note]++
+	d.noteTracker[ev.Event.Code] = [2]byte{note, channel}
+	d.activeNotesCounter[channel][note]++
 }
 
 func (d *Device) NoteOff(ev *input.InputEvent) {
@@ -285,15 +289,17 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 	d.activeNotesCounter[channel][note]--
 }
 
-func (d *Device) AnalogNoteOn(identifier string, note byte) { // TODO: multinote, collision handler
+func (d *Device) AnalogNoteOn(identifier string, note byte, channelOffset byte) { // TODO: multinote, collision handler
 	noteCalculatored := int(note) + int(d.octave*12) + int(d.semitone)
 	if noteCalculatored < 0 || noteCalculatored > 127 {
 		return
 	}
 	note = uint8(noteCalculatored)
 
-	d.analogNoteTracker[identifier] = [2]byte{note, d.channel}
-	event := midi.NoteEvent(midi.NoteOn, d.channel, note, 64)
+	channel := (d.channel + channelOffset) % 16
+
+	d.analogNoteTracker[identifier] = [2]byte{note, channel}
+	event := midi.NoteEvent(midi.NoteOn, channel, note, 64)
 	d.outputEvents <- event
 	if !d.noLogs {
 		log.Info(event.String(), d.logFields(logger.Keys)...)
