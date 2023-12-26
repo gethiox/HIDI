@@ -38,7 +38,7 @@ the best user experience possible.
 - Application will reload configuration when new one will appear or existing one was changed.
   Very useful when user want to craft their own configuration
 - Gyroscope sensor support (arm platforms) for pitch-bend and CC controls
-- OpenRGB support ([Demo](https://youtu.be/QF_z6LHcSkE)) (Check `Direct Mode` section [here](https://gitlab.com/CalcProgrammer1/OpenRGB/-/wikis/Supported-Devices#keyboards) for
+- OpenRGB support ([Demo](https://youtu.be/QF_z6LHcSkE)) (Check `"Direct" Mode` [here](https://openrgb.org/devices.html) for
   supported devices.)
 
 # Requirements

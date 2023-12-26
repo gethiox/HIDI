@@ -78,6 +78,41 @@ files.
 - `deadzones` - key:deadzone mapping in `0.0` - `1.0` range.
 - `default_deadzone` - default deadzone value for all other events  that were not specified in `deadzones` section
 
+### Multi Channel mapping
+
+For button presses, CC controls and pitch-bend it is possible to define optional midi channel offset value (0-15 range),
+useful to control multiple channels in one mapping.
+
+For button presses, simply put a value after a comma like so:
+```toml
+KEY_Z = "c0"
+KEY_X = "c0,1"
+```
+In given example, key Z has default channel offset 0 and will emit c0 note at current channel (so first channel by default)
+where key X will emit c0 note at current channel + 1 (second channel in that case).
+
+For analog events (CC control and pitch-bend) there are additional fields available to define channel offset: 
+`channel_offset` and `channel_offset_negative`. (0 is defined by default)
+To specify an offset, simply put a value in respective field like so:
+```toml
+[mapping.analog]
+  ABS_X = { type = "cc", cc = 0 }
+  ABS_Y = { type = "pitch_bend", flip_axis = true, channel_offset = 1 }
+  ABS_RX = { type = "cc", cc = 1, cc_negative = 2, channel_offset = 2, channel_offset_negative = 3 }
+```
+In given example, X axis controls CC0 at current channel (first channel), Y axis controls pitch-bend
+at current channel + 1 (second channel) and RX axis controls both CC1 and CC2 at current channel + 2 (third channel)
+and current channel + 3 (fourth channel) respectively.
+
+#### channel offset behaviour
+
+Device has integrated channel control (up/down), and offset is well integrated with it. When user has defined a mapping
+with channel offsets, those parameters will move along with `channel_up`/`channel_down` actions.
+For example, key Z has default offset 0 (first channel), key X has offset 1 (second channel), channels will shift when
+`channel_up` was triggered, now key Z is at second channel where key X is at third channel.
+
+When channel offset + current channel will exceed expected 1-16 range, it will wrap around back to beginning. 
+ 
 ### OpenRGB
 
 - `open_rgb`: main configuration section

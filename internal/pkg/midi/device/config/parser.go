@@ -7,6 +7,7 @@ import (
 	"os"
 	path2 "path"
 	"strconv"
+	"strings"
 
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/holoplot/go-evdev"
@@ -67,14 +68,16 @@ type TOMLDeviceConfig struct {
 		Name          string            `toml:"name"`
 		KeyMapping    map[string]string `toml:"keys"`
 		AnalogMapping map[string]struct {
-			Type           string  `toml:"type"`
-			CC             *int    `toml:"cc,omitempty"`
-			CCNegative     *int    `toml:"cc_negative,omitempty"`
-			Note           *int    `toml:"note,omitempty"`
-			NoteNegative   *int    `toml:"note_negative,omitempty"`
-			Action         *string `toml:"action,omitempty"`
-			ActionNegative *string `toml:"action_negative,omitempty"`
-			FlipAxis       bool    `toml:"flip_axis"`
+			Type                  string  `toml:"type"`
+			CC                    *int    `toml:"cc,omitempty"`
+			CCNegative            *int    `toml:"cc_negative,omitempty"`
+			Note                  *int    `toml:"note,omitempty"`
+			NoteNegative          *int    `toml:"note_negative,omitempty"`
+			ChannelOffset         int     `toml:"channel_offset"`
+			ChannelOffsetNegative int     `toml:"channel_offset_negative"`
+			Action                *string `toml:"action,omitempty"`
+			ActionNegative        *string `toml:"action_negative,omitempty"`
+			FlipAxis              bool    `toml:"flip_axis"`
 		} `toml:"analog,omitempty"`
 	} `toml:"mapping"`
 }
@@ -132,7 +135,7 @@ type DeviceConfig struct {
 	Config     Config
 }
 
-func parseData(data []byte) (Config, error) {
+func ParseData(data []byte) (Config, error) {
 	cfg := TOMLDeviceConfig{}
 
 	d := toml.NewDecoder(bytes.NewReader(data))
@@ -150,24 +153,45 @@ func parseData(data []byte) (Config, error) {
 	for _, mapping := range cfg.KeyMappings {
 		// for name, mappingRaw := range mappings
 		name := mapping.Name
-		var midiMapping = make(map[evdev.EvCode]byte)
+		var midiMapping = make(map[evdev.EvCode]Key)
 		var analogMapping = make(map[evdev.EvCode]Analog)
 
 		for evcodeRaw, valueRaw := range mapping.KeyMapping {
 			evcode := evdev.KEYFromString[evcodeRaw]
 
-			noteInt, err := strconv.Atoi(valueRaw)
+			noteAndOffset := strings.Split(valueRaw, ",")
+			var noteRaw, offsetRaw string
+			switch len(noteAndOffset) {
+			case 1:
+				noteRaw = noteAndOffset[0]
+				offsetRaw = "0"
+			case 2:
+				noteRaw = noteAndOffset[0]
+				offsetRaw = noteAndOffset[1]
+			default:
+				return Config{}, fmt.Errorf("[%s] %s: unsupported comma-separated field count: %d (expected 1 or 2)", name, evcodeRaw, len(noteAndOffset))
+			}
+
+			offsetInt, err := strconv.Atoi(offsetRaw)
+			if err != nil {
+				return Config{}, fmt.Errorf("[%s] %s: failed to parse channel offset value", name, evcodeRaw)
+			}
+			if offsetInt < 0 || offsetInt > 15 {
+				return Config{}, fmt.Errorf("[%s] %s: channel offset outside of 0-15 range", name, evcodeRaw)
+			}
+
+			noteInt, err := strconv.Atoi(noteRaw)
 			if err == nil {
 				if noteInt < 0 || noteInt > 127 {
 					return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, noteInt)
 				}
-				midiMapping[evcode] = byte(noteInt)
+				midiMapping[evcode] = Key{Note: byte(noteInt), ChannelOffset: byte(offsetInt)}
 				continue
 			}
 
-			note, err := StringToNote(valueRaw)
+			note, err := StringToNote(noteRaw)
 			if err == nil {
-				midiMapping[evcode] = note
+				midiMapping[evcode] = Key{Note: note, ChannelOffset: byte(offsetInt)}
 				continue
 			}
 			return Config{}, fmt.Errorf("[%s] %s: failed to parse note: %v", name, evcodeRaw, err)
@@ -205,16 +229,19 @@ func parseData(data []byte) (Config, error) {
 				}
 
 				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					CC:            CC,
-					CCNeg:         CCNeg,
-					FlipAxis:      analog.FlipAxis,
-					Bidirectional: bidirectional,
+					MappingType:      mappingType,
+					CC:               CC,
+					CCNeg:            CCNeg,
+					ChannelOffset:    byte(analog.ChannelOffset),
+					ChannelOffsetNeg: byte(analog.ChannelOffsetNegative),
+					FlipAxis:         analog.FlipAxis,
+					Bidirectional:    bidirectional,
 				}
 			case AnalogPitchBend:
 				analogMapping[evcode] = Analog{
-					MappingType: mappingType,
-					FlipAxis:    analog.FlipAxis,
+					MappingType:   mappingType,
+					FlipAxis:      analog.FlipAxis,
+					ChannelOffset: byte(analog.ChannelOffset),
 				}
 			case AnalogActionSim:
 				var bidirectional bool
@@ -443,7 +470,7 @@ func readDeviceConfig(path, configType string) (DeviceConfig, error) {
 		return DeviceConfig{}, fmt.Errorf("reading file data failed: %w", err)
 	}
 
-	conf, err := parseData(data)
+	conf, err := ParseData(data)
 	if err != nil {
 		return DeviceConfig{}, err
 	}
