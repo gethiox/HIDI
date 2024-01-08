@@ -134,6 +134,8 @@ func (d *DeviceInfo) HandlerType() HandlerType {
 	switch {
 	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP):
 		return DI_TYPE_STD_KBD
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_ABS, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP): // Cuifati
+		return DI_TYPE_STD_KBD
 	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC, evdev.EV_REP):
 		return DI_TYPE_NKRO_KBD
 	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_MSC):
