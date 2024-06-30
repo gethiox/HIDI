@@ -1,0 +1,61 @@
+collision_mode = "interrupt"
+exit_sequence = []
+
+[identifier]
+  bus = 0x0003
+  vendor = 0x0738
+  product = 0x2221
+  version = 0x0111
+
+[defaults] # initial device state
+  octave = 0
+  semitone = 0
+  channel = 1
+  mapping = "Default"
+
+[action_mapping]
+  #
+
+[deadzone]
+  default = 0.0
+  [deadzone.deadzones]
+    x00 = 0.0 # JOY_X
+    x01 = 0.0 # JOY_Y
+    x05 = 0.0 # JOY_RX
+    x03 = 0.0 # thumb JOY_RX
+    x04 = 0.0 # thumb JOY_RY
+
+[[mapping]]
+  name = "Default"
+  [mapping.keys]
+    x120 = "0" # JOY_BTN 1 (trigger)
+    x121 = "1" # JOY_BTN 2 (Button A)
+    x122 = "2" # JOY_BTN 3 (Button B)
+    x123 = "3" # JOY_BTN 4 (thumb joy)
+    x124 = "4" # JOY_BTN 6 (Button D)
+    x125 = "5" # JOY_BTN 5 (pinky)
+
+    # Witch Hat 1
+    x126 = "6" # JOY_BTN 7  (Up)
+    x129 = "7" # JOY_BTN 10 (Left)
+    x127 = "8" # JOY_BTN 8  (Right)
+    x128 = "9" # JOY_BTN 9  (Down)
+
+    # Witch Hat 2
+    x12a = "10" # JOY_BTN 11 (Up)
+    x12d = "11" # JOY_BTN 14 (Left)
+    x12b = "12" # JOY_BTN 12 (Right)
+    x12c = "13" # JOY_BTN 13 (Down)
+
+  [mapping.analog]
+    x00 = { type = "cc", cc = 1 } # JOY_X
+    x01 = { type = "cc", cc = 2 } # JOY_Y
+    x05 = { type = "cc", cc = 3 } # JOY_RX
+    x03 = { type = "cc", cc = 4 } # thumb JOY_RX
+    x04 = { type = "cc", cc = 5 } # thumb JOY_RY
+
+    # POV Hat
+    x11 = { type = "key", note = 14, note_negative = 15 } # up/down
+    x10 = { type = "key", note = 16, note_negative = 17 } # left/right
+
+

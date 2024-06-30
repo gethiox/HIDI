@@ -28,11 +28,12 @@ import (
 	gomidi "gitlab.com/gomidi/midi/v2"
 )
 
+// TODO: change integers to string in device configuration files under mapping.analog section
+
 var (
 	profile  = flag.Bool("profile", false, "runs web server for performance profiling (go tool pprof)")
 	grab     = flag.Bool("grab", false, "grab input devices for exclusive usage")
 	orgb     = flag.Bool("openrgb", false, "enable OpenRGB support")
-	force256 = flag.Bool("256", false, "force 256 color mode")
 	nocolor  = flag.Bool("nocolor", false, "disable color")
 	logLevel = flag.Int("loglevel", 3,
 		"logging level, each level enables additional information class (0-4, default: 3)\n"+
@@ -227,7 +228,9 @@ func main() {
 			port = *orgbPort
 		} else {
 			if len(openrgb.OpenRGB) != 0 {
-				log.Info(fmt.Sprintf("starting OpenRGB server (%s)", openrgb.OpenRGBVersion), logger.Info)
+				log.Info(fmt.Sprintf(
+					"starting OpenRGB %s server (%s)", openrgb.OpenRGBVersion, openrgb.OpenRGBArchitecture,
+				), logger.Info)
 				wg.Add(1)
 				go utils.RunBinary(&wg, ctx, openrgb.OpenRGB, port)
 			} else {

@@ -289,7 +289,7 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 	d.activeNotesCounter[channel][note]--
 }
 
-func (d *Device) AnalogNoteOn(identifier string, note byte, channelOffset byte) { // TODO: multinote, collision handler
+func (d *Device) AnalogNoteOn(identifier string, note byte, channelOffset byte, ev *input.InputEvent) { // TODO: multinote, collision handler
 	noteCalculatored := int(note) + int(d.octave*12) + int(d.semitone)
 	if noteCalculatored < 0 || noteCalculatored > 127 {
 		return
@@ -302,11 +302,11 @@ func (d *Device) AnalogNoteOn(identifier string, note byte, channelOffset byte) 
 	event := midi.NoteEvent(midi.NoteOn, channel, note, 64)
 	d.outputEvents <- event
 	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys)...)
+		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 	}
 }
 
-func (d *Device) AnalogNoteOff(identifier string) {
+func (d *Device) AnalogNoteOff(identifier string, ev *input.InputEvent) {
 	noteAndChannel, ok := d.analogNoteTracker[identifier]
 	if !ok {
 		return
@@ -317,7 +317,7 @@ func (d *Device) AnalogNoteOff(identifier string) {
 	d.outputEvents <- event
 	delete(d.analogNoteTracker, identifier)
 	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys)...)
+		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
 	}
 }
 
