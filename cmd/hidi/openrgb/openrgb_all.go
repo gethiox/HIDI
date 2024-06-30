@@ -5,4 +5,5 @@ package openrgb
 import _ "embed"
 
 var OpenRGB []byte
-var OpenRGBVersion = ""
+var OpenRGBArchitecture = "N/A"
+var OpenRGBVersion = "N/A"

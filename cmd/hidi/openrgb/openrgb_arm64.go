@@ -6,4 +6,5 @@ import _ "embed"
 
 //go:embed bin/openrgb-arm64
 var OpenRGB []byte
-var OpenRGBVersion = "arm64"
+var OpenRGBArchitecture = "arm64"
+var OpenRGBVersion = "0.9"

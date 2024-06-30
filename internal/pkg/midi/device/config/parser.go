@@ -135,6 +135,24 @@ type DeviceConfig struct {
 	Config     Config
 }
 
+func TomlKeyToEvCode(key string, lookupTable map[string]evdev.EvCode) (evdev.EvCode, error) {
+	if strings.HasPrefix(key, "x") {
+		keyTrimmed := strings.TrimPrefix(key, "x")
+		evcode, err := strconv.ParseUint(keyTrimmed, 16, 16)
+		if err != nil {
+			return evdev.EvCode(0), fmt.Errorf("convertion hex value \"%s\" failed: %w", keyTrimmed, err)
+		}
+		return evdev.EvCode(evcode), nil
+	}
+
+	evcode, ok := lookupTable[key]
+	if !ok {
+		return evdev.EvCode(0), fmt.Errorf("EvCode name \"%s\" not found / not supported")
+	}
+	return evcode, nil
+
+}
+
 func ParseData(data []byte) (Config, error) {
 	cfg := TOMLDeviceConfig{}
 
@@ -157,7 +175,10 @@ func ParseData(data []byte) (Config, error) {
 		var analogMapping = make(map[evdev.EvCode]Analog)
 
 		for evcodeRaw, valueRaw := range mapping.KeyMapping {
-			evcode := evdev.KEYFromString[evcodeRaw]
+			evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.KEYFromString)
+			if err != nil {
+				return Config{}, fmt.Errorf("[%s] %s: failed to parse evcode key: %w", name, evcodeRaw, err)
+			}
 
 			noteAndOffset := strings.Split(valueRaw, ",")
 			var noteRaw, offsetRaw string
@@ -198,7 +219,10 @@ func ParseData(data []byte) (Config, error) {
 		}
 
 		for evcodeRaw, analog := range mapping.AnalogMapping {
-			evcode := evdev.ABSFromString[evcodeRaw]
+			evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.ABSFromString)
+			if err != nil {
+				return Config{}, fmt.Errorf("[%s] %s: failed to parse evcode key: %w", name, evcodeRaw, err)
+			}
 
 			mappingType := MappingType(analog.Type)
 			if !SupportedMappingTypes[mappingType] {
@@ -316,9 +340,9 @@ func ParseData(data []byte) (Config, error) {
 	}
 
 	for evcodeRaw, actionRaw := range cfg.ActionMapping {
-		evcode, ok := evdev.KEYFromString[evcodeRaw]
-		if !ok {
-			return Config{}, fmt.Errorf("[actions] unsupported EvCode: %s", evcodeRaw)
+		evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.KEYFromString)
+		if err != nil {
+			return Config{}, fmt.Errorf("[actions] %w", err)
 		}
 		action := Action(actionRaw)
 		if !SupportedActions[action] {
@@ -328,9 +352,9 @@ func ParseData(data []byte) (Config, error) {
 	}
 
 	for evcodeRaw, value := range cfg.Deadzone.Deadzones {
-		evcode, ok := evdev.ABSFromString[evcodeRaw]
-		if !ok {
-			return Config{}, fmt.Errorf("[deadzones] unsupported EvCode: %s", evcodeRaw)
+		evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.ABSFromString)
+		if err != nil {
+			return Config{}, fmt.Errorf("[deadzones] %w", err)
 		}
 		deadzones[evcode] = value
 	}
@@ -352,9 +376,9 @@ func ParseData(data []byte) (Config, error) {
 
 	var exitSequence []evdev.EvCode
 	for _, key := range cfg.ExitSequence {
-		evcode, ok := evdev.KEYFromString[key]
-		if !ok {
-			return Config{}, fmt.Errorf("[exit_sequence] unsupported EvCode: %s", key)
+		evcode, err := TomlKeyToEvCode(key, evdev.KEYFromString)
+		if err != nil {
+			return Config{}, fmt.Errorf("[exit_sequence] %w", err)
 		}
 		exitSequence = append(exitSequence, evcode)
 	}

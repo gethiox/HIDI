@@ -239,18 +239,18 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		case value <= -0.5:
 			_, ok := d.analogNoteTracker[identifierNeg]
 			if !ok {
-				d.AnalogNoteOn(identifierNeg, analog.NoteNeg, analog.ChannelOffsetNeg)
+				d.AnalogNoteOn(identifierNeg, analog.NoteNeg, analog.ChannelOffsetNeg, ie)
 			}
-			d.AnalogNoteOff(identifier)
+			d.AnalogNoteOff(identifier, ie)
 		case value > -0.49 && value < 0.49:
-			d.AnalogNoteOff(identifier)
-			d.AnalogNoteOff(identifierNeg)
+			d.AnalogNoteOff(identifier, ie)
+			d.AnalogNoteOff(identifierNeg, ie)
 		case value >= 0.5:
 			_, ok := d.analogNoteTracker[identifier]
 			if !ok {
-				d.AnalogNoteOn(identifier, analog.Note, analog.ChannelOffset)
+				d.AnalogNoteOn(identifier, analog.Note, analog.ChannelOffset, ie)
 			}
-			d.AnalogNoteOff(identifierNeg)
+			d.AnalogNoteOff(identifierNeg, ie)
 		}
 	case config.AnalogActionSim:
 		if d.checkDoubleActions() {
@@ -470,7 +470,7 @@ func (d *Device) ProcessEvents(inputEvents <-chan *input.InputEvent) {
 		})
 	}
 	for identifier := range d.analogNoteTracker {
-		d.AnalogNoteOff(identifier)
+		d.AnalogNoteOff(identifier, &input.InputEvent{})
 	}
 
 	log.Info("virtual midi device waiting...", d.logFields(logger.Debug)...)

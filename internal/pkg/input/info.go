@@ -130,11 +130,12 @@ func hasExactly(list []evdev.EvType, elem ...evdev.EvType) bool {
 	return true
 }
 
+// TODO: god please help me clean this mess
 func (d *DeviceInfo) HandlerType() HandlerType {
 	switch {
 	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP):
 		return DI_TYPE_STD_KBD
-	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_ABS, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP): // Cuifati
+	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_ABS, evdev.EV_MSC, evdev.EV_LED, evdev.EV_REP): // Cuifatis
 		return DI_TYPE_STD_KBD
 	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_MSC, evdev.EV_REP):
 		return DI_TYPE_NKRO_KBD
@@ -147,6 +148,8 @@ func (d *DeviceInfo) HandlerType() HandlerType {
 	case hasExactly(d.CapableTypes, evdev.EV_SYN, evdev.EV_KEY, evdev.EV_REL, evdev.EV_ABS, evdev.EV_MSC):
 		return DI_TYPE_MULTIMEDIA
 	case has(d.CapableTypes, evdev.EV_FF):
+		return DI_TYPE_JOYSTICK
+	case has(d.CapableTypes, evdev.EV_ABS):
 		return DI_TYPE_JOYSTICK
 	}
 	return DI_TYPE_UNKNOWN

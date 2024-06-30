@@ -1,0 +1,88 @@
+collision_mode = "interrupt"
+exit_sequence = []
+
+[identifier]
+  bus = 0x0003
+  vendor = 0x0738
+  product = 0xa221
+  version = 0x0111
+
+[defaults] # initial device state
+  octave = 0
+  semitone = 0
+  channel = 1
+  mapping = "Default"
+
+[action_mapping]
+  #
+
+[deadzone]
+  default = 0.0
+  [deadzone.deadzones]
+    x00 = 0.0 # JOY_X
+    x01 = 0.0 # JOY_Y
+    x02 = 0.0 # Rotary 1
+    x05 = 0.0 # Rotary 2
+    x03 = 0.0 # JOY_RX (thumb joy)
+    x04 = 0.0 # JOY_RY (thumb joy)
+    x06 = 0.0 # JOY_SLIDER 2 (RTY4)
+    x07 = 0.0 # JOY_SLIDER 1 (RTY3)
+
+[[mapping]]
+  name = "Default"
+  [mapping.keys]
+    # throttle
+    x120 = "0" # JOY_BTN 1 (Button E)
+    x2d0 = "1" # JOY_BTN 33 ((SLD) Thumb)
+    x121 = "2" # JOY_BTN 2 (Rotary 1)
+    x122 = "3" # JOY_BTN 3 (Rotary 2)
+    # thumbstick 1
+    x2c3 = "4" # JOY_BTN 24 (Hat 3, up)
+    x2c5 = "5" # JOY_BTN 26 (Hat 3, down)
+    x2c6 = "6" # JOY_BTN 27 (Hat 3, left)
+    x2c4 = "7" # JOY_BTN 25 (Hat 3, right)
+    # thumbstick 2
+    x2c7 = "8" # JOY_BTN 20 (Hat 4, up)
+    x2c9 = "9" # JOY_BTN 22 (Hat 4, down)
+    x2ca = "10" # JOY_BTN 23 (Hat 4, left)
+    x2c8 = "11" # JOY_BTN 21 (Hat 4, right)
+    # thumbstick 3
+    x2cf = "12" # JOY_BTN 32
+    # throttle back
+    x123 = "13" # JOY_BTN 4
+    x124 = "14" # JOY_BTN 5
+    x2cb = "15" # JOY_BTN 28 (K! up)
+    x2cc = "16" # JOY_BTN 29 (K! Down)
+    x2ce = "17" # JOY_BTN 30 (Scroll FWD/BCK up)
+    x2cd = "18" # JOY_BTN 31 (Scroll FWD/BCK down)
+    # base
+    x125 = "19" # JOY_BTN 6 (SW 1)
+    x126 = "20" # JOY_BTN 7 (SW 2)
+    x127 = "21" # JOY_BTN 8 (SW 3)
+    x128 = "22" # JOY_BTN 9 (SW 4)
+    x129 = "23" # JOY_BTN 10 (SW 5)
+    x12a = "24" # JOY_BTN 11 (SW 6)
+
+    x12b = "25" # JOY_BTN 12 (TGL 1 up)
+    x12c = "26" # JOY_BTN 13 (TGL 1 down)
+    x12d = "27" # JOY_BTN 14 (TGL 2 up)
+    x12e = "28" # JOY_BTN 15 (TGL 2 down)
+    x12f = "29" # JOY_BTN 16 (TGL 3 up)
+    x2c0 = "30" # JOY_BTN 17 (TGL 3 down)
+    x2c1 = "31" # JOY_BTN 18 (TGL 4 up)
+    x2c2 = "32" # JOY_BTN 19 (TGL 4 down)
+    # mode switch (it holds state when switched, so I think it's not very useful)
+    # x2d1 = "33" # M1
+    # x2d2 = "34" # M2
+    # x2d3 = "35" # S1
+
+  [mapping.analog]
+    x00 = { type = "cc", cc = 1 } # JOY_X
+    x01 = { type = "cc", cc = 2 } # JOY_Y
+    x02 = { type = "cc", cc = 3 } # Rotary 1
+    x05 = { type = "cc", cc = 4 } # Rotary 2
+    x03 = { type = "cc", cc = 5 } # JOY_RX (thumb joy)
+    x04 = { type = "cc", cc = 6 } # JOY_RY (thumb joy)
+    x06 = { type = "cc", cc = 7 } # JOY_SLIDER 2 (RTY4)
+    x07 = { type = "cc", cc = 8 } # JOY_SLIDER 1 (RTY3)
+
