@@ -74,7 +74,7 @@ files.
     - `{type: pitch_bend}` - pitch-bend control
     - `{type: action, action: octave_up, action_negative: octave_down}` - self-explanatory (action emulation will be
       moved into `action_mapping` section in the future)
-    - for all these types there is optional `flip_axis: true` setting which inverts the interpretation of incoming values.
+    - for all these types there is optional `flip_axis: true` setting which inverts the interpretation of incoming values, and `deadzone_at_center: true` that sets the deadzone at the center of the range, instead of at zero.
 - `deadzones` - key:deadzone mapping in `0.0` - `1.0` range.
 - `default_deadzone` - default deadzone value for all other events  that were not specified in `deadzones` section
 
