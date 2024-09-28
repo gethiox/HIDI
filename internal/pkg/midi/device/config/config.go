@@ -113,6 +113,7 @@ type Analog struct {
 	Action, ActionNeg Action
 	FlipAxis          bool
 	Bidirectional     bool
+	DeadzoneAtCenter bool
 }
 
 type Key struct {
