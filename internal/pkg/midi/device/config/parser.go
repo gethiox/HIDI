@@ -78,6 +78,7 @@ type TOMLDeviceConfig struct {
 			Action                *string `toml:"action,omitempty"`
 			ActionNegative        *string `toml:"action_negative,omitempty"`
 			FlipAxis              bool    `toml:"flip_axis"`
+			DeadzoneAtCenter bool  `toml:"deadzone_at_center,omitempty"`
 		} `toml:"analog,omitempty"`
 	} `toml:"mapping"`
 }
@@ -260,12 +261,14 @@ func ParseData(data []byte) (Config, error) {
 					ChannelOffsetNeg: byte(analog.ChannelOffsetNegative),
 					FlipAxis:         analog.FlipAxis,
 					Bidirectional:    bidirectional,
+					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 			case AnalogPitchBend:
 				analogMapping[evcode] = Analog{
 					MappingType:   mappingType,
 					FlipAxis:      analog.FlipAxis,
 					ChannelOffset: byte(analog.ChannelOffset),
+					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 			case AnalogActionSim:
 				var bidirectional bool
@@ -295,6 +298,7 @@ func ParseData(data []byte) (Config, error) {
 					ActionNeg:     actionNegative,
 					FlipAxis:      analog.FlipAxis,
 					Bidirectional: bidirectional,
+					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 
 			case AnalogKeySim:
@@ -325,6 +329,7 @@ func ParseData(data []byte) (Config, error) {
 					NoteNeg:       noteNeg,
 					FlipAxis:      analog.FlipAxis,
 					Bidirectional: bidirectional,
+					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 			default:
 				return Config{}, fmt.Errorf("[%s] %s: unexpected mapping type: %s", name, evcodeRaw, mappingType)

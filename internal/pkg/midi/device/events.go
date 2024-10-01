@@ -125,20 +125,31 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		canBeNegative = true
 	}
 
+	// Normalize Value
+	if ie.Event.Value < 0 {
+		value = float64(ie.Event.Value) / math.Abs(float64(min))
+	} else {
+		value = float64(ie.Event.Value) / math.Abs(float64(max))
+	}
+
+	// Put it always between -1.0 and 1.0 so we can deadzone the center
+	if analog.DeadzoneAtCenter {
+		value = value * 2 - 1.0
+		canBeNegative = true
+	}
+
 	deadzone, ok := d.config.Deadzone.Deadzones[ie.Event.Code]
 	if !ok {
 		deadzone = d.config.Deadzone.Default
 	}
-
-	if ie.Event.Value < 0 {
-		value = float64(ie.Event.Value) / math.Abs(float64(min))
+  
+	if value < 0 {
 		if value > -deadzone {
 			value = 0
 		} else {
 			value = (value + deadzone) * (1.0 / (1.0 - deadzone))
 		}
 	} else {
-		value = float64(ie.Event.Value) / math.Abs(float64(max))
 		if value < deadzone {
 			value = 0
 		} else {
