@@ -3,18 +3,15 @@ package device
 import (
 	"context"
 	"fmt"
-	"math"
-	"sync"
-	"syscall"
-	"time"
-
-	"github.com/gethiox/HIDI/internal/pkg/gyro"
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
 	"github.com/gethiox/HIDI/internal/pkg/midi/device/config"
 	"github.com/holoplot/go-evdev"
 	"go.uber.org/zap"
+	"math"
+	"sync"
+	"syscall"
 )
 
 func (d *Device) checkExitSequence() bool {
@@ -34,7 +31,6 @@ func (d *Device) checkExitSequence() bool {
 func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 	_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
 	action, actionOk := d.config.ActionMapping[ie.Event.Code]
-	_, gyroOk := d.gyroAnalog[ie.Event.Code]
 
 	if ie.Event.Value == EV_KEY_PRESS {
 		d.keyTracker[ie.Event.Code] = struct{}{}
@@ -63,13 +59,6 @@ func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 			}
 			d.invokeActionRelease(action)
 			delete(d.actionTracker, action)
-		}
-	case gyroOk:
-		switch ie.Event.Value {
-		case EV_KEY_PRESS:
-			d.Gyro(ie, true)
-		case EV_KEY_RELEASE:
-			d.Gyro(ie, false)
 		}
 	case noteOk:
 		switch ie.Event.Value {
@@ -134,7 +123,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 
 	// Put it always between -1.0 and 1.0 so we can deadzone the center
 	if analog.DeadzoneAtCenter {
-		value = value * 2 - 1.0
+		value = value*2 - 1.0
 		canBeNegative = true
 	}
 
@@ -142,7 +131,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	if !ok {
 		deadzone = d.config.Deadzone.Default
 	}
-  
+
 	if value < 0 {
 		if value > -deadzone {
 			value = 0
@@ -319,134 +308,6 @@ func (d *Device) processEvent(event *input.InputEvent) {
 	}
 }
 
-func (d *Device) handleGyroEvents(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	next := time.Now().Add(time.Millisecond * 10)
-
-	var stateCleaned = make(map[evdev.EvCode][]bool)
-
-	for activationKey, states := range d.gyroAnalog {
-		stateCleaned[activationKey] = make([]bool, len(states))
-
-	}
-
-	var ev gyro.Vector
-	var val float64
-	var multiplier float64
-
-root:
-	for {
-		select {
-		case <-ctx.Done():
-			break root
-		case ev = <-d.gyro:
-			break
-		}
-
-		now := time.Now()
-		if !now.After(next) {
-			continue
-		}
-		next = now.Add(time.Millisecond * 10)
-
-		for activationKey, descs := range d.config.Gyro {
-			for i, desc := range descs {
-				if !d.gyroAnalog[activationKey][i].active {
-					if stateCleaned[activationKey][i] {
-						continue
-					}
-
-					if desc.ResetOnDeactivation {
-						d.gyroAnalog[activationKey][i].value = 0
-
-						var e midi.Event
-
-						switch desc.Type {
-						case config.AnalogPitchBend:
-							e = midi.PitchBendEvent(d.channel, 0)
-						case config.AnalogCC:
-							e = midi.ControlChangeEvent(d.channel, byte(desc.CC), 0)
-						default:
-							panic("ou")
-						}
-
-						d.outputEvents <- e
-						if !d.noLogs {
-							log.Info(e.String(), d.logFields(logger.Keys)...)
-						}
-					} else {
-						switch desc.Type {
-						case config.AnalogCC:
-							if d.gyroAnalog[activationKey][i].value > 1.0 {
-								d.gyroAnalog[activationKey][i].value = 1.0
-							} else if d.gyroAnalog[activationKey][i].value < 0.0 {
-								d.gyroAnalog[activationKey][i].value = 0.0
-							}
-						case config.AnalogPitchBend:
-							if d.gyroAnalog[activationKey][i].value > 1.0 {
-								d.gyroAnalog[activationKey][i].value = 1.0
-							} else if d.gyroAnalog[activationKey][i].value < -1.0 {
-								d.gyroAnalog[activationKey][i].value = -1.0
-							}
-						default:
-							panic("ouou")
-						}
-					}
-
-					stateCleaned[activationKey][i] = true
-					continue
-				}
-
-				stateCleaned[activationKey][i] = false
-
-				if desc.FlipAxis {
-					multiplier = desc.ValueMultiplier * -1
-				} else {
-					multiplier = desc.ValueMultiplier
-				}
-
-				switch desc.Axis {
-				case 0:
-					d.gyroAnalog[activationKey][i].value += ev.X * multiplier
-				case 1:
-					d.gyroAnalog[activationKey][i].value += ev.Y * multiplier
-				case 2:
-					d.gyroAnalog[activationKey][i].value += ev.Z * multiplier
-				}
-
-				val = d.gyroAnalog[activationKey][i].value
-
-				var e midi.Event
-
-				switch desc.Type {
-				case config.AnalogPitchBend:
-					if val > 1.0 {
-						val = 1.0
-					} else if val < -1.0 {
-						val = -1.0
-					}
-					e = midi.PitchBendEvent(d.channel, val)
-				case config.AnalogCC:
-					if val > 1.0 {
-						val = 1.0
-					} else if val < 0.0 {
-						val = 0.0
-					}
-					e = midi.ControlChangeEvent(d.channel, byte(desc.CC), byte(int(float64(127)*val)))
-				default:
-					continue
-				}
-				d.outputEvents <- e
-				if !d.noLogs {
-					log.Info(e.String(), d.logFields(logger.Keys)...)
-				}
-			}
-		}
-	}
-	log.Info(fmt.Sprintf("Gyro processing done"), d.logFields(logger.Debug)...)
-}
-
 func (d *Device) ProcessEvents(inputEvents <-chan *input.InputEvent) {
 	wg := sync.WaitGroup{}
 
@@ -454,10 +315,9 @@ func (d *Device) ProcessEvents(inputEvents <-chan *input.InputEvent) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	wg.Add(3)
+	wg.Add(2)
 	go d.handleOpenrgb(ctx, &wg)
 	go d.handleInputEvents(ctx, &wg)
-	go d.handleGyroEvents(ctx, &wg)
 
 	for ie := range inputEvents {
 		d.processEvent(ie)

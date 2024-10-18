@@ -573,38 +573,6 @@ root:
 
 		var hsvOfsset float64
 
-	outer:
-		for activationKey, descs := range d.config.Gyro {
-			for i, desc := range descs {
-				if desc.Type != config.AnalogPitchBend {
-					continue
-				}
-
-				hsvOfsset = d.gyroAnalog[activationKey][i].value
-				if hsvOfsset > 1.0 {
-					hsvOfsset = 1.0
-				}
-				if hsvOfsset < -1.0 {
-					hsvOfsset = -1.0
-				}
-
-				// update ledstrip
-				if !d.gyroAnalog[activationKey][i].active {
-					break
-				}
-
-				for k, v := range strip.Value(hsvOfsset*-1, 2.0) {
-					ledArray[nameToIndex[k]] = openrgb.Color{
-						Red:   byte(v * 255),
-						Green: byte(v * 255),
-						Blue:  byte(v * 255),
-					}
-				}
-
-				break outer
-			}
-		}
-
 		// keyboard mapping
 		for code, key := range d.config.KeyMappings[d.mapping].Midi {
 			id, ok := indexMap[code]
@@ -676,31 +644,6 @@ root:
 					continue
 				}
 				ledArray[id] = d.config.OpenRGB.Colors.Active
-			}
-		}
-
-		// update gyro keys
-		for activationKey, states := range d.gyroAnalog {
-			for _, state := range states { // warning, next occurrence will override led color
-				id, ok := indexMap[activationKey]
-				if !ok {
-					continue
-				}
-
-				value := state.value
-
-				if value > 1.0 {
-					value = 1.0
-				}
-				if value < -1.0 {
-					value = -1.0
-				}
-
-				if state.active {
-					ledArray[id] = valueToColor(value, 0.95, 1)
-				} else {
-					ledArray[id] = valueToColor(value, 1, 0.4)
-				}
 			}
 		}
 

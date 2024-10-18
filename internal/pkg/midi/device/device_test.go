@@ -77,7 +77,7 @@ func TestFactoryConfigIntegration(t *testing.T) {
 	kbdEvents := make(chan *input.InputEvent)
 	midiEvents := make(chan midi.Event, 2560)
 
-	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -254,7 +254,7 @@ func TestCollisionOff(t *testing.T) {
 	kbdEvents := make(chan *input.InputEvent)
 	midiEvents := make(chan midi.Event, 2560)
 
-	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -314,7 +314,7 @@ func TestCollisionNoRepeat(t *testing.T) {
 	kbdEvents := make(chan *input.InputEvent)
 	midiEvents := make(chan midi.Event, 2560)
 
-	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -372,7 +372,7 @@ func TestCollisionInterrupt(t *testing.T) {
 	kbdEvents := make(chan *input.InputEvent)
 	midiEvents := make(chan midi.Event, 2560)
 
-	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -432,7 +432,7 @@ func TestCollisionRetrigger(t *testing.T) {
 	kbdEvents := make(chan *input.InputEvent)
 	midiEvents := make(chan midi.Event, 2560)
 
-	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -494,7 +494,7 @@ func TestChannelOffset(t *testing.T) {
 	kbdEvents := make(chan *input.InputEvent)
 	midiEvents := make(chan midi.Event, 2560)
 
-	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil, nil)
+	d := NewDevice(inputDevice, cfg, midiEvents, nil, true, 0, nil)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {

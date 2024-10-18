@@ -15,17 +15,6 @@ import (
 	"github.com/realbucksavage/openrgb-go"
 )
 
-type GyroDescToml struct {
-	Axis                string  `toml:"axis"`
-	Type                string  `toml:"type"`
-	CC                  int     `toml:"cc"`
-	ActivationKey       string  `toml:"activation_key"`
-	ActivationMode      string  `toml:"activation_mode"`
-	ResetOnDeactivation bool    `toml:"reset_on_deactivation"`
-	FlipAxis            bool    `toml:"flip_axis"`
-	ValueMultiplier     float64 `toml:"value_multiplier"`
-}
-
 type TOMLDeviceConfig struct {
 	CollisionMode string   `toml:"collision_mode"`
 	ExitSequence  []string `toml:"exit_sequence"`
@@ -46,8 +35,6 @@ type TOMLDeviceConfig struct {
 	} `toml:"defaults"`
 
 	ActionMapping map[string]string `toml:"action_mapping"`
-
-	Gyro []GyroDescToml `toml:"gyro"`
 
 	OpenRGB struct {
 		White          int `toml:"white"`
@@ -78,7 +65,7 @@ type TOMLDeviceConfig struct {
 			Action                *string `toml:"action,omitempty"`
 			ActionNegative        *string `toml:"action_negative,omitempty"`
 			FlipAxis              bool    `toml:"flip_axis"`
-			DeadzoneAtCenter bool  `toml:"deadzone_at_center,omitempty"`
+			DeadzoneAtCenter      bool    `toml:"deadzone_at_center,omitempty"`
 		} `toml:"analog,omitempty"`
 	} `toml:"mapping"`
 }
@@ -148,7 +135,7 @@ func TomlKeyToEvCode(key string, lookupTable map[string]evdev.EvCode) (evdev.EvC
 
 	evcode, ok := lookupTable[key]
 	if !ok {
-		return evdev.EvCode(0), fmt.Errorf("EvCode name \"%s\" not found / not supported")
+		return evdev.EvCode(0), fmt.Errorf("EvCode name \"%s\" not found / not supported", key)
 	}
 	return evcode, nil
 
@@ -265,9 +252,9 @@ func ParseData(data []byte) (Config, error) {
 				}
 			case AnalogPitchBend:
 				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					FlipAxis:      analog.FlipAxis,
-					ChannelOffset: byte(analog.ChannelOffset),
+					MappingType:      mappingType,
+					FlipAxis:         analog.FlipAxis,
+					ChannelOffset:    byte(analog.ChannelOffset),
 					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 			case AnalogActionSim:
@@ -293,11 +280,11 @@ func ParseData(data []byte) (Config, error) {
 				}
 
 				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					Action:        action,
-					ActionNeg:     actionNegative,
-					FlipAxis:      analog.FlipAxis,
-					Bidirectional: bidirectional,
+					MappingType:      mappingType,
+					Action:           action,
+					ActionNeg:        actionNegative,
+					FlipAxis:         analog.FlipAxis,
+					Bidirectional:    bidirectional,
 					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 
@@ -324,11 +311,11 @@ func ParseData(data []byte) (Config, error) {
 				}
 
 				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					Note:          note,
-					NoteNeg:       noteNeg,
-					FlipAxis:      analog.FlipAxis,
-					Bidirectional: bidirectional,
+					MappingType:      mappingType,
+					Note:             note,
+					NoteNeg:          noteNeg,
+					FlipAxis:         analog.FlipAxis,
+					Bidirectional:    bidirectional,
 					DeadzoneAtCenter: analog.DeadzoneAtCenter,
 				}
 			default:
@@ -388,59 +375,6 @@ func ParseData(data []byte) (Config, error) {
 		exitSequence = append(exitSequence, evcode)
 	}
 
-	var gyro = make(map[evdev.EvCode][]GyroDesc)
-	var axisStringToIdx = map[string]int{"x": 0, "y": 1, "z": 2}
-
-	for _, desc := range cfg.Gyro {
-		mappingType := MappingType(desc.Type)
-		if !SupportedGyroMappingTypes[mappingType] {
-			return Config{}, fmt.Errorf("[gyro] unsupported type: %s", desc.Type)
-		}
-
-		switch mappingType {
-		case AnalogPitchBend:
-			break
-		case AnalogCC:
-			if desc.CC < 0 || desc.CC > 119 {
-				return Config{}, fmt.Errorf("[gyro] cc value outside of 0-119 range: %d", desc.CC)
-			}
-		default:
-			return Config{}, fmt.Errorf("[gyro] unexpected mapping type: %s", mappingType)
-		}
-
-		activationKey, ok := evdev.KEYFromString[desc.ActivationKey]
-		if !ok {
-			return Config{}, fmt.Errorf("[gyro] EvCode %s not exist", desc.ActivationKey)
-		}
-
-		activationMode := GyroMode(desc.ActivationMode)
-		if !SupportedGyroActivationTypes[activationMode] {
-			return Config{}, fmt.Errorf("[gyro] not supported activation mode: %s", desc.ActivationMode)
-		}
-
-		axis, ok := axisStringToIdx[desc.Axis]
-		if !ok {
-			return Config{}, fmt.Errorf("[gyro] incorrect axis: %s", desc.Axis)
-		}
-
-		gyroDesc := GyroDesc{
-			Axis:                axis,
-			Type:                mappingType,
-			CC:                  desc.CC,
-			ActivationMode:      activationMode,
-			ResetOnDeactivation: desc.ResetOnDeactivation,
-			FlipAxis:            desc.FlipAxis,
-			ValueMultiplier:     desc.ValueMultiplier,
-		}
-
-		_, ok = gyro[activationKey]
-		if !ok {
-			gyro[activationKey] = []GyroDesc{gyroDesc}
-		} else {
-			gyro[activationKey] = append(gyro[activationKey], gyroDesc)
-		}
-	}
-
 	convertToColor := func(v int) openrgb.Color {
 		return openrgb.Color{
 			Red:   byte(v >> 16),
@@ -482,7 +416,6 @@ func ParseData(data []byte) (Config, error) {
 				ActiveExternal: convertToColor(cfg.OpenRGB.ActiveExternal),
 			},
 		},
-		Gyro: gyro,
 	}
 	return devConfig, nil
 }

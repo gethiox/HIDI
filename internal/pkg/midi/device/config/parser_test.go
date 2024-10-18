@@ -332,29 +332,6 @@ func TestParseDefaultKeyboard(t *testing.T) {
 				ActiveExternal: openrgb.Color{Red: 0xff, Green: 0xff, Blue: 0xff},
 			},
 		},
-		Gyro: map[evdev.EvCode][]GyroDesc{
-			evdev.KEY_LEFTALT: {
-				{
-					Type:                "cc",
-					CC:                  1,
-					Axis:                1,
-					ActivationMode:      "toggle",
-					ResetOnDeactivation: false,
-					FlipAxis:            true,
-					ValueMultiplier:     0.2,
-				},
-			},
-			evdev.KEY_SPACE: {
-				{
-					Type:                "pitch_bend",
-					Axis:                2,
-					ActivationMode:      "hold",
-					ResetOnDeactivation: true,
-					FlipAxis:            false,
-					ValueMultiplier:     0.2,
-				},
-			},
-		},
 	}
 
 	assert.Equal(t, expectedConfig, c)
@@ -437,8 +414,9 @@ func TestParseDefaultGamepad(t *testing.T) {
 				ActiveExternal: openrgb.Color{},
 			},
 		},
-		Gyro: map[evdev.EvCode][]GyroDesc{},
 	}
 
 	assert.Equal(t, expectedConfig, c)
 }
+
+// TODO: test for deadzone_at_center

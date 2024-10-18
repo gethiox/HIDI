@@ -20,15 +20,8 @@ type HIDI struct {
 	StabilizationPeriod time.Duration
 }
 
-type Gyro struct {
-	Enabled bool
-	Address byte
-	Bus     byte
-}
-
 type HIDIConfig struct {
 	HIDI HIDI
-	Gyro Gyro
 }
 
 type HIDIConfigRaw struct {
@@ -39,12 +32,6 @@ type HIDIConfigRaw struct {
 		LogViewRate         int `toml:"log_view_rate"`
 		LogBufferSize       int `toml:"log_buffer_size"`
 	} `toml:"HIDI"`
-
-	Gyro struct {
-		Enabled bool `toml:"enabled"`
-		Address int  `toml:"address"`
-		Bus     int  `toml:"bus"`
-	} `toml:"gyro"`
 }
 
 func LoadHIDIConfig(path string) (HIDIConfig, error) {
@@ -64,10 +51,6 @@ func LoadHIDIConfig(path string) (HIDIConfig, error) {
 	config.HIDI.EVThrottling = time.Second / time.Duration(rawConfig.HIDI.PoolRate)
 	config.HIDI.DiscoveryRate = time.Second / time.Duration(rawConfig.HIDI.DiscoveryRate)
 	config.HIDI.StabilizationPeriod = time.Millisecond * time.Duration(rawConfig.HIDI.StabilizationPeriod)
-
-	config.Gyro.Enabled = rawConfig.Gyro.Enabled
-	config.Gyro.Address = byte(rawConfig.Gyro.Address)
-	config.Gyro.Bus = byte(rawConfig.Gyro.Bus)
 
 	return config, err
 }

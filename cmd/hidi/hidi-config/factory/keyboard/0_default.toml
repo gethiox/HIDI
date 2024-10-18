@@ -35,24 +35,6 @@ exit_sequence = ["KEY_LEFTALT", "KEY_ESC"] # emergency termination key-sequence
   active = 0xffffff
   active_external = 0xffffff
 
-[[gyro]]
-  type = "cc"
-  cc = 1
-  activation_key = "KEY_LEFTALT"
-  axis = "y"
-  activation_mode = "toggle"
-  reset_on_deactivation = false
-  flip_axis = true
-  value_multiplier = 0.2
-[[gyro]]
-  type = "pitch_bend"
-  activation_key = "KEY_SPACE"
-  axis = "z"
-  activation_mode = "hold"
-  reset_on_deactivation = true
-  flip_axis = false
-  value_multiplier = 0.2
-
 
 [[mapping]]
   name = "Piano"

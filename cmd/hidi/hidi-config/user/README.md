@@ -128,23 +128,6 @@ When channel offset + current channel will exceed expected 1-16 range, it will w
     - `active` - notes pressed on keyboard directly
     - `active_external` - notes enabled by external midi input on current channel
 
-### Gyro
-
-Gyro requires hardware i2c sensor and configuration in `hidi.toml` to work properly.
-
-You can configure several different keys for different CC values, even when using
-the same axis, just fill up another `[[gyro]]` section
-
-- `gyro`: main configuration section
-  - `type` - `cc` or `pitch_bend`
-  - `cc` - ControlChange number (ignored for `pitch_bend`)
-  - `activation_key` - keyboard activation key
-  - `activation_mode` - `toggle` or `hold`
-  - `axis` - `x`, `y` or `z`, respective gyro axis
-  - `reset_on_deactivation` - bool, set value back to 0 on release/deactivation
-  - `flip_axis` - flip direction
-  - `value_multipier` - float, strength setting on axis rotation
-
 
 # Tip
 

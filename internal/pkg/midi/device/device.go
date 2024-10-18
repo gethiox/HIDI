@@ -6,7 +6,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/gethiox/HIDI/internal/pkg/gyro"
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
@@ -33,7 +32,6 @@ type Device struct {
 	outputEvents chan<- midi.Event
 	target       *chan<- midi.Event
 	midiIn       <-chan midi.Event
-	gyro         <-chan gyro.Vector
 
 	// keeps track of currently active notes on midi input
 	externalNoteTracker  map[byte]map[byte]bool // channel: note
@@ -66,22 +64,14 @@ type Device struct {
 	mapping    int
 	ccLearning bool
 
-	gyroAnalog map[evdev.EvCode][]gyroState
-
 	actionsPress   map[config.Action]func(*Device)
 	actionsRelease map[config.Action]func(*Device)
-}
-
-type gyroState struct {
-	active bool
-	value  float64
 }
 
 func NewDevice(
 	inputDevice input.Device, cfg config.DeviceConfig,
 	midiEvents chan<- midi.Event, midiIn <-chan midi.Event,
 	noLogs bool, openrgbPort int,
-	gyroEvents <-chan gyro.Vector,
 	sigs chan os.Signal,
 ) Device {
 	var activeNoteCounter = make(map[byte]map[byte]int)
@@ -115,20 +105,6 @@ func NewDevice(
 		config.Learning: (*Device).CCLearningOff,
 	}
 
-	var gyroAnalog = make(map[evdev.EvCode][]gyroState)
-
-	for ActivationKey, descs := range cfg.Config.Gyro {
-		for range descs {
-			_, ok := gyroAnalog[ActivationKey]
-			if !ok {
-				gyroAnalog[ActivationKey] = []gyroState{{false, 0}}
-			} else {
-				gyroAnalog[ActivationKey] = append(gyroAnalog[ActivationKey], gyroState{false, 0})
-			}
-
-		}
-	}
-
 	device := Device{
 		noLogs:               noLogs,
 		config:               cfg.Config,
@@ -137,7 +113,6 @@ func NewDevice(
 		effectEvents:         make(chan midi.Event, 8),
 		target:               &midiEvents,
 		midiIn:               midiIn,
-		gyro:                 gyroEvents,
 		sigs:                 sigs,
 		eventProcessMutex:    &sync.Mutex{},
 		externalTrackerMutex: &sync.Mutex{},
@@ -162,8 +137,6 @@ func NewDevice(
 		mapping:    cfg.Config.Defaults.Mapping,
 		ccLearning: false,
 		velocity:   64,
-
-		gyroAnalog: gyroAnalog,
 	}
 
 	return device
@@ -496,37 +469,6 @@ func (d *Device) Status() string {
 		len(d.noteTracker)+len(d.analogNoteTracker),
 		d.config.KeyMappings[d.mapping].Name,
 	)
-}
-
-func (d *Device) Gyro(ev *input.InputEvent, pressed bool) {
-	for i, desc := range d.config.Gyro[ev.Event.Code] {
-		switch desc.ActivationMode {
-		case config.GyroHold:
-			d.gyroAnalog[ev.Event.Code][i].active = pressed
-
-			if !d.noLogs {
-				name := d.config.Gyro[ev.Event.Code][i].String()
-				if pressed {
-					log.Info(fmt.Sprintf("Gyro engaged: %s", name), d.logFields(logger.Action)...)
-				} else {
-					log.Info(fmt.Sprintf("Gyro disengaged: %s", name), d.logFields(logger.Action)...)
-				}
-			}
-
-		case config.GyroToggle:
-			if pressed {
-				d.gyroAnalog[ev.Event.Code][i].active = !d.gyroAnalog[ev.Event.Code][i].active
-				if !d.noLogs {
-					name := d.config.Gyro[ev.Event.Code][i].String()
-					if d.gyroAnalog[ev.Event.Code][i].active {
-						log.Info(fmt.Sprintf("Gyro engaged: %s", name), d.logFields(logger.Action)...)
-					} else {
-						log.Info(fmt.Sprintf("Gyro disengaged: %s", name), d.logFields(logger.Action)...)
-					}
-				}
-			}
-		}
-	}
 }
 
 type State struct {

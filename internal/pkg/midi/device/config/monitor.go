@@ -42,7 +42,7 @@ func DetectDeviceConfigChanges(ctx context.Context) <-chan bool {
 			}
 
 			name := strings.ToLower(event.Name)
-			if strings.HasSuffix(name, "yml") || strings.HasSuffix(name, "yaml") || strings.HasSuffix(name, "toml") {
+			if strings.HasSuffix(name, "toml") {
 				log.Info(fmt.Sprintf("config change detected: %s", event.Name), logger.Info)
 				change <- true
 			}

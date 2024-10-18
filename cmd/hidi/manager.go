@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gethiox/HIDI/internal/pkg/gyro"
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
@@ -62,20 +61,6 @@ func (m Manager) Run(ctx context.Context) {
 
 	wg := sync.WaitGroup{}
 	midiEventsInSpawner := utils.NewDynamicFanOut(m.midiIn)
-
-	var gyroSpawner *utils.DynamicFanOut[gyro.Vector]
-
-	if m.config.HIDI.Gyro.Enabled {
-		gyroEvents, err := gyro.ProcessGyro(ctx, m.config.HIDI.Gyro.Address, m.config.HIDI.Gyro.Bus)
-		if err != nil {
-			log.Info(fmt.Sprintf("failed to start gyro: %s", err), logger.Error)
-		}
-		gyroSpawner = utils.NewDynamicFanOut(gyroEvents)
-	} else {
-		var gyroEvents = make(chan gyro.Vector)
-		defer close(gyroEvents)
-		gyroSpawner = utils.NewDynamicFanOut(gyroEvents)
-	}
 
 	log.Info("Run manager", logger.Debug)
 	log.Info(fmt.Sprintf("ignored keyboards: %+v", m.config.IgnoredDevices), logger.Debug)
@@ -158,12 +143,7 @@ root:
 					panic(err)
 				}
 
-				idG, gyroEv, err := gyroSpawner.SpawnOutput()
-				if err != nil {
-					panic(err)
-				}
-
-				midiDev := device.NewDevice(dev, conf, m.midiOut, midiIn, m.config.NoLogs, m.config.OpenRGBPort, gyroEv, m.sigs)
+				midiDev := device.NewDevice(dev, conf, m.midiOut, midiIn, m.config.NoLogs, m.config.OpenRGBPort, m.sigs)
 				m.devicesMutex.Lock()
 				m.devices[&midiDev] = &midiDev
 				m.devicesMutex.Unlock()
@@ -180,13 +160,6 @@ root:
 				if err != nil {
 					log.Info(
 						fmt.Sprintf("failed to despawn midi input channel: %s", err),
-						zap.String("device_name", dev.Name), logger.Error,
-					)
-				}
-				err = gyroSpawner.DespawnOutput(idG)
-				if err != nil {
-					log.Info(
-						fmt.Sprintf("failed to despawn gyro channel: %s", err),
 						zap.String("device_name", dev.Name), logger.Error,
 					)
 				}
