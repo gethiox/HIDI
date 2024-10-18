@@ -59,10 +59,12 @@ files.
   - `cc_learning`
 - `midi_mappings` - this is where you're defining key:note relationship. Each mapping have its own
   unique name, and corresponding key:value dictionary.
-  - Key event codes - these are identified by `KEY_` and `BTN_` prefixes.    
+  - Key event codes - these are identified by `KEY_` and `BTN_` prefixes.  
     You can assign note value only for those, in the integer number or string representation.  
     Valid range is `0` - `127` or `C-2` - `G8`, valid string representation is note name (`CDEFGAB`),
-    optional `#` sign for sharp keys (e.g. `C#`) and octave number (`-2` - `8`)
+    optional `#` sign for sharp keys (e.g. `C#`) and octave number (`-2` - `8`)  
+    If your device provides unrecognized key event codes, use hexadecimal notation instead of names
+    (for example `x01`, `xff`) 
   - Analog gamepad codes - these are identified by `ABS_` prefix.  
     For this kind of events there is a special format that covers few different use cases:
     - `{type: cc, cc: 0}` - CC control for CC0 (for non-negative analog input like trigger)
