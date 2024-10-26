@@ -368,8 +368,8 @@ func (d *Device) handleOpenrgb(ctx context.Context, wg *sync.WaitGroup) {
 	var index int
 
 	var events = make(map[string]bool)
-	for _, di := range d.InputDevice.Handlers {
-		events[di.Event()] = true
+	for _, handler := range d.InputDevice.Handlers {
+		events[handler.DeviceInfo.Event()] = true
 	}
 
 	timeout = time.Now().Add(time.Second * 2)
@@ -435,7 +435,7 @@ func (d *Device) handleOpenrgb(ctx context.Context, wg *sync.WaitGroup) {
 
 	for _, m := range d.config.KeyMappings {
 		var midiKeyMapping = make(map[byte][]evdev.EvCode)
-		for code, key := range m.Midi {
+		for code, key := range m.Midi[""] {
 			_, ok := midiKeyMapping[key.Note]
 			if !ok {
 				midiKeyMapping[key.Note] = []evdev.EvCode{code}
@@ -574,7 +574,7 @@ root:
 		var hsvOfsset float64
 
 		// keyboard mapping
-		for code, key := range d.config.KeyMappings[d.mapping].Midi {
+		for code, key := range d.config.KeyMappings[d.mapping].Midi[""] {
 			id, ok := indexMap[code]
 			if !ok {
 				continue

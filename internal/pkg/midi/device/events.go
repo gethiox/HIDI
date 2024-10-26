@@ -29,7 +29,7 @@ func (d *Device) checkExitSequence() bool {
 }
 
 func (d *Device) handleKEYEvent(ie *input.InputEvent) {
-	_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Event.Code]
+	_, noteOk := d.config.KeyMappings[d.mapping].Midi[ie.Source.Name][ie.Event.Code]
 	action, actionOk := d.config.ActionMapping[ie.Event.Code]
 
 	if ie.Event.Value == EV_KEY_PRESS {
@@ -85,20 +85,20 @@ func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 		if !d.noLogs {
 			log.Info(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()), d.logFields(
 				logger.KeysNotAssigned,
-				zap.String("handler_event", ie.Source.Event()),
+				zap.String("handler_event", ie.Source.DeviceInfo.Event()),
 			)...)
 		}
 	}
 }
 
 func (d *Device) handleABSEvent(ie *input.InputEvent) {
-	analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Event.Code]
+	analog, analogOk := d.config.KeyMappings[d.mapping].Analog[ie.Source.Name][ie.Event.Code]
 
 	if !analogOk {
 		if !d.noLogs {
 			log.Info(
 				fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
-				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...,
+				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.DeviceInfo.Event()), zap.String("handler_subhandler", ie.Source.Name))...,
 			)
 		}
 		return
@@ -108,8 +108,8 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
 	var value float64
 	var canBeNegative bool
-	min := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Minimum
-	max := d.InputDevice.AbsInfos[ie.Source.Event()][ie.Event.Code].Maximum
+	min := d.InputDevice.AbsInfos[ie.Source.DeviceInfo.Event()][ie.Event.Code].Minimum
+	max := d.InputDevice.AbsInfos[ie.Source.DeviceInfo.Event()][ie.Event.Code].Maximum
 	if min < 0 {
 		canBeNegative = true
 	}
@@ -127,9 +127,15 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		canBeNegative = true
 	}
 
-	deadzone, ok := d.config.Deadzone.Deadzones[ie.Event.Code]
+	deadzone, ok := d.config.KeyMappings[d.mapping].Deadzones[ie.Source.Name][ie.Event.Code]
 	if !ok {
-		deadzone = d.config.Deadzone.Default
+		deadzone, ok = d.config.KeyMappings[d.mapping].DefaultDeadzone[ie.Source.Name]
+		if !ok {
+			deadzone, ok = d.config.KeyMappings[d.mapping].DefaultDeadzone[""]
+			if !ok {
+				panic("tee hee")
+			}
+		}
 	}
 
 	if value < 0 {
@@ -167,7 +173,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 
 	if !d.noLogs {
 		log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()),
-			d.logFields(logger.Analog, zap.String("handler_event", ie.Source.Event()))...)
+			d.logFields(logger.Analog, zap.String("handler_event", ie.Source.DeviceInfo.Event()), zap.String("handler_subhandler", ie.Source.Name))...)
 	}
 
 	// TODO: cleanup this mess
@@ -282,7 +288,7 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 		}
 	default:
 		log.Info(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType),
-			d.logFields(logger.Warning, zap.String("handler_event", ie.Source.Event()))...,
+			d.logFields(logger.Warning, zap.String("handler_event", ie.Source.DeviceInfo.Event()), zap.String("handler_subhandler", ie.Source.Name))...,
 		)
 	}
 }
@@ -331,7 +337,10 @@ func (d *Device) ProcessEvents(inputEvents <-chan *input.InputEvent) {
 
 	for evcode := range d.noteTracker {
 		d.NoteOff(&input.InputEvent{
-			Source: input.DeviceInfo{Name: "shutdown cleanup"},
+			Source: input.Handler{
+				Name:       "",
+				DeviceInfo: input.DeviceInfo{Name: "shutdown cleanup"},
+			},
 			Event: evdev.InputEvent{
 				Time:  syscall.Timeval{},
 				Type:  evdev.EV_KEY,

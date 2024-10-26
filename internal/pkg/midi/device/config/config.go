@@ -103,13 +103,15 @@ type Key struct {
 }
 
 type KeyMapping struct {
-	Name   string
-	Midi   map[evdev.EvCode]Key
-	Analog map[evdev.EvCode]Analog
+	Name            string
+	Midi            map[string]map[evdev.EvCode]Key     // main key: subhandler
+	Analog          map[string]map[evdev.EvCode]Analog  // main key: subhandler
+	Deadzones       map[string]map[evdev.EvCode]float64 // main key: subhandler
+	DefaultDeadzone map[string]float64                  // main key: subhandler
 }
 
 type Defaults struct {
-	Octave, Semitone, Channel, Mapping int
+	Octave, Semitone, Channel, Mapping, Velocity int
 }
 
 type Colors struct {
@@ -124,18 +126,12 @@ type OpenRGB struct {
 	Colors Colors
 }
 
-type Deadzone struct {
-	Deadzones map[evdev.EvCode]float64
-	Default   float64
-}
-
 type Config struct {
 	ID            input.InputID
 	Uniq          string
 	KeyMappings   []KeyMapping
 	ActionMapping map[evdev.EvCode]Action
 	ExitSequence  []evdev.EvCode
-	Deadzone      Deadzone
 	CollisionMode CollisionMode
 	Defaults      Defaults
 	OpenRGB       OpenRGB

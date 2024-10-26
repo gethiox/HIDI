@@ -53,8 +53,11 @@ func readN(ch chan midi.Event, n int) ([]midi.Event, error) {
 
 func key(code evdev.EvCode, value int32) *input.InputEvent {
 	return &input.InputEvent{
-		Source: input.DeviceInfo{
-			Name: "Dummy",
+		Source: input.Handler{
+			Name: "",
+			DeviceInfo: input.DeviceInfo{
+				Name: "Dummy",
+			},
 		},
 		Event: evdev.InputEvent{
 			Time:  syscall.Timeval{},
@@ -232,11 +235,14 @@ func TestCollisionOff(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]config.Key{
-						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
-						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+					Midi: map[string]map[evdev.EvCode]config.Key{
+						"": {
+							evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+							evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+						},
 					},
-					Analog: map[evdev.EvCode]config.Analog{},
+
+					Analog: map[string]map[evdev.EvCode]config.Analog{},
 				},
 			},
 			ActionMapping: map[evdev.EvCode]config.Action{},
@@ -247,6 +253,7 @@ func TestCollisionOff(t *testing.T) {
 				Semitone: 0,
 				Channel:  1,
 				Mapping:  0,
+				Velocity: 64,
 			},
 		},
 	}
@@ -292,11 +299,14 @@ func TestCollisionNoRepeat(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]config.Key{
-						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
-						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+					Midi: map[string]map[evdev.EvCode]config.Key{
+						"": {
+							evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+							evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+						},
 					},
-					Analog: map[evdev.EvCode]config.Analog{},
+
+					Analog: map[string]map[evdev.EvCode]config.Analog{},
 				},
 			},
 			ActionMapping: map[evdev.EvCode]config.Action{},
@@ -307,6 +317,7 @@ func TestCollisionNoRepeat(t *testing.T) {
 				Semitone: 0,
 				Channel:  1,
 				Mapping:  0,
+				Velocity: 64,
 			},
 		},
 	}
@@ -350,11 +361,14 @@ func TestCollisionInterrupt(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]config.Key{
-						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
-						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+					Midi: map[string]map[evdev.EvCode]config.Key{
+						"": {
+							evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+							evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+						},
 					},
-					Analog: map[evdev.EvCode]config.Analog{},
+
+					Analog: map[string]map[evdev.EvCode]config.Analog{},
 				},
 			},
 			ActionMapping: map[evdev.EvCode]config.Action{},
@@ -365,6 +379,7 @@ func TestCollisionInterrupt(t *testing.T) {
 				Semitone: 0,
 				Channel:  1,
 				Mapping:  0,
+				Velocity: 64,
 			},
 		},
 	}
@@ -410,11 +425,14 @@ func TestCollisionRetrigger(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]config.Key{
-						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
-						evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+					Midi: map[string]map[evdev.EvCode]config.Key{
+						"": {
+							evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+							evdev.KEY_B: {Note: 0, ChannelOffset: 0},
+						},
 					},
-					Analog: map[evdev.EvCode]config.Analog{},
+
+					Analog: map[string]map[evdev.EvCode]config.Analog{},
 				},
 			},
 			ActionMapping: map[evdev.EvCode]config.Action{},
@@ -425,6 +443,7 @@ func TestCollisionRetrigger(t *testing.T) {
 				Semitone: 0,
 				Channel:  1,
 				Mapping:  0,
+				Velocity: 64,
 			},
 		},
 	}
@@ -469,11 +488,14 @@ func TestChannelOffset(t *testing.T) {
 			KeyMappings: []config.KeyMapping{
 				{
 					Name: "Default",
-					Midi: map[evdev.EvCode]config.Key{
-						evdev.KEY_A: {Note: 0, ChannelOffset: 0},
-						evdev.KEY_B: {Note: 0, ChannelOffset: 4},
+					Midi: map[string]map[evdev.EvCode]config.Key{
+						"": {
+							evdev.KEY_A: {Note: 0, ChannelOffset: 0},
+							evdev.KEY_B: {Note: 0, ChannelOffset: 4},
+						},
 					},
-					Analog: map[evdev.EvCode]config.Analog{},
+
+					Analog: map[string]map[evdev.EvCode]config.Analog{},
 				},
 			},
 			ActionMapping: map[evdev.EvCode]config.Action{
@@ -487,6 +509,7 @@ func TestChannelOffset(t *testing.T) {
 				Semitone: 0,
 				Channel:  1,
 				Mapping:  0,
+				Velocity: 64,
 			},
 		},
 	}

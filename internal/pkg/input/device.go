@@ -27,7 +27,7 @@ const (
 )
 
 type InputEvent struct {
-	Source DeviceInfo
+	Source Handler
 	Event  evdev.InputEvent
 }
 
@@ -102,7 +102,7 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 	for devPhys, dis := range collection {
 		var dev = Device{
 			ID:       dis[0].ID,
-			Handlers: make([]DeviceInfo, 0),
+			Handlers: make([]Handler, 0),
 			AbsInfos: make(map[string]map[evdev.EvCode]evdev.AbsInfo),
 		}
 
@@ -143,11 +143,21 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 			for _, t := range di.CapableTypes {
 				types = append(types, evdev.TypeName(t))
 			}
-
-			dev.Handlers = append(dev.Handlers, di)
 		}
 
-		dev.DeviceType = DetermineDeviceType(dev.Handlers)
+		var foo = make([]DeviceInfo, 0)
+
+		for _, di := range dis {
+			handler := Handler{
+				Name:       strings.Trim(strings.TrimPrefix(di.Name, name), " "),
+				DeviceInfo: di,
+			}
+
+			dev.Handlers = append(dev.Handlers, handler)
+			foo = append(foo, di)
+		}
+
+		dev.DeviceType = DetermineDeviceType(foo)
 		dev.Name = name
 		dev.Uniq = uniq
 		dev.Phys = string(devPhys)
@@ -155,6 +165,11 @@ func Normalize(deviceInfos []DeviceInfo) []Device {
 	}
 
 	return devices
+}
+
+type Handler struct {
+	Name       string // handler name, removed common prefix
+	DeviceInfo DeviceInfo
 }
 
 // Device is a representation of singular hardware device, it keeps all underlying DeviceInfo handlers
@@ -167,7 +182,7 @@ type Device struct {
 	Phys string
 
 	DeviceType DeviceType
-	Handlers   []DeviceInfo
+	Handlers   []Handler
 
 	AbsInfos map[string]map[evdev.EvCode]evdev.AbsInfo // map key: DeviceInfo.Event()
 }
@@ -181,8 +196,8 @@ func (d *Device) String() string {
 
 // SupportsNKRO tells if device has N-Key rollover handler
 func (d *Device) SupportsNKRO() bool {
-	for _, di := range d.Handlers {
-		if di.HandlerType() == DI_TYPE_NKRO_KBD {
+	for _, h := range d.Handlers {
+		if h.DeviceInfo.HandlerType() == DI_TYPE_NKRO_KBD {
 			return true
 		}
 	}
@@ -208,8 +223,8 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 
 	wg := sync.WaitGroup{}
 	for _, h := range d.Handlers {
-		ht := h.HandlerType()
-		dev, err := evdev.Open(h.EventPath())
+		ht := h.DeviceInfo.HandlerType()
+		dev, err := evdev.Open(h.DeviceInfo.EventPath())
 		if err != nil {
 			return nil, fmt.Errorf("opening handler failed: %v", err)
 		}
@@ -312,8 +327,8 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 		}(absEvents)
 
 		wg.Add(1)
-		go func(dev *evdev.InputDevice, ht HandlerType, info DeviceInfo, absEvents chan *InputEvent) {
-			event := info.Event()
+		go func(dev *evdev.InputDevice, ht HandlerType, handler Handler, absEvents chan *InputEvent) {
+			event := handler.DeviceInfo.Event()
 			name, _ := dev.Name()
 			name = strings.Trim(name, "\x00") // TODO: fix in go-evdev
 			defer wg.Done()
@@ -348,7 +363,7 @@ func (d *Device) ProcessEvents(ctx context.Context, grab bool, absThrottle time.
 				}
 
 				outputEvent := InputEvent{
-					Source: info,
+					Source: handler,
 					Event:  *ev,
 				}
 
