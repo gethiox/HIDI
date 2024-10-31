@@ -5,7 +5,7 @@ exit_sequence = []
   bus = 0x0003
   vendor = 0x054c
   product = 0x09cc
-  version = 0x0111
+  version = 0x8111
 
 [defaults] # initial device state
   octave = 0
