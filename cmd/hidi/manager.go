@@ -80,6 +80,23 @@ root:
 			os.Exit(1)
 		}
 
+		log.Info(fmt.Sprintf("Loaded factory Keyboard Configs: %d", len(configs.Factory.Keyboards)), logger.Debug)
+		for id, c := range configs.Factory.Keyboards {
+			log.Info(fmt.Sprintf("- [%s] (%s): %s", id.String(), c.ConfigFile), logger.Debug)
+		}
+		log.Info(fmt.Sprintf("Loaded factory Gamepad Configs: %d", len(configs.Factory.Gamepads)), logger.Debug)
+		for id, c := range configs.Factory.Gamepads {
+			log.Info(fmt.Sprintf("- [%s] (%s): %s", id.String(), c.ConfigFile), logger.Debug)
+		}
+		log.Info(fmt.Sprintf("Loaded user Keyboard Configs: %d", len(configs.User.Keyboards)), logger.Debug)
+		for id, c := range configs.Factory.Keyboards {
+			log.Info(fmt.Sprintf("- [%s] (%s): %s", id.String(), c.ConfigFile), logger.Debug)
+		}
+		log.Info(fmt.Sprintf("Loaded user Gamepad Configs: %d", len(configs.User.Gamepads)), logger.Debug)
+		for id, c := range configs.Factory.Gamepads {
+			log.Info(fmt.Sprintf("- [%s] (%s): %s", id.String(), c.ConfigFile), logger.Debug)
+		}
+
 		ctxDevice, cancel := context.WithCancel(context.Background())
 
 		go func() {
