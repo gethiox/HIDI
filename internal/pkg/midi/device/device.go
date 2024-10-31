@@ -46,7 +46,7 @@ type Device struct {
 	// used to track active occurrence number for given channel/note for purpose of handling clashed notes.
 	// more info in hidi.toml at "collision_mode" option.
 	activeNotesCounter map[byte]map[byte]int // map[channel]map[note]occurrence_number
-	lastAnalogValue    map[evdev.EvCode]float64
+	lastAnalogValue    map[string]map[evdev.EvCode]float64
 
 	actionTracker map[config.Action]bool
 	ccZeroed      map[byte]bool // 1: positive, 2: negative
@@ -88,6 +88,18 @@ func NewDevice(
 		inmap[i] = make(map[byte]bool)
 	}
 
+	var subhandlers = make(map[string]interface{})
+	for _, mapping := range cfg.Config.KeyMappings {
+		for subhandler := range mapping.Analog {
+			subhandlers[subhandler] = true
+		}
+	}
+
+	var lastAnalogValue = make(map[string]map[evdev.EvCode]float64)
+	for subhandler := range subhandlers {
+		lastAnalogValue[subhandler] = make(map[evdev.EvCode]float64)
+	}
+
 	actionsPress := map[config.Action]func(*Device){
 		config.Panic:        (*Device).Panic,
 		config.MappingUp:    (*Device).MappingUp,
@@ -125,7 +137,7 @@ func NewDevice(
 		activeNotesCounter: activeNoteCounter,
 		actionTracker:      make(map[config.Action]bool, 16),
 		ccZeroed:           make(map[byte]bool, 32),
-		lastAnalogValue:    make(map[evdev.EvCode]float64, 32),
+		lastAnalogValue:    lastAnalogValue,
 
 		actionsPress:   actionsPress,
 		actionsRelease: actionsRelease,

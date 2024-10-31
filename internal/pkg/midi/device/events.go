@@ -153,11 +153,11 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	}
 
 	// prevent from repeating value that was already sent before
-	lastValue := d.lastAnalogValue[ie.Event.Code]
+	lastValue := d.lastAnalogValue[ie.Source.Name][ie.Event.Code]
 	if lastValue == value {
 		return
 	}
-	d.lastAnalogValue[ie.Event.Code] = value
+	d.lastAnalogValue[ie.Source.Name][ie.Event.Code] = value
 
 	if analog.FlipAxis {
 		if canBeNegative {
