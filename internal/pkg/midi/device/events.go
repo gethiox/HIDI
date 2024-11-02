@@ -86,6 +86,7 @@ func (d *Device) handleKEYEvent(ie *input.InputEvent) {
 			log.Info(fmt.Sprintf("Undefined KEY event: %s", ie.Event.String()), d.logFields(
 				logger.KeysNotAssigned,
 				zap.String("handler_event", ie.Source.DeviceInfo.Event()),
+				zap.String("handler_subhandler", ie.Source.Name),
 			)...)
 		}
 	}
@@ -96,10 +97,11 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 
 	if !analogOk {
 		if !d.noLogs {
-			log.Info(
-				fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()),
-				d.logFields(logger.Analog, zap.String("handler_event", ie.Source.DeviceInfo.Event()), zap.String("handler_subhandler", ie.Source.Name))...,
-			)
+			log.Info(fmt.Sprintf("Undefined ABS event: %s", ie.Event.String()), d.logFields(
+				logger.Analog,
+				zap.String("handler_event", ie.Source.DeviceInfo.Event()),
+				zap.String("handler_subhandler", ie.Source.Name),
+			)...)
 		}
 		return
 	}
@@ -108,8 +110,10 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	// -1.0 - 1.0 range if negative values are included, 0.0 - 1.0 otherwise
 	var value float64
 	var canBeNegative bool
-	min := d.InputDevice.AbsInfos[ie.Source.DeviceInfo.Event()][ie.Event.Code].Minimum
-	max := d.InputDevice.AbsInfos[ie.Source.DeviceInfo.Event()][ie.Event.Code].Maximum
+	absInfo := d.InputDevice.AbsInfos[ie.Source.DeviceInfo.Event()][ie.Event.Code]
+	min := absInfo.Minimum
+	max := absInfo.Maximum
+
 	if min < 0 {
 		canBeNegative = true
 	}
@@ -172,8 +176,11 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 	}
 
 	if !d.noLogs {
-		log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()),
-			d.logFields(logger.Analog, zap.String("handler_event", ie.Source.DeviceInfo.Event()), zap.String("handler_subhandler", ie.Source.Name))...)
+		log.Info(fmt.Sprintf("Analog event: %s", ie.Event.String()), d.logFields(
+			logger.Analog,
+			zap.String("handler_event", ie.Source.DeviceInfo.Event()),
+			zap.String("handler_subhandler", ie.Source.Name),
+		)...)
 	}
 
 	// TODO: cleanup this mess
@@ -287,9 +294,11 @@ func (d *Device) handleABSEvent(ie *input.InputEvent) {
 			d.invokeActionRelease(analog.ActionNeg)
 		}
 	default:
-		log.Info(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType),
-			d.logFields(logger.Warning, zap.String("handler_event", ie.Source.DeviceInfo.Event()), zap.String("handler_subhandler", ie.Source.Name))...,
-		)
+		log.Info(fmt.Sprintf("unexpected AnalogID type: %+v", analog.MappingType), d.logFields(
+			logger.Warning,
+			zap.String("handler_event", ie.Source.DeviceInfo.Event()),
+			zap.String("handler_subhandler", ie.Source.Name),
+		)...)
 	}
 }
 
