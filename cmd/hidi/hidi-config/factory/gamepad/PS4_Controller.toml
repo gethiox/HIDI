@@ -63,26 +63,6 @@ exit_sequence = []
       ABS_HAT0Y = 0.0
 
   [[mapping.analog]]
-    subhandler = "Motion Sensors"
-    default_deadzone = 0.0
-
-    [mapping.analog.map]
-      ABS_X = { type = "cc", cc = 7 }
-      ABS_Y = { type = "cc", cc = 8 }
-      ABS_Z = { type = "cc", cc = 9 }
-      ABS_RX = { type = "cc", cc = 10 }
-      ABS_RY = { type = "cc", cc = 11 }
-      ABS_RZ = { type = "cc", cc = 12 }
-
-    [mapping.analog.deadzones]
-      ABS_X = 0.0
-      ABS_Y = 0.0
-      ABS_Z = 0.0
-      ABS_RX = 0.0
-      ABS_RY = 0.0
-      ABS_RZ = 0.0
-
-  [[mapping.analog]]
     subhandler = "Touchpad"
     default_deadzone = 0.0
 
@@ -93,3 +73,24 @@ exit_sequence = []
     [mapping.analog.deadzones]
       ABS_X = 0.0
       ABS_Y = 0.0
+
+# raw accelerometer/gyroscope data, not very useful without proper internal processing
+#  [[mapping.analog]]
+#    subhandler = "Motion Sensors"
+#    default_deadzone = 0.0
+#
+#    [mapping.analog.map]
+#      ABS_X = { type = "cc", cc = 7 } # accelerometer x
+#      ABS_Y = { type = "cc", cc = 8 } # accelerometer y
+#      ABS_Z = { type = "cc", cc = 9 } # accelerometer x
+#      ABS_RX = { type = "cc", cc = 10 } # gyro x
+#      ABS_RY = { type = "cc", cc = 11 } # gyro y
+#      ABS_RZ = { type = "cc", cc = 12 } # gyro z
+#
+#    [mapping.analog.deadzones]
+#      ABS_X = 0.0
+#      ABS_Y = 0.0
+#      ABS_Z = 0.0
+#      ABS_RX = 0.0
+#      ABS_RY = 0.0
+#      ABS_RZ = 0.0
