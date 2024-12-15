@@ -223,7 +223,7 @@ func updateHIDIConfiguration() error {
 }
 
 var regex = regexp.MustCompile(
-	`(?i)Bus: 0x([0-9a-f]{4}), Vendor: 0x([0-9a-f]{4}), Product: 0x([0-9a-f]{4}), Version: 0x([0-9a-f]{4})`,
+	`(?i)Bus:\s*0x([0-9a-f]{4}),\s*Vendor:\s*0x([0-9a-f]{4}),\s*Product:\s*0x([0-9a-f]{4}),\s*Version:\s*0x([0-9a-f]{4})`,
 )
 
 func parseDeviceBlacklist() ([]input.InputID, error) {
