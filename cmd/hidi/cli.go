@@ -43,6 +43,7 @@ type Entry struct {
 	Device       string `json:"device_name"`
 	HandlerEvent string `json:"handler_event"`
 	HandlerName  string `json:"handler_name"`
+	Subhandler   string `json:"handler_subhandler"`
 	Config       string `json:"config"`
 	DeviceType   string `json:"device_type"`
 }
@@ -198,6 +199,9 @@ func prepareString(msg Entry, au aurora.Aurora, width, logLevel int) string {
 	}
 	if msg.HandlerName != "" {
 		fields += fmt.Sprintf(" [handler=%s]", colorForString(au, msg.HandlerName).String())
+	}
+	if msg.Subhandler != "" {
+		fields += fmt.Sprintf(" [subhandler=%s]", colorForString(au, msg.Subhandler).String())
 	}
 	if msg.HandlerEvent != "" {
 		fields += fmt.Sprintf(" [%s]", colorForString(au, msg.HandlerEvent).String())

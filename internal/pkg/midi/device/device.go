@@ -6,7 +6,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/gethiox/HIDI/internal/pkg/gyro"
 	"github.com/gethiox/HIDI/internal/pkg/input"
 	"github.com/gethiox/HIDI/internal/pkg/logger"
 	"github.com/gethiox/HIDI/internal/pkg/midi"
@@ -33,7 +32,6 @@ type Device struct {
 	outputEvents chan<- midi.Event
 	target       *chan<- midi.Event
 	midiIn       <-chan midi.Event
-	gyro         <-chan gyro.Vector
 
 	// keeps track of currently active notes on midi input
 	externalNoteTracker  map[byte]map[byte]bool // channel: note
@@ -48,7 +46,7 @@ type Device struct {
 	// used to track active occurrence number for given channel/note for purpose of handling clashed notes.
 	// more info in hidi.toml at "collision_mode" option.
 	activeNotesCounter map[byte]map[byte]int // map[channel]map[note]occurrence_number
-	lastAnalogValue    map[evdev.EvCode]float64
+	lastAnalogValue    map[string]map[evdev.EvCode]float64
 
 	actionTracker map[config.Action]bool
 	ccZeroed      map[byte]bool // 1: positive, 2: negative
@@ -66,22 +64,14 @@ type Device struct {
 	mapping    int
 	ccLearning bool
 
-	gyroAnalog map[evdev.EvCode][]gyroState
-
 	actionsPress   map[config.Action]func(*Device)
 	actionsRelease map[config.Action]func(*Device)
-}
-
-type gyroState struct {
-	active bool
-	value  float64
 }
 
 func NewDevice(
 	inputDevice input.Device, cfg config.DeviceConfig,
 	midiEvents chan<- midi.Event, midiIn <-chan midi.Event,
 	noLogs bool, openrgbPort int,
-	gyroEvents <-chan gyro.Vector,
 	sigs chan os.Signal,
 ) Device {
 	var activeNoteCounter = make(map[byte]map[byte]int)
@@ -96,6 +86,18 @@ func NewDevice(
 	inmap := make(map[byte]map[byte]bool)
 	for i := byte(0); i < 16; i++ {
 		inmap[i] = make(map[byte]bool)
+	}
+
+	var subhandlers = make(map[string]interface{})
+	for _, mapping := range cfg.Config.KeyMappings {
+		for subhandler := range mapping.Analog {
+			subhandlers[subhandler] = true
+		}
+	}
+
+	var lastAnalogValue = make(map[string]map[evdev.EvCode]float64)
+	for subhandler := range subhandlers {
+		lastAnalogValue[subhandler] = make(map[evdev.EvCode]float64)
 	}
 
 	actionsPress := map[config.Action]func(*Device){
@@ -115,20 +117,6 @@ func NewDevice(
 		config.Learning: (*Device).CCLearningOff,
 	}
 
-	var gyroAnalog = make(map[evdev.EvCode][]gyroState)
-
-	for ActivationKey, descs := range cfg.Config.Gyro {
-		for range descs {
-			_, ok := gyroAnalog[ActivationKey]
-			if !ok {
-				gyroAnalog[ActivationKey] = []gyroState{{false, 0}}
-			} else {
-				gyroAnalog[ActivationKey] = append(gyroAnalog[ActivationKey], gyroState{false, 0})
-			}
-
-		}
-	}
-
 	device := Device{
 		noLogs:               noLogs,
 		config:               cfg.Config,
@@ -137,7 +125,6 @@ func NewDevice(
 		effectEvents:         make(chan midi.Event, 8),
 		target:               &midiEvents,
 		midiIn:               midiIn,
-		gyro:                 gyroEvents,
 		sigs:                 sigs,
 		eventProcessMutex:    &sync.Mutex{},
 		externalTrackerMutex: &sync.Mutex{},
@@ -150,7 +137,7 @@ func NewDevice(
 		activeNotesCounter: activeNoteCounter,
 		actionTracker:      make(map[config.Action]bool, 16),
 		ccZeroed:           make(map[byte]bool, 32),
-		lastAnalogValue:    make(map[evdev.EvCode]float64, 32),
+		lastAnalogValue:    lastAnalogValue,
 
 		actionsPress:   actionsPress,
 		actionsRelease: actionsRelease,
@@ -161,9 +148,7 @@ func NewDevice(
 		multiNote:  []int{},
 		mapping:    cfg.Config.Defaults.Mapping,
 		ccLearning: false,
-		velocity:   64,
-
-		gyroAnalog: gyroAnalog,
+		velocity:   uint8(cfg.Config.Defaults.Velocity),
 	}
 
 	return device
@@ -206,7 +191,7 @@ func (d *Device) checkDoubleActions() bool {
 }
 
 func (d *Device) NoteOn(ev *input.InputEvent) {
-	key, ok := d.config.KeyMappings[d.mapping].Midi[ev.Event.Code]
+	key, ok := d.config.KeyMappings[d.mapping].Midi[ev.Source.Name][ev.Event.Code]
 	if !ok {
 		return
 	}
@@ -224,7 +209,7 @@ func (d *Device) NoteOn(ev *input.InputEvent) {
 		event = midi.NoteEvent(midi.NoteOn, channel, note, d.velocity)
 		d.outputEvents <- event
 		if !d.noLogs { // TODO: maybe move logging outside of device, but it will need InputEvent and Device reference tho
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 		}
 	case config.CollisionNoRepeat:
 		if d.activeNotesCounter[channel][note] > 0 {
@@ -233,21 +218,21 @@ func (d *Device) NoteOn(ev *input.InputEvent) {
 		event = midi.NoteEvent(midi.NoteOn, channel, note, d.velocity)
 		d.outputEvents <- event
 		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 		}
 	case config.CollisionInterrupt:
 		if d.activeNotesCounter[channel][note] > 0 {
 			event = midi.NoteEvent(midi.NoteOff, channel, note, 0)
 			d.outputEvents <- event
 			if !d.noLogs {
-				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+				log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 			}
 		}
 
 		event = midi.NoteEvent(midi.NoteOn, channel, note, d.velocity)
 		d.outputEvents <- event
 		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 		}
 	default:
 		panic("unsupported collision mode")
@@ -271,7 +256,7 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 		d.outputEvents <- event
 		delete(d.noteTracker, ev.Event.Code)
 		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 		}
 	case config.CollisionNoRepeat, config.CollisionRetrigger, config.CollisionInterrupt:
 		if d.activeNotesCounter[channel][note] != 1 {
@@ -282,7 +267,7 @@ func (d *Device) NoteOff(ev *input.InputEvent) {
 		d.outputEvents <- event
 		delete(d.noteTracker, ev.Event.Code)
 		if !d.noLogs {
-			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+			log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 		}
 	}
 
@@ -302,7 +287,7 @@ func (d *Device) AnalogNoteOn(identifier string, note byte, channelOffset byte, 
 	event := midi.NoteEvent(midi.NoteOn, channel, note, 64)
 	d.outputEvents <- event
 	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 	}
 }
 
@@ -317,7 +302,7 @@ func (d *Device) AnalogNoteOff(identifier string, ev *input.InputEvent) {
 	d.outputEvents <- event
 	delete(d.analogNoteTracker, identifier)
 	if !d.noLogs {
-		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.Event()))...)
+		log.Info(event.String(), d.logFields(logger.Keys, zap.String("handler_event", ev.Source.DeviceInfo.Event()))...)
 	}
 }
 
@@ -496,37 +481,6 @@ func (d *Device) Status() string {
 		len(d.noteTracker)+len(d.analogNoteTracker),
 		d.config.KeyMappings[d.mapping].Name,
 	)
-}
-
-func (d *Device) Gyro(ev *input.InputEvent, pressed bool) {
-	for i, desc := range d.config.Gyro[ev.Event.Code] {
-		switch desc.ActivationMode {
-		case config.GyroHold:
-			d.gyroAnalog[ev.Event.Code][i].active = pressed
-
-			if !d.noLogs {
-				name := d.config.Gyro[ev.Event.Code][i].String()
-				if pressed {
-					log.Info(fmt.Sprintf("Gyro engaged: %s", name), d.logFields(logger.Action)...)
-				} else {
-					log.Info(fmt.Sprintf("Gyro disengaged: %s", name), d.logFields(logger.Action)...)
-				}
-			}
-
-		case config.GyroToggle:
-			if pressed {
-				d.gyroAnalog[ev.Event.Code][i].active = !d.gyroAnalog[ev.Event.Code][i].active
-				if !d.noLogs {
-					name := d.config.Gyro[ev.Event.Code][i].String()
-					if d.gyroAnalog[ev.Event.Code][i].active {
-						log.Info(fmt.Sprintf("Gyro engaged: %s", name), d.logFields(logger.Action)...)
-					} else {
-						log.Info(fmt.Sprintf("Gyro disengaged: %s", name), d.logFields(logger.Action)...)
-					}
-				}
-			}
-		}
-	}
 }
 
 type State struct {

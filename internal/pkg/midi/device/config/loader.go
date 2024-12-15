@@ -129,7 +129,7 @@ func loadDirectory(root, configType string, configMap ConfigMap) (err error) {
 
 		devCfg, err := readDeviceConfig(path, configType)
 		if err != nil {
-			log.Info(fmt.Sprintf("device config %s load failed: %s", name, err), logger.Warning)
+			log.Info(fmt.Sprintf("device config %s (%s) load failed: %s", name, configType, err), logger.Warning)
 			return nil
 		}
 		configMap[devCfg.Config.ID] = devCfg

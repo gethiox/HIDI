@@ -15,17 +15,6 @@ import (
 	"github.com/realbucksavage/openrgb-go"
 )
 
-type GyroDescToml struct {
-	Axis                string  `toml:"axis"`
-	Type                string  `toml:"type"`
-	CC                  int     `toml:"cc"`
-	ActivationKey       string  `toml:"activation_key"`
-	ActivationMode      string  `toml:"activation_mode"`
-	ResetOnDeactivation bool    `toml:"reset_on_deactivation"`
-	FlipAxis            bool    `toml:"flip_axis"`
-	ValueMultiplier     float64 `toml:"value_multiplier"`
-}
-
 type TOMLDeviceConfig struct {
 	CollisionMode string   `toml:"collision_mode"`
 	ExitSequence  []string `toml:"exit_sequence"`
@@ -43,11 +32,10 @@ type TOMLDeviceConfig struct {
 		Semitone int    `toml:"semitone"`
 		Channel  int    `toml:"channel"`
 		Mapping  string `toml:"mapping"`
+		Velocity int    `toml:"velocity"`
 	} `toml:"defaults"`
 
 	ActionMapping map[string]string `toml:"action_mapping"`
-
-	Gyro []GyroDescToml `toml:"gyro"`
 
 	OpenRGB struct {
 		White          int `toml:"white"`
@@ -59,75 +47,31 @@ type TOMLDeviceConfig struct {
 		ActiveExternal int `toml:"active_external"`
 	} `toml:"open_rgb"`
 
-	Deadzone struct {
-		Default   float64            `toml:"default"`
-		Deadzones map[string]float64 `toml:"deadzones"`
-	} `toml:"deadzone,omitempty"`
-
 	KeyMappings []struct {
-		Name          string            `toml:"name"`
-		KeyMapping    map[string]string `toml:"keys"`
-		AnalogMapping map[string]struct {
-			Type                  string  `toml:"type"`
-			CC                    *int    `toml:"cc,omitempty"`
-			CCNegative            *int    `toml:"cc_negative,omitempty"`
-			Note                  *int    `toml:"note,omitempty"`
-			NoteNegative          *int    `toml:"note_negative,omitempty"`
-			ChannelOffset         int     `toml:"channel_offset"`
-			ChannelOffsetNegative int     `toml:"channel_offset_negative"`
-			Action                *string `toml:"action,omitempty"`
-			ActionNegative        *string `toml:"action_negative,omitempty"`
-			FlipAxis              bool    `toml:"flip_axis"`
-			DeadzoneAtCenter bool  `toml:"deadzone_at_center,omitempty"`
+		Name       string `toml:"name"`
+		KeyMapping []struct {
+			SubHandler string            `toml:"subhandler"`
+			Map        map[string]string `toml:"map"`
+		} `toml:"keys"`
+		AnalogMapping []struct {
+			SubHandler      string  `toml:"subhandler"`
+			DefaultDeadzone float64 `toml:"default_deadzone,omitempty"`
+			Map             map[string]struct {
+				Type                  string  `toml:"type"`
+				CC                    *int    `toml:"cc,omitempty"`
+				CCNegative            *int    `toml:"cc_negative,omitempty"`
+				Note                  *int    `toml:"note,omitempty"`
+				NoteNegative          *int    `toml:"note_negative,omitempty"`
+				ChannelOffset         int     `toml:"channel_offset"`
+				ChannelOffsetNegative int     `toml:"channel_offset_negative"`
+				Action                *string `toml:"action,omitempty"`
+				ActionNegative        *string `toml:"action_negative,omitempty"`
+				FlipAxis              bool    `toml:"flip_axis"`
+				DeadzoneAtCenter      bool    `toml:"deadzone_at_center,omitempty"`
+			} `toml:"map"`
+			Deadzones map[string]float64 `toml:"deadzones,omitempty"`
 		} `toml:"analog,omitempty"`
 	} `toml:"mapping"`
-}
-
-type YamlDeviceConfig struct {
-	Identifier struct {
-		Bus     uint16 `yaml:"bus"`
-		Vendor  uint16 `yaml:"vendor"`
-		Product uint16 `yaml:"product"`
-		Version uint16 `yaml:"version"`
-		Uniq    string `yaml:"uniq"`
-	} `yaml:"identifier"`
-
-	Defaults struct {
-		Octave   int    `yaml:"octave"`
-		Semitone int    `yaml:"semitone"`
-		Channel  int    `yaml:"channel"`
-		Mapping  string `yaml:"mapping"`
-	} `yaml:"defaults"`
-
-	CollisionMode   string                         `yaml:"collision_mode"`
-	Deadzones       map[string]float64             `yaml:"deadzones"`
-	DefaultDeadzone float64                        `yaml:"default_deadzone"`
-	ActionMapping   map[string]string              `yaml:"action_mapping"`
-	KeyMappings     []map[string]map[string]string `yaml:"midi_mappings"`
-	ExitSequence    []string                       `yaml:"exit_sequence"`
-
-	OpenRGB struct {
-		Colors struct {
-			White          int `yaml:"white"`
-			Black          int `yaml:"black"`
-			C              int `yaml:"c"`
-			Unavailable    int `yaml:"unavailable"`
-			Other          int `yaml:"other"`
-			Active         int `yaml:"active"`
-			ActiveExternal int `yaml:"active_external"`
-		} `yaml:"colors"`
-	} `yaml:"open_rgb"`
-}
-
-type YamlCustomMapping struct {
-	MappingType    string `yaml:"type"`
-	CC             string `yaml:"cc"`
-	CCNegative     string `yaml:"cc_negative"`
-	Note           string `yaml:"note"`
-	NoteNegative   string `yaml:"note_negative"`
-	Action         string `yaml:"action"`
-	ActionNegative string `yaml:"action_negative"`
-	FlipAxis       bool   `yaml:"flip_axis"`
 }
 
 type DeviceConfig struct {
@@ -148,7 +92,7 @@ func TomlKeyToEvCode(key string, lookupTable map[string]evdev.EvCode) (evdev.EvC
 
 	evcode, ok := lookupTable[key]
 	if !ok {
-		return evdev.EvCode(0), fmt.Errorf("EvCode name \"%s\" not found / not supported")
+		return evdev.EvCode(0), fmt.Errorf("EvCode name \"%s\" not found / not supported", key)
 	}
 	return evcode, nil
 
@@ -162,184 +106,212 @@ func ParseData(data []byte) (Config, error) {
 
 	err := d.Decode(&cfg)
 	if err != nil {
-		return Config{}, fmt.Errorf("parsing yaml failed: %w", err)
+		return Config{}, fmt.Errorf("parsing failed: %w", err)
 	}
 
 	var keyMapping []KeyMapping
 	var actionMapping = make(map[evdev.EvCode]Action)
-	var deadzones = make(map[evdev.EvCode]float64)
 
 	for _, mapping := range cfg.KeyMappings {
-		// for name, mappingRaw := range mappings
 		name := mapping.Name
-		var midiMapping = make(map[evdev.EvCode]Key)
-		var analogMapping = make(map[evdev.EvCode]Analog)
+		var midiMapping = make(map[string]map[evdev.EvCode]Key)
 
-		for evcodeRaw, valueRaw := range mapping.KeyMapping {
-			evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.KEYFromString)
-			if err != nil {
-				return Config{}, fmt.Errorf("[%s] %s: failed to parse evcode key: %w", name, evcodeRaw, err)
-			}
+		for _, subMapping := range mapping.KeyMapping {
+			midiMappingTmp := make(map[evdev.EvCode]Key)
 
-			noteAndOffset := strings.Split(valueRaw, ",")
-			var noteRaw, offsetRaw string
-			switch len(noteAndOffset) {
-			case 1:
-				noteRaw = noteAndOffset[0]
-				offsetRaw = "0"
-			case 2:
-				noteRaw = noteAndOffset[0]
-				offsetRaw = noteAndOffset[1]
-			default:
-				return Config{}, fmt.Errorf("[%s] %s: unsupported comma-separated field count: %d (expected 1 or 2)", name, evcodeRaw, len(noteAndOffset))
-			}
-
-			offsetInt, err := strconv.Atoi(offsetRaw)
-			if err != nil {
-				return Config{}, fmt.Errorf("[%s] %s: failed to parse channel offset value", name, evcodeRaw)
-			}
-			if offsetInt < 0 || offsetInt > 15 {
-				return Config{}, fmt.Errorf("[%s] %s: channel offset outside of 0-15 range", name, evcodeRaw)
-			}
-
-			noteInt, err := strconv.Atoi(noteRaw)
-			if err == nil {
-				if noteInt < 0 || noteInt > 127 {
-					return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, noteInt)
+			for evcodeRaw, valueRaw := range subMapping.Map {
+				evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.KEYFromString)
+				if err != nil {
+					return Config{}, fmt.Errorf("[%s] %s: failed to parse evcode key: %w", name, evcodeRaw, err)
 				}
-				midiMapping[evcode] = Key{Note: byte(noteInt), ChannelOffset: byte(offsetInt)}
-				continue
+
+				noteAndOffset := strings.Split(valueRaw, ",")
+				var noteRaw, offsetRaw string
+				switch len(noteAndOffset) {
+				case 1:
+					noteRaw = noteAndOffset[0]
+					offsetRaw = "0"
+				case 2:
+					noteRaw = noteAndOffset[0]
+					offsetRaw = noteAndOffset[1]
+				default:
+					return Config{}, fmt.Errorf("[%s] %s: unsupported comma-separated field count: %d (expected 1 or 2)", name, evcodeRaw, len(noteAndOffset))
+				}
+
+				offsetInt, err := strconv.Atoi(offsetRaw)
+				if err != nil {
+					return Config{}, fmt.Errorf("[%s] %s: failed to parse channel offset value", name, evcodeRaw)
+				}
+				if offsetInt < 0 || offsetInt > 15 {
+					return Config{}, fmt.Errorf("[%s] %s: channel offset outside of 0-15 range", name, evcodeRaw)
+				}
+
+				noteInt, err := strconv.Atoi(noteRaw)
+				if err == nil {
+					if noteInt < 0 || noteInt > 127 {
+						return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, noteInt)
+					}
+					midiMappingTmp[evcode] = Key{Note: byte(noteInt), ChannelOffset: byte(offsetInt)}
+					continue
+				}
+
+				note, err := StringToNote(noteRaw)
+				if err == nil {
+					midiMappingTmp[evcode] = Key{Note: note, ChannelOffset: byte(offsetInt)}
+					continue
+				}
+				return Config{}, fmt.Errorf("[%s] %s: failed to parse note: %v", name, evcodeRaw, err)
 			}
 
-			note, err := StringToNote(noteRaw)
-			if err == nil {
-				midiMapping[evcode] = Key{Note: note, ChannelOffset: byte(offsetInt)}
-				continue
+			if len(midiMappingTmp) > 0 {
+				midiMapping[subMapping.SubHandler] = midiMappingTmp
 			}
-			return Config{}, fmt.Errorf("[%s] %s: failed to parse note: %v", name, evcodeRaw, err)
 		}
 
-		for evcodeRaw, analog := range mapping.AnalogMapping {
-			evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.ABSFromString)
-			if err != nil {
-				return Config{}, fmt.Errorf("[%s] %s: failed to parse evcode key: %w", name, evcodeRaw, err)
-			}
+		var analogMapping = make(map[string]map[evdev.EvCode]Analog)
+		var deadzones = make(map[string]map[evdev.EvCode]float64)
+		var defaultDeadzone = make(map[string]float64)
 
-			mappingType := MappingType(analog.Type)
-			if !SupportedMappingTypes[mappingType] {
-				return Config{}, fmt.Errorf("[%s] %s: mapping type not supported: %s", name, evcodeRaw, analog.Type)
-			}
+		for _, subMapping := range mapping.AnalogMapping {
+			var analogMappingTmp = make(map[evdev.EvCode]Analog)
+			var deadzonesTmp = make(map[evdev.EvCode]float64)
 
-			switch mappingType {
-			case AnalogCC:
-				var bidirectional bool
-				var CC, CCNeg uint8
-
-				if analog.CC == nil {
-					return Config{}, fmt.Errorf("[%s] %s: cc value not set", name, evcodeRaw)
+			for evcodeRaw, analog := range subMapping.Map {
+				evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.ABSFromString)
+				if err != nil {
+					return Config{}, fmt.Errorf("[%s] %s: failed to parse evcode key: %w", name, evcodeRaw, err)
 				}
 
-				if *analog.CC < 0 || *analog.CC > 119 {
-					return Config{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, *analog.CC)
+				mappingType := MappingType(analog.Type)
+				if !SupportedMappingTypes[mappingType] {
+					return Config{}, fmt.Errorf("[%s] %s: mapping type not supported: %s", name, evcodeRaw, analog.Type)
 				}
 
-				CC = byte(*analog.CC)
+				switch mappingType {
+				case AnalogCC:
+					var bidirectional bool
+					var CC, CCNeg uint8
 
-				if analog.CCNegative != nil {
-					if *analog.CCNegative < 0 || *analog.CCNegative > 119 {
-						return Config{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, *analog.CCNegative)
+					if analog.CC == nil {
+						return Config{}, fmt.Errorf("[%s] %s: cc value not set", name, evcodeRaw)
 					}
-					CCNeg = byte(*analog.CCNegative)
-					bidirectional = true
-				}
 
-				analogMapping[evcode] = Analog{
-					MappingType:      mappingType,
-					CC:               CC,
-					CCNeg:            CCNeg,
-					ChannelOffset:    byte(analog.ChannelOffset),
-					ChannelOffsetNeg: byte(analog.ChannelOffsetNegative),
-					FlipAxis:         analog.FlipAxis,
-					Bidirectional:    bidirectional,
-					DeadzoneAtCenter: analog.DeadzoneAtCenter,
-				}
-			case AnalogPitchBend:
-				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					FlipAxis:      analog.FlipAxis,
-					ChannelOffset: byte(analog.ChannelOffset),
-					DeadzoneAtCenter: analog.DeadzoneAtCenter,
-				}
-			case AnalogActionSim:
-				var bidirectional bool
+					if *analog.CC < 0 || *analog.CC > 119 {
+						return Config{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, *analog.CC)
+					}
 
-				if analog.Action == nil {
-					return Config{}, fmt.Errorf("[%s] %s: action value not set", name, evcodeRaw)
-				}
+					CC = byte(*analog.CC)
 
-				action := Action(*analog.Action)
-				if !SupportedActions[action] {
-					return Config{}, fmt.Errorf("[%s] %s: action not supported: %s", name, evcodeRaw, *analog.Action)
-				}
+					if analog.CCNegative != nil {
+						if *analog.CCNegative < 0 || *analog.CCNegative > 119 {
+							return Config{}, fmt.Errorf("[%s] %s: cc value outside of 0-119 range: %d", name, evcodeRaw, *analog.CCNegative)
+						}
+						CCNeg = byte(*analog.CCNegative)
+						bidirectional = true
+					}
 
-				var actionNegative Action
+					analogMappingTmp[evcode] = Analog{
+						MappingType:      mappingType,
+						CC:               CC,
+						CCNeg:            CCNeg,
+						ChannelOffset:    byte(analog.ChannelOffset),
+						ChannelOffsetNeg: byte(analog.ChannelOffsetNegative),
+						FlipAxis:         analog.FlipAxis,
+						Bidirectional:    bidirectional,
+						DeadzoneAtCenter: analog.DeadzoneAtCenter,
+					}
+				case AnalogPitchBend:
+					analogMappingTmp[evcode] = Analog{
+						MappingType:      mappingType,
+						FlipAxis:         analog.FlipAxis,
+						ChannelOffset:    byte(analog.ChannelOffset),
+						DeadzoneAtCenter: analog.DeadzoneAtCenter,
+					}
+				case AnalogActionSim:
+					var bidirectional bool
 
-				if analog.Action != nil {
-					actionNegative = Action(*analog.ActionNegative)
+					if analog.Action == nil {
+						return Config{}, fmt.Errorf("[%s] %s: action value not set", name, evcodeRaw)
+					}
+
+					action := Action(*analog.Action)
 					if !SupportedActions[action] {
-						return Config{}, fmt.Errorf("[%s] %s: action not supported: %s", name, evcodeRaw, *analog.ActionNegative)
+						return Config{}, fmt.Errorf("[%s] %s: action not supported: %s", name, evcodeRaw, *analog.Action)
 					}
-					bidirectional = true
-				}
 
-				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					Action:        action,
-					ActionNeg:     actionNegative,
-					FlipAxis:      analog.FlipAxis,
-					Bidirectional: bidirectional,
-					DeadzoneAtCenter: analog.DeadzoneAtCenter,
-				}
+					var actionNegative Action
 
-			case AnalogKeySim:
-				var bidirectional bool
-				var note, noteNeg uint8
-
-				if analog.Note == nil {
-					return Config{}, fmt.Errorf("[%s] %s: note value not set", name, evcodeRaw)
-				}
-
-				if *analog.Note < 0 || *analog.Note > 127 {
-					return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, *analog.Note)
-				}
-
-				note = byte(*analog.Note)
-
-				if analog.NoteNegative != nil {
-					if *analog.NoteNegative < 0 || *analog.NoteNegative > 127 {
-						return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, *analog.NoteNegative)
+					if analog.Action != nil {
+						actionNegative = Action(*analog.ActionNegative)
+						if !SupportedActions[action] {
+							return Config{}, fmt.Errorf("[%s] %s: action not supported: %s", name, evcodeRaw, *analog.ActionNegative)
+						}
+						bidirectional = true
 					}
-					noteNeg = byte(*analog.Note)
-					bidirectional = true
-				}
 
-				analogMapping[evcode] = Analog{
-					MappingType:   mappingType,
-					Note:          note,
-					NoteNeg:       noteNeg,
-					FlipAxis:      analog.FlipAxis,
-					Bidirectional: bidirectional,
-					DeadzoneAtCenter: analog.DeadzoneAtCenter,
+					analogMappingTmp[evcode] = Analog{
+						MappingType:      mappingType,
+						Action:           action,
+						ActionNeg:        actionNegative,
+						FlipAxis:         analog.FlipAxis,
+						Bidirectional:    bidirectional,
+						DeadzoneAtCenter: analog.DeadzoneAtCenter,
+					}
+
+				case AnalogKeySim:
+					var bidirectional bool
+					var note, noteNeg uint8
+
+					if analog.Note == nil {
+						return Config{}, fmt.Errorf("[%s] %s: note value not set", name, evcodeRaw)
+					}
+
+					if *analog.Note < 0 || *analog.Note > 127 {
+						return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, *analog.Note)
+					}
+
+					note = byte(*analog.Note)
+
+					if analog.NoteNegative != nil {
+						if *analog.NoteNegative < 0 || *analog.NoteNegative > 127 {
+							return Config{}, fmt.Errorf("[%s] %s: note value outside of 0-127 range: %d", name, evcodeRaw, *analog.NoteNegative)
+						}
+						noteNeg = byte(*analog.Note)
+						bidirectional = true
+					}
+
+					analogMappingTmp[evcode] = Analog{
+						MappingType:      mappingType,
+						Note:             note,
+						NoteNeg:          noteNeg,
+						FlipAxis:         analog.FlipAxis,
+						Bidirectional:    bidirectional,
+						DeadzoneAtCenter: analog.DeadzoneAtCenter,
+					}
+				default:
+					return Config{}, fmt.Errorf("[%s] %s: unexpected mapping type: %s", name, evcodeRaw, mappingType)
 				}
-			default:
-				return Config{}, fmt.Errorf("[%s] %s: unexpected mapping type: %s", name, evcodeRaw, mappingType)
 			}
+
+			for evcodeRaw, value := range subMapping.Deadzones {
+				evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.ABSFromString)
+				if err != nil {
+					return Config{}, fmt.Errorf("[deadzones] %w", err)
+				}
+				deadzonesTmp[evcode] = value
+			}
+
+			analogMapping[subMapping.SubHandler] = analogMappingTmp
+			deadzones[subMapping.SubHandler] = deadzonesTmp
+			defaultDeadzone[subMapping.SubHandler] = subMapping.DefaultDeadzone
 		}
 
 		keyMapping = append(keyMapping, KeyMapping{
-			Name:   name,
-			Midi:   midiMapping,
-			Analog: analogMapping,
+			Name:            name,
+			Midi:            midiMapping,
+			Analog:          analogMapping,
+			Deadzones:       deadzones,
+			DefaultDeadzone: defaultDeadzone,
 		})
 
 	}
@@ -354,14 +326,6 @@ func ParseData(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("[actions] unsupported action: %s", action)
 		}
 		actionMapping[evcode] = action
-	}
-
-	for evcodeRaw, value := range cfg.Deadzone.Deadzones {
-		evcode, err := TomlKeyToEvCode(evcodeRaw, evdev.ABSFromString)
-		if err != nil {
-			return Config{}, fmt.Errorf("[deadzones] %w", err)
-		}
-		deadzones[evcode] = value
 	}
 
 	collisionMode := CollisionMode(cfg.CollisionMode)
@@ -388,57 +352,12 @@ func ParseData(data []byte) (Config, error) {
 		exitSequence = append(exitSequence, evcode)
 	}
 
-	var gyro = make(map[evdev.EvCode][]GyroDesc)
-	var axisStringToIdx = map[string]int{"x": 0, "y": 1, "z": 2}
-
-	for _, desc := range cfg.Gyro {
-		mappingType := MappingType(desc.Type)
-		if !SupportedGyroMappingTypes[mappingType] {
-			return Config{}, fmt.Errorf("[gyro] unsupported type: %s", desc.Type)
-		}
-
-		switch mappingType {
-		case AnalogPitchBend:
-			break
-		case AnalogCC:
-			if desc.CC < 0 || desc.CC > 119 {
-				return Config{}, fmt.Errorf("[gyro] cc value outside of 0-119 range: %d", desc.CC)
-			}
-		default:
-			return Config{}, fmt.Errorf("[gyro] unexpected mapping type: %s", mappingType)
-		}
-
-		activationKey, ok := evdev.KEYFromString[desc.ActivationKey]
-		if !ok {
-			return Config{}, fmt.Errorf("[gyro] EvCode %s not exist", desc.ActivationKey)
-		}
-
-		activationMode := GyroMode(desc.ActivationMode)
-		if !SupportedGyroActivationTypes[activationMode] {
-			return Config{}, fmt.Errorf("[gyro] not supported activation mode: %s", desc.ActivationMode)
-		}
-
-		axis, ok := axisStringToIdx[desc.Axis]
-		if !ok {
-			return Config{}, fmt.Errorf("[gyro] incorrect axis: %s", desc.Axis)
-		}
-
-		gyroDesc := GyroDesc{
-			Axis:                axis,
-			Type:                mappingType,
-			CC:                  desc.CC,
-			ActivationMode:      activationMode,
-			ResetOnDeactivation: desc.ResetOnDeactivation,
-			FlipAxis:            desc.FlipAxis,
-			ValueMultiplier:     desc.ValueMultiplier,
-		}
-
-		_, ok = gyro[activationKey]
-		if !ok {
-			gyro[activationKey] = []GyroDesc{gyroDesc}
-		} else {
-			gyro[activationKey] = append(gyro[activationKey], gyroDesc)
-		}
+	if cfg.Defaults.Velocity < 0 || cfg.Defaults.Velocity > 127 {
+		return Config{}, fmt.Errorf("velocity \"%d\" not in 1-127 range", cfg.Defaults.Velocity)
+	}
+	velocity := cfg.Defaults.Velocity
+	if velocity == 0 {
+		velocity = 64
 	}
 
 	convertToColor := func(v int) openrgb.Color {
@@ -460,16 +379,13 @@ func ParseData(data []byte) (Config, error) {
 		KeyMappings:   keyMapping,
 		ActionMapping: actionMapping,
 		ExitSequence:  exitSequence,
-		Deadzone: Deadzone{
-			Deadzones: deadzones,
-			Default:   cfg.Deadzone.Default,
-		},
 		CollisionMode: collisionMode,
 		Defaults: Defaults{
 			Octave:   cfg.Defaults.Octave,
 			Semitone: cfg.Defaults.Semitone,
 			Channel:  cfg.Defaults.Channel,
 			Mapping:  mappingIndex,
+			Velocity: velocity,
 		},
 		OpenRGB: OpenRGB{
 			Colors: Colors{
@@ -482,7 +398,6 @@ func ParseData(data []byte) (Config, error) {
 				ActiveExternal: convertToColor(cfg.OpenRGB.ActiveExternal),
 			},
 		},
-		Gyro: gyro,
 	}
 	return devConfig, nil
 }
