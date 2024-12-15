@@ -1,0 +1,6 @@
+# list of devices to be ignored by HIDI
+# hashtag defines a comment and will be ignored
+# the simplest way to obtain a device identifier: ./HIDI -listdevices
+#
+# example entry:
+# Bus: 0x0003, Vendor: 0x054c, Product: 0x09cc, Version: 0x8111 # [Sony Interactive Entertainment Wireless Controller] (Joystick)

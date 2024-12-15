@@ -49,6 +49,7 @@ var (
 	midiDevice      = flag.Int("mididevice", 0, "select N-th midi device, default: 0 (first)")
 	orgbPort        = flag.Int("orgbport", -1, "use external opengrb server")
 	listMidiDevices = flag.Bool("listmididevices", false, "list available midi devices")
+	listDevices     = flag.Bool("listdevices", false, "list available keyboards/gamepads")
 	silent          = flag.Bool("silent", false, "no output logging, best performance")
 	virtual         = flag.Bool("virtual", false, "create virtual alsa midi port instead of connecting to existing one")
 	standalone      = flag.Bool("standalone", false, "start application and preserve selected by user keyboard as standard input device")
@@ -105,6 +106,19 @@ func (d SortabeDevices) Len() int           { return len(d) }
 func (d SortabeDevices) Swap(i, j int)      { d[i], d[j] = d[j], d[i] }
 func (d SortabeDevices) Less(i, j int) bool { return d[i].Name < d[j].Name }
 
+func collectDevices(s time.Duration) []input.Device {
+	ctx, cancel := context.WithCancel(context.Background())
+	devices := input.MonitorNewDevices(ctx, time.Millisecond*100, time.Millisecond*500)
+	time.Sleep(s)
+	cancel()
+
+	list := make([]input.Device, 0)
+	for d := range devices {
+		list = append(list, d)
+	}
+	return list
+}
+
 func main() {
 	defer gomidi.CloseDriver()
 
@@ -114,6 +128,13 @@ func main() {
 	case *listMidiDevices:
 		for i, p := range alsa.GetPorts() {
 			fmt.Printf("%d: %s\n", i, p.String())
+		}
+		os.Exit(0)
+	case *listDevices:
+		fmt.Printf("collecting devices...\n")
+		devices := collectDevices(time.Second)
+		for _, d := range devices {
+			fmt.Printf("%s # [%s] (%s)\n", d.ID.String(), d.Name, d.DeviceType.String())
 		}
 		os.Exit(0)
 	case *standalone:
@@ -206,6 +227,16 @@ func main() {
 	if err != nil {
 		fmt.Printf("Failed to load hidi.toml: %s\n", err)
 		os.Exit(1)
+	}
+
+	devBlacklist, err := loadDeviceBlacklist()
+	if err != nil {
+		log.Info(fmt.Sprintf("Failed to load device blacklist: %s", err), logger.Warning)
+	} else {
+		for _, dev := range devBlacklist {
+			log.Info(fmt.Sprintf("ignoring device %s", dev), logger.Warning)
+			ignoredIDs = append(ignoredIDs, dev)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
