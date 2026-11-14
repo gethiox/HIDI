@@ -99,11 +99,18 @@ jobs:
       - name: Load the ALSA sequencer
         run: |
           # The module is not part of the base kernel package on every image.
-          sudo modprobe snd-seq || {
-            sudo apt-get update
-            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+          if ! sudo modprobe snd-seq; then
+            echo "::group::diagnostics"
+            uname -a
+            find /lib/modules -name 'snd*' | head -20 || true
+            sudo apt-get update -qq
+            apt-cache search --names-only '^linux-modules' | grep -i -e azure -e "$(uname -r | cut -d- -f1,2)" | head -40 || true
+            apt-cache policy virtme-ng qemu-system-x86 linux-image-generic || true
+            ls -l /dev/kvm || true
+            echo "::endgroup::"
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)" || sudo apt-get install -y linux-modules-extra-azure
             sudo modprobe snd-seq
-          }
+          fi
           # udev normally creates the device node; do it by hand otherwise.
           for _ in 1 2 3 4 5; do [ -e /dev/snd/seq ] && break; sleep 1; done
           if [ ! -e /dev/snd/seq ]; then
