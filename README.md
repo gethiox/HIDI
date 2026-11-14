@@ -24,7 +24,7 @@ The planned structure is described in [docs/architecture.md](docs/architecture.m
 
 ## Building
 
-HIDI needs Go 1.24 or later and no C toolchain.
+HIDI needs Go 1.27 or later and no C toolchain.
 
 ```bash
 go build ./cmd/hidi
