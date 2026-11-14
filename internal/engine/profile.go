@@ -301,8 +301,10 @@ type Profile struct {
 	Collision CollisionMode
 }
 
-// validate checks the profile and returns every problem found.
-func (p *Profile) validate() error {
+// Validate checks the profile and returns an error describing every problem
+// found, or nil. [New] calls it; it is exported so that a profile can be
+// checked without building an engine.
+func (p *Profile) Validate() error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 

@@ -1,0 +1,51 @@
+schema = 1
+name = "Saitek Pro X56 stick"
+
+[match]
+type = "gamepad"
+bus = 0x0003
+vendor = 0x0738
+product = 0x2221
+version = 0x0111
+
+[defaults]
+octave = 0
+transpose = 0
+channel = 1
+velocity = 64
+layout = "Default"
+collision = "interrupt"
+
+[[layout]]
+name = "Default"
+
+[layout.bindings]
+KEY_0x120 = 0 # JOY_BTN 1 (trigger)
+KEY_0x121 = 1 # JOY_BTN 2 (Button A)
+KEY_0x122 = 2 # JOY_BTN 3 (Button B)
+KEY_0x123 = 3 # JOY_BTN 4 (thumb joy)
+KEY_0x124 = 4 # JOY_BTN 6 (Button D)
+KEY_0x125 = 5 # JOY_BTN 5 (pinky)
+
+# Witch Hat 1
+KEY_0x126 = 6 # JOY_BTN 7  (Up)
+KEY_0x129 = 7 # JOY_BTN 10 (Left)
+KEY_0x127 = 8 # JOY_BTN 8  (Right)
+KEY_0x128 = 9 # JOY_BTN 9  (Down)
+
+# Witch Hat 2
+KEY_0x12a = 10 # JOY_BTN 11 (Up)
+KEY_0x12d = 11 # JOY_BTN 14 (Left)
+KEY_0x12b = 12 # JOY_BTN 12 (Right)
+KEY_0x12c = 13 # JOY_BTN 13 (Down)
+
+ABS_0x00 = { cc = 1, centered = true } # JOY_X
+ABS_0x01 = { cc = 2, centered = true } # JOY_Y
+ABS_0x05 = { cc = 3, centered = true } # JOY_RX
+ABS_0x03 = { cc = 4, centered = true } # thumb JOY_RX
+ABS_0x04 = { cc = 5, centered = true } # thumb JOY_RY
+# POV Hat
+"ABS_0x11+" = { note = 14 } # up/down
+"ABS_0x11-" = { note = 15 } # up/down
+"ABS_0x10+" = { note = 16 } # left/right
+"ABS_0x10-" = { note = 17 } # left/right

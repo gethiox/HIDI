@@ -117,7 +117,7 @@ type Engine struct {
 // The engine keeps references into the profile; the caller must not modify
 // its slices afterwards.
 func New(p Profile) (*Engine, error) {
-	if err := p.validate(); err != nil {
+	if err := p.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid profile: %w", err)
 	}
 

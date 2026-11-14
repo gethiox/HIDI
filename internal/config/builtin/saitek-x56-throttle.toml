@@ -1,0 +1,75 @@
+schema = 1
+name = "Saitek Pro X56 throttle"
+
+[match]
+type = "gamepad"
+bus = 0x0003
+vendor = 0x0738
+product = 0xa221
+version = 0x0111
+
+[defaults]
+octave = 0
+transpose = 0
+channel = 1
+velocity = 64
+layout = "Default"
+collision = "interrupt"
+
+[[layout]]
+name = "Default"
+
+[layout.bindings]
+# throttle
+KEY_0x120 = 0 # JOY_BTN 1 (Button E)
+KEY_0x2d0 = 1 # JOY_BTN 33 ((SLD) Thumb)
+KEY_0x121 = 2 # JOY_BTN 2 (Rotary 1)
+KEY_0x122 = 3 # JOY_BTN 3 (Rotary 2)
+
+# thumbstick 1
+KEY_0x2c3 = 4 # JOY_BTN 24 (Hat 3, up)
+KEY_0x2c5 = 5 # JOY_BTN 26 (Hat 3, down)
+KEY_0x2c6 = 6 # JOY_BTN 27 (Hat 3, left)
+KEY_0x2c4 = 7 # JOY_BTN 25 (Hat 3, right)
+
+# thumbstick 2
+KEY_0x2c7 = 8 # JOY_BTN 20 (Hat 4, up)
+KEY_0x2c9 = 9 # JOY_BTN 22 (Hat 4, down)
+KEY_0x2ca = 10 # JOY_BTN 23 (Hat 4, left)
+KEY_0x2c8 = 11 # JOY_BTN 21 (Hat 4, right)
+
+# thumbstick 3
+KEY_0x2cf = 12 # JOY_BTN 32
+
+# throttle back
+KEY_0x123 = 13 # JOY_BTN 4
+KEY_0x124 = 14 # JOY_BTN 5
+KEY_0x2cb = 15 # JOY_BTN 28 (K! up)
+KEY_0x2cc = 16 # JOY_BTN 29 (K! Down)
+KEY_0x2ce = 17 # JOY_BTN 30 (Scroll FWD/BCK up)
+KEY_0x2cd = 18 # JOY_BTN 31 (Scroll FWD/BCK down)
+
+# base
+KEY_0x125 = 19 # JOY_BTN 6 (SW 1)
+KEY_0x126 = 20 # JOY_BTN 7 (SW 2)
+KEY_0x127 = 21 # JOY_BTN 8 (SW 3)
+KEY_0x128 = 22 # JOY_BTN 9 (SW 4)
+KEY_0x129 = 23 # JOY_BTN 10 (SW 5)
+KEY_0x12a = 24 # JOY_BTN 11 (SW 6)
+KEY_0x12b = 25 # JOY_BTN 12 (TGL 1 up)
+KEY_0x12c = 26 # JOY_BTN 13 (TGL 1 down)
+KEY_0x12d = 27 # JOY_BTN 14 (TGL 2 up)
+KEY_0x12e = 28 # JOY_BTN 15 (TGL 2 down)
+KEY_0x12f = 29 # JOY_BTN 16 (TGL 3 up)
+KEY_0x2c0 = 30 # JOY_BTN 17 (TGL 3 down)
+KEY_0x2c1 = 31 # JOY_BTN 18 (TGL 4 up)
+KEY_0x2c2 = 32 # JOY_BTN 19 (TGL 4 down)
+
+ABS_0x00 = { cc = 1 } # JOY_X
+ABS_0x01 = { cc = 2 } # JOY_Y
+ABS_0x02 = { cc = 3 } # Rotary 1
+ABS_0x05 = { cc = 4 } # Rotary 2
+ABS_0x03 = { cc = 5, centered = true } # JOY_RX (thumb joy)
+ABS_0x04 = { cc = 6, centered = true } # JOY_RY (thumb joy)
+ABS_0x06 = { cc = 7 } # JOY_SLIDER 2 (RTY4)
+ABS_0x07 = { cc = 8 } # JOY_SLIDER 1 (RTY3)

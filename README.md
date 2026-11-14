@@ -21,6 +21,7 @@ instrument, and use game controllers for notes, pitch bend and control changes.
   compatible.
 
 The planned structure is described in [docs/architecture.md](docs/architecture.md).
+The profile file format is described in [docs/configuration.md](docs/configuration.md).
 
 ## Building
 
