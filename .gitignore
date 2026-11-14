@@ -1,2 +1,9 @@
-builds
-cmd/hidi/openrgb/bin
+# build output
+/builds/
+/dist/
+/hidi
+/hidi.exe
+
+# editors
+.idea/
+.vscode/
