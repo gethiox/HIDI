@@ -1,0 +1,48 @@
+schema = 1
+name = "Default gamepad"
+
+[match]
+type = "gamepad"
+
+[defaults]
+octave = 0
+transpose = 0
+channel = 1
+velocity = 64
+layout = "Default"
+collision = "interrupt"
+
+[global]
+BTN_SELECT = "channel_down"
+BTN_START = "channel_up"
+BTN_MODE = "panic"
+
+[[layout]]
+name = "Default"
+
+[layout.bindings]
+BTN_A = 0
+BTN_B = 1
+BTN_X = 2
+BTN_Y = 3
+BTN_C = 4
+BTN_Z = 6
+BTN_TL2 = 7
+BTN_TR2 = 8
+BTN_THUMBL = 9
+BTN_THUMBR = 10
+BTN_TL = 11
+BTN_TR = 12
+
+ABS_X = { cc = 0, centered = true, deadzone = 0.1 }
+ABS_Y = { pitch_bend = true, centered = true, invert = true, deadzone = 0.1 }
+"ABS_RX+" = { cc = 1, deadzone = 0.1 }
+"ABS_RX-" = { cc = 2, deadzone = 0.1 }
+"ABS_RY-" = { cc = 3, deadzone = 0.1 }
+"ABS_RY+" = { cc = 4, deadzone = 0.1 }
+ABS_Z = { cc = 5 }
+ABS_RZ = { cc = 6 }
+"ABS_HAT0X+" = "octave_up"
+"ABS_HAT0X-" = "octave_down"
+"ABS_HAT0Y-" = "layout_next"
+"ABS_HAT0Y+" = "layout_previous"
