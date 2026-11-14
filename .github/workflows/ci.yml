@@ -85,3 +85,34 @@ jobs:
         run: go build -trimpath -o dist/ ./cmd/hidi
       - name: go vet (target platform)
         run: go vet ./...
+
+  integration-linux:
+    # Runs the tests that need real kernel interfaces, which are skipped
+    # everywhere else.
+    name: Integration (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Load the ALSA sequencer
+        run: |
+          # The module is not part of the base kernel package on every image.
+          sudo modprobe snd-seq || {
+            sudo apt-get update
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe snd-seq
+          }
+          # udev normally creates the device node; do it by hand otherwise.
+          for _ in 1 2 3 4 5; do [ -e /dev/snd/seq ] && break; sleep 1; done
+          if [ ! -e /dev/snd/seq ]; then
+            sudo mkdir -p /dev/snd
+            sudo mknod /dev/snd/seq c 116 1
+          fi
+          sudo chmod a+rw /dev/snd/seq
+          ls -l /dev/snd/
+      - name: go test (ALSA sequencer)
+        env:
+          HIDI_REQUIRE_ALSA: "1"
+        run: go test -race -v ./internal/output/...

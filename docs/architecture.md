@@ -52,7 +52,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | exists | Configuration schema, versioning, migration, validation. |
 | `input` | planned | Input backend interface, with one subpackage per platform. |
-| `output` | planned | MIDI output backend interface, with one subpackage per transport. |
+| `output` | partial | MIDI output backend interface, with one subpackage per transport. The ALSA sequencer backend exists. |
 | `runtime` | planned | Device lifecycle: matches devices to configs, starts and stops instruments, global enable/disable. |
 | `logging` | planned | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
 | `ipc` | planned | Local control protocol between the engine and its clients. |
