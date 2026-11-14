@@ -1,8 +1,8 @@
 name: CI
 
 on:
+  # Every pull request, including ones stacked on another feature branch.
   pull_request:
-    branches: [dev, main]
   push:
     branches: [dev, main]
 
