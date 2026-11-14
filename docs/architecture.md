@@ -48,7 +48,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `buildinfo` | exists | Version of the running binary. |
 | `assets` | exists | Files embedded into the binary. |
 | `midi` | exists | MIDI message types and encoding (MIDI 1.0 bytes and UMP). No I/O. |
-| `control` | planned | Platform-neutral input model: device identity, control codes, events. |
+| `control` | exists | Platform-neutral input model: device identity, control codes, events. |
 | `engine` | planned | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | planned | Configuration schema, versioning, migration, validation. |
 | `input` | planned | Input backend interface, with one subpackage per platform. |
