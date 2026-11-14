@@ -88,7 +88,9 @@ jobs:
 
   integration-linux:
     # Runs the tests that need real kernel interfaces, which are skipped
-    # everywhere else.
+    # everywhere else. The kernel of the hosted runners is built without
+    # sound support, so the tests run in a virtual machine that boots
+    # Ubuntu's generic kernel on top of the runner's own file system.
     name: Integration (Linux)
     runs-on: ubuntu-latest
     steps:
@@ -96,30 +98,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Load the ALSA sequencer
+      - name: Build the test binaries
         run: |
-          # The module is not part of the base kernel package on every image.
-          if ! sudo modprobe snd-seq; then
-            echo "::group::diagnostics"
-            uname -a
-            find /lib/modules -name 'snd*' | head -20 || true
-            sudo apt-get update -qq
-            apt-cache search --names-only '^linux-modules' | grep -i -e azure -e "$(uname -r | cut -d- -f1,2)" | head -40 || true
-            apt-cache policy virtme-ng qemu-system-x86 linux-image-generic || true
-            ls -l /dev/kvm || true
-            echo "::endgroup::"
-            sudo apt-get install -y "linux-modules-extra-$(uname -r)" || sudo apt-get install -y linux-modules-extra-azure
-            sudo modprobe snd-seq
-          fi
-          # udev normally creates the device node; do it by hand otherwise.
-          for _ in 1 2 3 4 5; do [ -e /dev/snd/seq ] && break; sleep 1; done
-          if [ ! -e /dev/snd/seq ]; then
-            sudo mkdir -p /dev/snd
-            sudo mknod /dev/snd/seq c 116 1
-          fi
-          sudo chmod a+rw /dev/snd/seq
-          ls -l /dev/snd/
-      - name: go test (ALSA sequencer)
-        env:
-          HIDI_REQUIRE_ALSA: "1"
-        run: go test -race -v ./internal/output/...
+          mkdir -p "$RUNNER_TEMP/tests"
+          go test -race -c -o "$RUNNER_TEMP/tests/alsaseq.test" ./internal/output/alsaseq
+      - name: Install the virtual machine and a generic kernel
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq virtme-ng qemu-system-x86 linux-image-generic
+      - name: Run the tests on the generic kernel
+        run: |
+          kernel=$(ls /boot/vmlinuz-*-generic | sort -V | tail -n 1)
+          echo "kernel: $kernel"
+          # The exit status is printed and checked from the log, so that the
+          # result does not depend on how the VM tool reports it.
+          sudo vng --run "$kernel" -- sh -c "
+            modprobe snd-seq &&
+            HIDI_REQUIRE_ALSA=1 '$RUNNER_TEMP/tests/alsaseq.test' -test.v
+            echo \"tests exited with status \$?\"
+          " 2>&1 | tee "$RUNNER_TEMP/vm.log"
+          grep -q 'tests exited with status 0' "$RUNNER_TEMP/vm.log"
