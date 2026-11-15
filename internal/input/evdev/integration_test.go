@@ -47,11 +47,26 @@ const (
 	busVirtual  = 0x06
 )
 
-// newVirtualDevice creates a device with the given keys and axes. Tests are
-// skipped where uinput is unavailable, unless HIDI_REQUIRE_UINPUT is set, as
-// it is in CI, where a skip would hide that nothing was tested.
+// virtualSpec describes a device to create through uinput.
+type virtualSpec struct {
+	name, phys string
+	keys       []uint16
+	axes       map[uint16]axisRange
+}
+
+// newVirtualDevice creates a device with the given keys and axes and the
+// default name and location.
 func newVirtualDevice(t *testing.T, keys []uint16, axes map[uint16]axisRange) *virtualDevice {
 	t.Helper()
+	return createVirtualDevice(t, virtualSpec{name: testName, phys: testPhys, keys: keys, axes: axes})
+}
+
+// createVirtualDevice creates a device. Tests are skipped where uinput is
+// unavailable, unless HIDI_REQUIRE_UINPUT is set, as it is in CI, where a
+// skip would hide that nothing was tested.
+func createVirtualDevice(t *testing.T, spec virtualSpec) *virtualDevice {
+	t.Helper()
+	keys, axes := spec.keys, spec.axes
 	fd, err := unix.Open("/dev/uinput", unix.O_WRONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		if os.Getenv("HIDI_REQUIRE_UINPUT") != "" {
@@ -93,7 +108,7 @@ func newVirtualDevice(t *testing.T, keys []uint16, axes map[uint16]axisRange) *v
 		ptr(uiAbsSetup, unsafe.Pointer(&setup))
 	}
 
-	phys := append([]byte(testPhys), 0)
+	phys := append([]byte(spec.phys), 0)
 	ptr(uiSetPhys, unsafe.Pointer(&phys[0]))
 
 	// struct uinput_setup: struct input_id, name[80], ff_effects_max.
@@ -102,7 +117,7 @@ func newVirtualDevice(t *testing.T, keys []uint16, axes map[uint16]axisRange) *v
 	native.PutUint16(setup[2:], testVendor)
 	native.PutUint16(setup[4:], testProduct)
 	native.PutUint16(setup[6:], testVersion)
-	copy(setup[8:87], testName)
+	copy(setup[8:87], spec.name)
 	ptr(uiDevSetup, unsafe.Pointer(&setup))
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uiDevCreate, 0); errno != 0 {
 		t.Fatalf("creating the uinput device: %v", errno)
