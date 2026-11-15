@@ -85,3 +85,36 @@ jobs:
         run: go build -trimpath -o dist/ ./cmd/hidi
       - name: go vet (target platform)
         run: go vet ./...
+
+  integration-linux:
+    # Runs the tests that need real kernel interfaces, which are skipped
+    # everywhere else. The kernel of the hosted runners is built without
+    # sound support, so the tests run in a virtual machine that boots
+    # Ubuntu's generic kernel on top of the runner's own file system.
+    name: Integration (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the test binaries
+        run: |
+          mkdir -p "$RUNNER_TEMP/tests"
+          go test -race -c -o "$RUNNER_TEMP/tests/alsaseq.test" ./internal/output/alsaseq
+      - name: Install the virtual machine and a generic kernel
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq virtme-ng qemu-system-x86 linux-image-generic
+      - name: Run the tests on the generic kernel
+        run: |
+          kernel=$(ls /boot/vmlinuz-*-generic | sort -V | tail -n 1)
+          echo "kernel: $kernel"
+          # The exit status is printed and checked from the log, so that the
+          # result does not depend on how the VM tool reports it.
+          sudo vng --run "$kernel" -- sh -c "
+            modprobe snd-seq &&
+            HIDI_REQUIRE_ALSA=1 '$RUNNER_TEMP/tests/alsaseq.test' -test.v
+            echo \"tests exited with status \$?\"
+          " 2>&1 | tee "$RUNNER_TEMP/vm.log"
+          grep -q 'tests exited with status 0' "$RUNNER_TEMP/vm.log"
