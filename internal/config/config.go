@@ -317,3 +317,19 @@ func (t *table) id(key string) *uint16 {
 	n := uint16(t.integer(key, 0, 0, 0xFFFF))
 	return &n
 }
+
+// Select returns the profile that describes the device most closely: the
+// one with the highest [Match.Score] among those that select it. When
+// several score the same, the one later in the list wins, so that profiles
+// added by the user take precedence over built-in ones listed before them.
+// It returns nil if no profile selects the device.
+func Select(profiles []*Profile, d control.DeviceInfo) *Profile {
+	var best *Profile
+	bestScore := -1
+	for _, p := range profiles {
+		if score, ok := p.Match.Score(d); ok && score >= bestScore {
+			best, bestScore = p, score
+		}
+	}
+	return best
+}

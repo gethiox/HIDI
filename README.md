@@ -5,8 +5,9 @@ instrument, and use game controllers for notes, pitch bend and control changes.
 
 ![HIDI logo](./docs/hidi-logo.png)
 
-> **This is the development branch for HIDI 2.0.** It is a rebuild and is not
-> usable yet. For the released version, see the
+> **This is the development branch for HIDI 2.0.** It is a rebuild in
+> progress: it can be tried on Linux, as described below, but is far from
+> complete. For the released version, see the
 > [`main` branch](https://github.com/gethiox/HIDI/tree/main) and the
 > [releases page](https://github.com/gethiox/HIDI/releases).
 
@@ -36,6 +37,43 @@ Cross-compiling works with the usual Go variables, for example:
 ```bash
 GOOS=windows GOARCH=amd64 go build ./cmd/hidi
 ```
+
+## Trying it on Linux
+
+HIDI reads input devices from `/dev/input` and creates MIDI devices through
+the ALSA sequencer. Your user needs access to both, which on most
+distributions means being a member of the `input` and `audio` groups:
+
+```bash
+sudo usermod -aG input,audio "$USER"
+```
+
+Log out and back in for the change to take effect.
+
+List the input devices HIDI sees and the profile each would use:
+
+```bash
+./hidi devices
+```
+
+Run the instruments:
+
+```bash
+./hidi run
+```
+
+Every keyboard and game controller becomes a MIDI device named `HIDI`
+followed by the device's name. It shows up in your DAW or synthesizer, and
+in the output of `aconnect -l`. Unplugging the device removes it. Press
+Ctrl+C to stop.
+
+HIDI does not take devices away from the system yet, so a keyboard keeps
+typing while you play it. Run it from a terminal you do not mind typing
+into.
+
+The default keyboard profile plays notes on the letter rows, changes octave
+with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,
+and switches layout with F11 and F12. Escape silences everything.
 
 ## Development
 

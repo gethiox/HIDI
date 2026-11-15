@@ -28,7 +28,7 @@ changes the design.
 │ (Windows)     │   │                          │   │ existing hardware port │
 └───────────────┘   └──────────────────────────┘   └────────────────────────┘
         ▲                        ▲                             ▲
-        └──────────── runtime: device lifecycle ───────────────┘
+        └─────────── instrument: device lifecycle ─────────────┘
                                  ▲
                       IPC ───────┴─────── tray
                        ▲
@@ -53,7 +53,8 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `config` | exists | Configuration schema, versioning, migration, validation. |
 | `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. |
 | `output` | partial | MIDI output backend interface, with one subpackage per transport. The ALSA sequencer backend exists. |
-| `runtime` | planned | Device lifecycle: matches devices to configs, starts and stops instruments, global enable/disable. |
+| `instrument` | partial | Device lifecycle: matches devices to profiles, and starts and stops instruments. Enabling, disabling and grabbing are not there yet. |
+| `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | planned | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
 | `ipc` | planned | Local control protocol between the engine and its clients. |
 | `ui` | planned | Terminal views, tray icon and graphical UI. |
@@ -65,9 +66,10 @@ All packages live under `internal/`; HIDI does not offer a Go API.
   It performs no I/O and starts no goroutines, so its behaviour is fully
   covered by unit tests.
 - Platform-specific code is confined to subpackages of `input`, `output` and
-  `ui`, selected with build constraints. Nothing else may use
-  `//go:build` constraints or import a platform package.
-- `runtime` is the only package that wires backends to engines.
+  `ui`. `backend` chooses among them with build constraints and is the only
+  other package that may use `//go:build` or import a platform package.
+- `instrument` is the only package that wires devices to engines and
+  outputs. It sees them through the interfaces of `input` and `output`.
 
 ## Design decisions
 
