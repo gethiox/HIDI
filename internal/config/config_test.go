@@ -373,3 +373,34 @@ func TestBuiltinKeyboardPlays(t *testing.T) {
 		}
 	}
 }
+
+func TestSelect(t *testing.T) {
+	id := func(v uint16) *uint16 { return &v }
+	general := &Profile{Name: "general", Match: Match{Type: control.DeviceGamepad}}
+	model := &Profile{Name: "model", Match: Match{Type: control.DeviceGamepad, Vendor: id(1), Product: id(2)}}
+	user := &Profile{Name: "user", Match: Match{Type: control.DeviceGamepad}}
+	keyboard := &Profile{Name: "keyboard", Match: Match{Type: control.DeviceKeyboard}}
+
+	pad := control.DeviceInfo{Type: control.DeviceGamepad, Hardware: control.HardwareID{Vendor: 1, Product: 2}}
+	otherPad := control.DeviceInfo{Type: control.DeviceGamepad}
+	mouse := control.DeviceInfo{Type: control.DeviceMouse}
+
+	tests := []struct {
+		name     string
+		profiles []*Profile
+		device   control.DeviceInfo
+		want     *Profile
+	}{
+		{"most specific wins", []*Profile{model, general, keyboard}, pad, model},
+		{"general for another model", []*Profile{model, general, keyboard}, otherPad, general},
+		{"later wins a tie", []*Profile{general, user}, otherPad, user},
+		{"specific beats a later general one", []*Profile{model, user}, pad, model},
+		{"nothing selects it", []*Profile{general, keyboard}, mouse, nil},
+		{"no profiles", nil, pad, nil},
+	}
+	for _, tt := range tests {
+		if got := Select(tt.profiles, tt.device); got != tt.want {
+			t.Errorf("%s: Select = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
