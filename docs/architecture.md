@@ -53,7 +53,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `config` | exists | Configuration schema, versioning, migration, validation. |
 | `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. |
 | `output` | partial | MIDI output backend interface, with one subpackage per transport. The ALSA sequencer backend exists. |
-| `instrument` | partial | Device lifecycle: matches devices to profiles, and starts and stops instruments. Enabling, disabling and grabbing are not there yet. |
+| `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | planned | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
 | `ipc` | planned | Local control protocol between the engine and its clients. |
@@ -125,7 +125,12 @@ While an instrument is active its device does not type or click.
   Raw Input. Game controllers are read without suppression.
 
 A global key combination, handled inside HIDI's own input path, toggles this
-state so that a user with a single keyboard can always get it back.
+state so that a user with a single keyboard can always get it back. HIDI
+refuses to grab keyboards when no combination is set.
+
+A grab takes effect only once no key of the device is down. A program that
+saw a key go down and then loses the device never sees it come up and treats
+it as held, which would otherwise happen to the Enter key that starts HIDI.
 
 ### Configuration
 

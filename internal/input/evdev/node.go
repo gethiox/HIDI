@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -84,6 +85,13 @@ type Node struct {
 	// dropped is set between a SYN_DROPPED event and the SYN_REPORT that
 	// ends the incomplete packet.
 	dropped bool
+
+	// mu guards the key state and the grab state, which Grab and Release
+	// touch from other goroutines than the one reading.
+	mu sync.Mutex
+	// wantGrab is set while the caller wants the device grabbed; grabbed is
+	// set once the kernel grab is in place.
+	wantGrab, grabbed bool
 
 	raw []byte
 }
@@ -241,16 +249,43 @@ func (n *Node) readAxis(axis uint16) (int32, axisRange, error) {
 
 // Grab takes the device away from the rest of the system: while it is
 // grabbed, no other program, the desktop included, receives its events.
+//
+// The grab takes effect once no key of the device is down. A program that
+// saw a key go down and then loses the device never sees the key come up,
+// and would treat it as held; the Enter key that started HIDI is the usual
+// victim. If a key is down, Grab returns nil and the grab happens when the
+// last key is released; a failure at that point is not reported.
+//
 // The grab ends with Release or when the node is closed.
 func (n *Node) Grab() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.wantGrab = true
+	return n.grabIfIdle()
+}
+
+// grabIfIdle puts a wanted grab in place if no key is down. The caller
+// holds n.mu.
+func (n *Node) grabIfIdle() error {
+	if !n.wantGrab || n.grabbed || n.keysDown != ([keyCount / 8]byte{}) {
+		return nil
+	}
 	if err := n.ioctlValue(reqGrab, 1); err != nil {
 		return fmt.Errorf("%s: grabbing the device: %w", n.info.Path, err)
 	}
+	n.grabbed = true
 	return nil
 }
 
-// Release ends a grab.
+// Release ends a grab, or cancels one that has not taken effect yet.
 func (n *Node) Release() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.wantGrab = false
+	if !n.grabbed {
+		return nil
+	}
+	n.grabbed = false
 	if err := n.ioctlValue(reqGrab, 0); err != nil {
 		return fmt.Errorf("%s: releasing the device: %w", n.info.Path, err)
 	}
@@ -279,14 +314,18 @@ func (n *Node) Read(dst []control.Event) ([]control.Event, error) {
 			}
 			return dst, fmt.Errorf("%s: %w", n.info.Path, err)
 		}
+		n.mu.Lock()
 		for off := 0; off+rawEventSize <= got; off += rawEventSize {
 			dst = n.translate(n.raw[off:off+rawEventSize], dst)
 		}
+		n.grabIfIdle() // a grab may have been waiting for a key release
+		n.mu.Unlock()
 	}
 	return dst, nil
 }
 
-// translate converts one raw event and appends what it amounts to.
+// translate converts one raw event and appends what it amounts to. The
+// caller holds n.mu.
 func (n *Node) translate(raw []byte, dst []control.Event) []control.Event {
 	body := raw[2*wordSize:]
 	typ, code := native.Uint16(body[0:]), native.Uint16(body[2:])

@@ -9,7 +9,9 @@ package instrument
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
@@ -32,7 +34,20 @@ type Options struct {
 	OpenEndpoint func(name string) (output.Endpoint, error)
 	// Logger receives what the manager reports. Nil discards it.
 	Logger *slog.Logger
+
+	// Grab decides whether a device is taken away from the rest of the
+	// system while HIDI is active. Nil grabs nothing.
+	Grab func(control.DeviceInfo) bool
+	// Toggle is a set of keys that, pressed together on one device, turns
+	// HIDI off and on again. Empty disables the combination.
+	Toggle []control.Code
+	// StartInactive makes the manager start turned off.
+	StartInactive bool
 }
+
+// GrabKeyboards is a grab policy that takes keyboards and leaves every
+// other device, game controllers in particular, usable by other programs.
+func GrabKeyboards(d control.DeviceInfo) bool { return d.Type == control.DeviceKeyboard }
 
 // Manager turns input devices into running instruments.
 type Manager struct {
@@ -41,6 +56,7 @@ type Manager struct {
 
 	mu      sync.Mutex
 	running map[*runner]struct{}
+	active  bool
 	done    sync.WaitGroup
 }
 
@@ -50,7 +66,40 @@ func NewManager(opts Options) *Manager {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Manager{opts: opts, log: log, running: map[*runner]struct{}{}}
+	return &Manager{opts: opts, log: log, running: map[*runner]struct{}{}, active: !opts.StartInactive}
+}
+
+// Active reports whether HIDI is turned on.
+func (m *Manager) Active() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.active
+}
+
+// SetActive turns HIDI on or off. While it is off, the instruments are
+// silent, their devices are given back to the system, and their input is
+// only watched for the toggle combination. The MIDI devices stay in place,
+// so that connections made in other programs survive.
+func (m *Manager) SetActive(active bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.active == active {
+		return
+	}
+	m.active = active
+	for r := range m.running {
+		r.setWanted(active)
+	}
+	if active {
+		m.log.Info("HIDI is on")
+	} else {
+		m.log.Info("HIDI is off; devices are released")
+	}
+}
+
+// toggle flips between on and off.
+func (m *Manager) toggle() {
+	m.SetActive(!m.Active())
 }
 
 // Run starts an instrument for every usable device that arrives on devices.
@@ -118,10 +167,15 @@ func (m *Manager) add(dev input.Device) {
 
 	r := &runner{
 		device: dev, engine: eng, endpoint: endpoint, log: log,
-		status: Status{Device: info, Profile: profile.Name, State: eng.State()},
+		status:   Status{Device: info, Profile: profile.Name, State: eng.State()},
+		grab:     m.opts.Grab != nil && m.opts.Grab(info),
+		toggle:   m.opts.Toggle,
+		onToggle: m.toggle,
+		wake:     make(chan struct{}, 1),
 	}
 	m.mu.Lock()
 	m.running[r] = struct{}{}
+	r.setWanted(m.active)
 	m.mu.Unlock()
 	log.Info("instrument started",
 		"type", info.Type.String(), "hardware", info.Hardware.String(),
@@ -165,6 +219,19 @@ type runner struct {
 	endpoint output.Endpoint
 	log      *slog.Logger
 
+	// grab says whether the device is grabbed while the instrument is on.
+	grab bool
+	// toggle is the key combination that turns HIDI off and on, and
+	// onToggle is what it calls.
+	toggle   []control.Code
+	onToggle func()
+
+	// wanted is the state the manager asked for. The instrument's own
+	// goroutine applies it, because the engine must not be used from two
+	// goroutines; wake tells that goroutine to look.
+	wanted atomic.Bool
+	wake   chan struct{}
+
 	mu     sync.Mutex
 	status Status
 }
@@ -175,41 +242,92 @@ func (r *runner) snapshot() Status {
 	return r.status
 }
 
+// setWanted asks the instrument to turn on or off.
+func (r *runner) setWanted(active bool) {
+	r.wanted.Store(active)
+	select {
+	case r.wake <- struct{}{}:
+	default: // a wake-up is already pending
+	}
+}
+
 // run feeds the device's input through the engine to the endpoint until the
 // device stops, then leaves the instrument silent and removes its endpoint.
 func (r *runner) run() {
 	var out []midi.Message
 	state := r.engine.State()
+	active := false
 	failed := false
+	// held tracks which keys of the toggle combination are down.
+	held := map[control.Code]bool{}
 
-	for ev := range r.device.Events() {
-		if failed {
-			continue // draining until the device has stopped
+	// apply brings the instrument to the state the manager wants.
+	apply := func() {
+		want := r.wanted.Load()
+		if want == active || failed {
+			return
 		}
-		out = r.engine.Handle(ev, out[:0])
-		if !r.send(out) {
-			// Without an output there is no instrument. Stopping the
-			// device ends this loop.
+		active = want
+		if active {
+			if r.grab {
+				if err := r.device.Grab(); err != nil {
+					r.log.Warn("the device cannot be grabbed; it stays usable by other programs", "error", err)
+				}
+			}
+			return
+		}
+		// Turning off: nothing may keep sounding, and the device goes
+		// back to the system.
+		if !r.send(r.engine.Reset(out[:0])) {
 			failed = true
 			go r.device.Close()
-			continue
 		}
-		if now := r.engine.State(); now != state {
-			changed := now.Octave != state.Octave || now.Transpose != state.Transpose ||
-				now.Channel != state.Channel || now.Velocity != state.Velocity || now.Layout != state.Layout
-			state = now
-			r.mu.Lock()
-			r.status.State = now
-			r.mu.Unlock()
-			if changed {
-				r.log.Info("instrument changed",
-					"octave", now.Octave, "transpose", now.Transpose,
-					"channel", now.Channel+1, "velocity", now.Velocity, "layout", now.Layout)
+		if r.grab {
+			if err := r.device.Release(); err != nil {
+				r.log.Warn("the device cannot be released", "error", err)
 			}
+		}
+		r.publish(&state)
+	}
+
+	apply()
+	events := r.device.Events()
+loop:
+	for {
+		select {
+		case <-r.wake:
+			apply()
+		case ev, ok := <-events:
+			if !ok {
+				break loop
+			}
+			// A request from the manager may be waiting behind this
+			// event; it comes first.
+			apply()
+			if failed {
+				continue // draining until the device has stopped
+			}
+			if r.toggled(held, ev) {
+				r.onToggle()
+				apply()
+				continue
+			}
+			if !active {
+				continue
+			}
+			out = r.engine.Handle(ev, out[:0])
+			if !r.send(out) {
+				// Without an output there is no instrument. Stopping
+				// the device ends this loop.
+				failed = true
+				go r.device.Close()
+				continue
+			}
+			r.publish(&state)
 		}
 	}
 
-	if !failed {
+	if !failed && active {
 		// Release whatever is still held, so that nothing keeps sounding.
 		r.send(r.engine.Reset(out[:0]))
 	}
@@ -217,6 +335,43 @@ func (r *runner) run() {
 		r.log.Warn("closing the MIDI device failed", "error", err)
 	}
 	r.log.Info("instrument stopped", "reason", r.device.Err())
+}
+
+// toggled tracks the keys of the toggle combination and reports whether ev
+// is the press that completes it.
+func (r *runner) toggled(held map[control.Code]bool, ev control.Event) bool {
+	if len(r.toggle) == 0 || !slices.Contains(r.toggle, ev.Code) {
+		return false
+	}
+	if !ev.Pressed() {
+		delete(held, ev.Code)
+		return false
+	}
+	if held[ev.Code] {
+		return false
+	}
+	held[ev.Code] = true
+	return len(held) == len(r.toggle)
+}
+
+// publish records the engine's state for [Manager.Status] and logs a change
+// the player made. last is the state published before.
+func (r *runner) publish(last *engine.State) {
+	now := r.engine.State()
+	if now == *last {
+		return
+	}
+	changed := now.Octave != last.Octave || now.Transpose != last.Transpose ||
+		now.Channel != last.Channel || now.Velocity != last.Velocity || now.Layout != last.Layout
+	*last = now
+	r.mu.Lock()
+	r.status.State = now
+	r.mu.Unlock()
+	if changed {
+		r.log.Info("instrument changed",
+			"octave", now.Octave, "transpose", now.Transpose,
+			"channel", now.Channel+1, "velocity", now.Velocity, "layout", now.Layout)
+	}
 }
 
 // send writes messages to the endpoint and reports whether it worked.

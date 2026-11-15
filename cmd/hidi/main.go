@@ -9,13 +9,16 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/backend"
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/config"
+	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/instrument"
 )
 
@@ -81,8 +84,29 @@ func parseFlags(fs *flag.FlagSet, args []string, stderr io.Writer) (ok bool, cod
 func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	verbose := fs.Bool("v", false, "also log every MIDI message and every ignored device")
+	toggleFlag := fs.String("toggle", defaultToggle,
+		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
+	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
+	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
+	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
+	}
+
+	toggle, err := parseToggle(*toggleFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "hidi run: -toggle: %v\n", err)
+		return 2
+	}
+	if len(toggle) == 0 && !*noGrab {
+		// A grabbed keyboard cannot type Ctrl+C, so without the combination
+		// a user with one keyboard could not get it back.
+		fmt.Fprintln(stderr, "hidi run: grabbing keyboards needs a toggle combination to release them; set -toggle or pass -no-grab")
+		return 2
+	}
+	if len(toggle) == 0 && *startOff {
+		fmt.Fprintln(stderr, "hidi run: -off needs a toggle combination to turn HIDI on")
+		return 2
 	}
 
 	level := slog.LevelInfo
@@ -105,15 +129,70 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	defer source.Close()
 
+	grab := func(d control.DeviceInfo) bool {
+		switch d.Type {
+		case control.DeviceGamepad:
+			return *grabGamepads
+		case control.DeviceMouse:
+			return false // taking the pointer away is never wanted
+		}
+		return !*noGrab
+	}
+
 	log.Info("HIDI started; press Ctrl+C to stop", "version", buildinfo.Get().String())
+	if len(toggle) > 0 {
+		log.Info("press the toggle combination to turn HIDI off and on", "keys", formatToggle(toggle))
+	}
+	if !*noGrab {
+		log.Info("keyboards do not type while HIDI is on; turn it off to get them back")
+	}
 	manager := instrument.NewManager(instrument.Options{
-		Profiles:     profiles,
-		OpenEndpoint: backend.OpenEndpoint,
-		Logger:       log,
+		Profiles:      profiles,
+		OpenEndpoint:  backend.OpenEndpoint,
+		Logger:        log,
+		Grab:          grab,
+		Toggle:        toggle,
+		StartInactive: *startOff,
 	})
 	manager.Run(ctx, source.Devices)
 	log.Info("HIDI stopped")
 	return 0
+}
+
+// defaultToggle is the combination that turns HIDI off and on. It consists
+// of modifier keys only, so that pressing it while HIDI is off, when the
+// keys reach the desktop, does not trigger anything there, and every
+// keyboard has the three keys.
+const defaultToggle = "KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT"
+
+// parseToggle reads a key combination written like "KEY_A+KEY_B".
+func parseToggle(s string) ([]control.Code, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var keys []control.Code
+	for _, name := range strings.Split(s, "+") {
+		code, err := control.ParseCode(strings.TrimSpace(name))
+		if err != nil {
+			return nil, err
+		}
+		if code.Kind != control.KindKey {
+			return nil, fmt.Errorf("%v is not a key", code)
+		}
+		if slices.Contains(keys, code) {
+			return nil, fmt.Errorf("%v is listed twice", code)
+		}
+		keys = append(keys, code)
+	}
+	return keys, nil
+}
+
+func formatToggle(keys []control.Code) string {
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		names[i] = k.String()
+	}
+	return strings.Join(names, "+")
 }
 
 func cmdDevices(args []string, stdout, stderr io.Writer) int {

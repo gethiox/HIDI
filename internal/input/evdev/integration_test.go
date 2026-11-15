@@ -373,3 +373,57 @@ func TestNodeRecoversFromDroppedEvents(t *testing.T) {
 		}
 	}
 }
+
+// Grabbing while a key is down must wait for the key to be released, so that
+// the rest of the system sees the release and does not believe the key is
+// stuck.
+func TestNodeGrabWaitsForKeyRelease(t *testing.T) {
+	d := newVirtualDevice(t, testKeys, nil)
+	grabber, other := openNode(t, d.path), openNode(t, d.path)
+	grabbed, others := startReader(grabber), startReader(other)
+
+	d.emit(evKey, 30, 1)
+	grabbed.next(t)
+	others.next(t)
+
+	if err := grabber.Grab(); err != nil {
+		t.Fatal(err)
+	}
+	d.emit(evKey, 30, 0)
+	grabbed.next(t)
+	if got := others.next(t); got.Code != control.Key(30) || got.Value != 0 {
+		t.Errorf("the other reader received %v, want the release of KEY 30", got)
+	}
+
+	// With no key down any more, the grab is now in place.
+	d.emit(evKey, 31, 1)
+	if got := grabbed.next(t); got.Code != control.Key(31) {
+		t.Errorf("the grabbing reader received %v, want KEY 31", got)
+	}
+	if !others.quiet() {
+		t.Error("another reader received an event after the grab took effect")
+	}
+}
+
+// Releasing before a waiting grab took effect must cancel it.
+func TestNodeReleaseCancelsWaitingGrab(t *testing.T) {
+	d := newVirtualDevice(t, testKeys, nil)
+	grabber, other := openNode(t, d.path), openNode(t, d.path)
+	grabbed, others := startReader(grabber), startReader(other)
+
+	d.emit(evKey, 30, 1)
+	grabbed.next(t)
+	others.next(t)
+	if err := grabber.Grab(); err != nil {
+		t.Fatal(err)
+	}
+	if err := grabber.Release(); err != nil {
+		t.Fatal(err)
+	}
+	d.emit(evKey, 30, 0)
+	d.emit(evKey, 31, 1)
+	others.next(t)
+	if got := others.next(t); got.Code != control.Key(31) {
+		t.Errorf("the other reader received %v, want KEY 31: the cancelled grab took effect", got)
+	}
+}

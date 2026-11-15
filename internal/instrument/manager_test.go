@@ -22,9 +22,11 @@ type fakeDevice struct {
 	info   control.DeviceInfo
 	events chan control.Event
 
-	mu     sync.Mutex
-	err    error
-	closed bool
+	mu      sync.Mutex
+	err     error
+	closed  bool
+	grabbed bool
+	grabErr error
 }
 
 func newFakeDevice(name string, typ control.DeviceType) *fakeDevice {
@@ -36,8 +38,29 @@ func newFakeDevice(name string, typ control.DeviceType) *fakeDevice {
 
 func (d *fakeDevice) Info() control.DeviceInfo     { return d.info }
 func (d *fakeDevice) Events() <-chan control.Event { return d.events }
-func (d *fakeDevice) Grab() error                  { return nil }
-func (d *fakeDevice) Release() error               { return nil }
+
+func (d *fakeDevice) Grab() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.grabErr != nil {
+		return d.grabErr
+	}
+	d.grabbed = true
+	return nil
+}
+
+func (d *fakeDevice) Release() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.grabbed = false
+	return nil
+}
+
+func (d *fakeDevice) isGrabbed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.grabbed
+}
 
 func (d *fakeDevice) Err() error {
 	d.mu.Lock()
@@ -67,6 +90,13 @@ func (d *fakeDevice) wasClosed() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.closed
+}
+
+// drain waits until the instrument has taken every event sent so far.
+func (d *fakeDevice) drain(t *testing.T) {
+	t.Helper()
+	eventually(t, "the events to be consumed", func() bool { return len(d.events) == 0 })
+	time.Sleep(20 * time.Millisecond) // the last one may still be in hand
 }
 
 func (d *fakeDevice) set(code control.Code, value float64) {
@@ -123,6 +153,13 @@ type rig struct {
 
 func newRig(t *testing.T, extra ...*config.Profile) *rig {
 	t.Helper()
+	return newRigWith(t, Options{}, extra...)
+}
+
+// newRigWith starts a manager with the given options; the profiles and the
+// endpoint factory are filled in.
+func newRigWith(t *testing.T, opts Options, extra ...*config.Profile) *rig {
+	t.Helper()
 	profiles, err := config.Builtin()
 	if err != nil {
 		t.Fatal(err)
@@ -133,19 +170,18 @@ func newRig(t *testing.T, extra ...*config.Profile) *rig {
 		stopped:   make(chan struct{}),
 		endpoints: map[string]*fakeEndpoint{},
 	}
-	r.manager = NewManager(Options{
-		Profiles: append(profiles, extra...),
-		OpenEndpoint: func(name string) (output.Endpoint, error) {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			if r.openErr != nil {
-				return nil, r.openErr
-			}
-			e := &fakeEndpoint{name: name}
-			r.endpoints[name] = e
-			return e, nil
-		},
-	})
+	opts.Profiles = append(profiles, extra...)
+	opts.OpenEndpoint = func(name string) (output.Endpoint, error) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.openErr != nil {
+			return nil, r.openErr
+		}
+		e := &fakeEndpoint{name: name}
+		r.endpoints[name] = e
+		return e, nil
+	}
+	r.manager = NewManager(opts)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	go func() {
@@ -377,5 +413,172 @@ func TestRunEndsWhenDevicesClose(t *testing.T) {
 	case <-r.stopped:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after the device source closed")
+	}
+}
+
+var (
+	keyCtrl, keyAlt = control.Key(29), control.Key(56)
+	toggleKeys      = []control.Code{keyCtrl, keyAlt}
+)
+
+const (
+	noteOn  = "NoteOn ch=1 note=C0 velocity=64"
+	noteOff = "NoteOff ch=1 note=C0 velocity=0"
+)
+
+// Keyboards are taken away from the system while HIDI is on; game
+// controllers stay usable by other programs.
+func TestGrabPolicy(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	r.plug(kbd)
+	r.plug(pad)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+
+	// The pad's instrument is running; give it the chance to grab wrongly.
+	pad.set(control.Key(0x130), 1)
+	eventually(t, "the pad to play", func() bool { sent, _ := r.endpoint(EndpointPrefix + "Test Pad").state(); return sent != "" })
+	if pad.isGrabbed() {
+		t.Error("the game controller was grabbed")
+	}
+}
+
+func TestNoGrabByDefault(t *testing.T) {
+	r := newRig(t)
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn)
+	if kbd.isGrabbed() {
+		t.Error("the device was grabbed without a grab policy")
+	}
+}
+
+// The toggle combination turns HIDI off: notes are released, the device is
+// given back, and its input is ignored until the combination turns HIDI on
+// again.
+func TestToggleCombination(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn)
+
+	kbd.set(keyCtrl, 1)
+	if !r.manager.Active() {
+		t.Fatal("one key of the combination turned HIDI off")
+	}
+	kbd.set(keyAlt, 1)
+	r.expectSent(e, noteOn+"; "+noteOff)
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() })
+	if r.manager.Active() {
+		t.Error("Active() = true after the combination")
+	}
+
+	// While off, playing does nothing, and the MIDI device stays.
+	kbd.set(keyAlt, 0)
+	kbd.set(keyCtrl, 0)
+	kbd.set(keyZ, 0)
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+
+	kbd.set(keyAlt, 1)
+	kbd.set(keyCtrl, 1) // the order of the keys does not matter
+	eventually(t, "HIDI to turn on", r.manager.Active)
+	eventually(t, "the keyboard to be grabbed again", kbd.isGrabbed)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn+"; "+noteOff+"; "+noteOn)
+	if _, closed := e.state(); closed {
+		t.Error("the MIDI device was removed while HIDI was off")
+	}
+}
+
+// Holding the combination must toggle once, not repeatedly.
+func TestToggleFiresOncePerPress(t *testing.T) {
+	r := newRigWith(t, Options{Toggle: toggleKeys})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.plug(kbd)
+
+	kbd.set(keyCtrl, 1)
+	kbd.set(keyAlt, 1)
+	eventually(t, "HIDI to turn off", func() bool { return !r.manager.Active() })
+	kbd.set(keyAlt, 1) // a repeated report of a key that is already down
+	kbd.set(keyCtrl, 1)
+	kbd.set(keyZ, 1) // a marker event processed after the repeats
+	kbd.set(keyZ, 0)
+	time.Sleep(20 * time.Millisecond)
+	if r.manager.Active() {
+		t.Error("a repeated key report toggled HIDI again")
+	}
+}
+
+// The combination on one device turns every instrument off.
+func TestToggleIsGlobal(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys})
+	a := newFakeDevice("Keyboard A", control.DeviceKeyboard)
+	b := newFakeDevice("Keyboard B", control.DeviceKeyboard)
+	r.plug(a)
+	eb := r.plug(b)
+	eventually(t, "keyboard B to be grabbed", b.isGrabbed)
+	b.set(keyZ, 1)
+	r.expectSent(eb, noteOn)
+
+	// The keys must be down on the same device.
+	a.set(keyCtrl, 1)
+	b.set(keyAlt, 1)
+	b.set(keyAlt, 0)
+	a.set(keyAlt, 1)
+	r.expectSent(eb, noteOn+"; "+noteOff)
+	eventually(t, "keyboard B to be released", func() bool { return !b.isGrabbed() })
+}
+
+func TestStartInactive(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, StartInactive: true})
+	if r.manager.Active() {
+		t.Fatal("Active() = true with StartInactive")
+	}
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+
+	r.manager.SetActive(true)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn) // nothing from before HIDI was turned on
+
+	r.manager.SetActive(false)
+	r.expectSent(e, noteOn+"; "+noteOff)
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() })
+}
+
+// A device that cannot be grabbed still becomes an instrument.
+func TestGrabFailureIsNotFatal(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	kbd.grabErr = errors.New("busy")
+	e := r.plug(kbd)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn)
+}
+
+// Unplugging while HIDI is off must not send anything more.
+func TestUnplugWhileInactive(t *testing.T) {
+	r := newRigWith(t, Options{Toggle: toggleKeys})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn)
+	r.manager.SetActive(false)
+	r.expectSent(e, noteOn+"; "+noteOff)
+
+	kbd.stop(errUnplugged)
+	eventually(t, "the endpoint to close", func() bool { _, closed := e.state(); return closed })
+	if sent, _ := e.state(); sent != noteOn+"; "+noteOff {
+		t.Errorf("sent after unplugging while off: %s", sent)
 	}
 }
