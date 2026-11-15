@@ -68,8 +68,9 @@ type axisRange struct {
 	min, max int32
 }
 
-// Node is an open event device. A Node is not safe for concurrent use,
-// except that Close may be called from another goroutine to interrupt Read.
+// Node is an open event device. Read must not be called from several
+// goroutines at once. Grab, Release and Close may be called from another
+// goroutine while a Read is in progress; Close interrupts it.
 type Node struct {
 	file *os.File
 	info Info

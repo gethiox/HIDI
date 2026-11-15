@@ -51,7 +51,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `control` | exists | Platform-neutral input model: device identity, control codes, events. |
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | exists | Configuration schema, versioning, migration, validation. |
-| `input` | partial | Input backends, one subpackage per platform. Reading a single Linux event device exists; discovering devices and grouping their nodes does not yet. |
+| `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. |
 | `output` | partial | MIDI output backend interface, with one subpackage per transport. The ALSA sequencer backend exists. |
 | `runtime` | planned | Device lifecycle: matches devices to configs, starts and stops instruments, global enable/disable. |
 | `logging` | planned | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
