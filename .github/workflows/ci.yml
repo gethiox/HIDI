@@ -102,6 +102,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tests"
           go test -race -c -o "$RUNNER_TEMP/tests/alsaseq.test" ./internal/output/alsaseq
+          go test -race -c -o "$RUNNER_TEMP/tests/evdev.test" ./internal/input/evdev
       - name: Install the virtual machine and a generic kernel
         run: |
           sudo apt-get update -qq
@@ -110,11 +111,16 @@ jobs:
         run: |
           kernel=$(ls /boot/vmlinuz-*-generic | sort -V | tail -n 1)
           echo "kernel: $kernel"
-          # The exit status is printed and checked from the log, so that the
-          # result does not depend on how the VM tool reports it.
+          # The HIDI_REQUIRE_* variables turn a missing kernel interface into
+          # a failure instead of a skip. The exit status is printed and
+          # checked from the log, so that the result does not depend on how
+          # the VM tool reports it.
           sudo vng --run "$kernel" -- sh -c "
-            modprobe snd-seq &&
-            HIDI_REQUIRE_ALSA=1 '$RUNNER_TEMP/tests/alsaseq.test' -test.v
-            echo \"tests exited with status \$?\"
+            status=0
+            modprobe snd-seq || status=1
+            modprobe uinput || status=1
+            HIDI_REQUIRE_ALSA=1 '$RUNNER_TEMP/tests/alsaseq.test' -test.v || status=1
+            HIDI_REQUIRE_UINPUT=1 '$RUNNER_TEMP/tests/evdev.test' -test.v || status=1
+            echo \"tests exited with status \$status\"
           " 2>&1 | tee "$RUNNER_TEMP/vm.log"
           grep -q 'tests exited with status 0' "$RUNNER_TEMP/vm.log"
