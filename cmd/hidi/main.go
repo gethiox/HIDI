@@ -89,6 +89,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
+	noColour := fs.Bool("no-color", false, "write the log without colours")
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
@@ -117,7 +118,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	file, isFile := stderr.(*os.File)
 	logs := logging.New(logging.Options{
 		Output:    stderr,
-		Colour:    isFile && logging.TerminalColour(file),
+		Colour:    !*noColour && isFile && logging.TerminalColour(file),
 		Level:     level,
 		KeepLevel: level,
 	})

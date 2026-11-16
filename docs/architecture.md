@@ -149,7 +149,8 @@ separate levels: an interface can keep debug lines while the terminal stays
 quiet.
 
 A line is `date time LEVEL [component] message key='value' ...`, coloured
-when the output is a terminal. `NO_COLOR` and `FORCE_COLOR` override that.
+when the output is a terminal. `-no-color`, `NO_COLOR` and `FORCE_COLOR`
+override that; plain output is always available.
 The names devices report end up in the log, so everything that is not
 printable text is escaped: a device cannot forge a log line or send escape
 sequences to the terminal.

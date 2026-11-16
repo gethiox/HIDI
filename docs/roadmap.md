@@ -34,7 +34,7 @@ completes or changes an item.
 | Graphical interface | Draws at the monitor's refresh rate (vertical sync), including high refresh rates, with an optional, configurable lower limit while its window is not focused. It never keeps the system or the display awake: it must not reset the operating system's idle timer. |
 | Axes on a channel or layout change | Both behaviours are needed, chosen by a setting: an axis either keeps the value of the controller it left, or that controller returns to rest. |
 | Releases | Release artifacts are immutable, and builds are reproducible: the same commit gives the same binaries. |
-| Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. |
+| Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. Output without colours is always available. HIDI logs little, since the interfaces show its state; what it logs has a fitting level and its context as fields. |
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
@@ -89,7 +89,10 @@ In planned order. Each item is roughly one pull request.
 
 9. **Tray icon** with the on/off switch.
 10. **Graphical interface**: status of the instruments, a live view of what
-    is played, and the log. Frame pacing as decided above.
+    is played, and the log. Frame pacing as decided above. The log lives
+    in a status bar at the bottom: it shows the last line, coloured but
+    faint, and dragging it up reveals the whole log, with a choice of the
+    least level to show.
 11. **Configuring in the graphical interface**: every setting and every
     part of a profile, including learning a binding by pressing the
     control. This needs the configuration to be written back to its file
