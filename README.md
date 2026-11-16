@@ -98,6 +98,22 @@ To change what a device plays, run `./hidi profiles -export` and edit the
 files it writes to `~/.config/hidi/profiles`. HIDI picks up changes while it
 runs. The [profile format](docs/configuration.md) is documented.
 
+### Looking at a running HIDI
+
+From another terminal:
+
+```
+./hidi status     # the instruments and their state
+./hidi monitor    # the same, kept up to date, with the end of the log
+./hidi off        # turn HIDI off, like the toggle combination
+./hidi on
+./hidi toggle
+```
+
+`hidi off` is useful as a desktop shortcut or from a script. `hidi monitor`
+redraws in place on a terminal; piped, or with `NO_COLOR` set, it writes
+each change below the last.
+
 ### Sending to a hardware MIDI interface
 
 Every instrument is a MIDI device of its own that other programs connect to.

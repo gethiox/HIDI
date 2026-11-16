@@ -30,6 +30,7 @@ func TestRun(t *testing.T) {
 		{"export without a directory", []string{"profiles", "-profiles", "", "-export"}, 2, "", "-export needs a directory"},
 		{"ports with an argument", []string{"ports", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"empty connect", []string{"run", "-connect", " "}, 2, "", "must not be empty"},
+		{"status with an argument", []string{"status", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"bad toggle key", []string{"run", "-toggle", "KEY_NOPE"}, 2, "", "unknown control"},
 		{"toggle with an axis", []string{"run", "-toggle", "ABS_X"}, 2, "", "not a key"},
 		{"grab without toggle", []string{"run", "-toggle", ""}, 2, "", "needs a toggle combination"},

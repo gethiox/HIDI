@@ -1,0 +1,119 @@
+package ipc
+
+import (
+	"sync"
+	"time"
+)
+
+// Snapshot is the state of a running HIDI at one moment.
+type Snapshot struct {
+	// Version is the version of the running HIDI.
+	Version string `json:"version"`
+	// Active says whether HIDI is turned on.
+	Active bool `json:"active"`
+	// Instruments are the running instruments, ordered by name.
+	Instruments []Instrument `json:"instruments"`
+}
+
+// Instrument is one running instrument.
+type Instrument struct {
+	// Name is the name of the input device, which is also the name of the
+	// instrument's MIDI device without its prefix.
+	Name string `json:"name"`
+	// Type is the kind of device: "keyboard", "gamepad" and so on.
+	Type string `json:"type"`
+	// Hardware is the device's identifier as bus:vendor:product:version.
+	Hardware string `json:"hardware"`
+	// Location says where the device is plugged in.
+	Location string `json:"location,omitempty"`
+	// Profile is the name of the profile in use.
+	Profile string `json:"profile"`
+
+	Octave    int `json:"octave"`
+	Transpose int `json:"transpose"`
+	// Channel is the MIDI channel, 1 to 16.
+	Channel  int    `json:"channel"`
+	Velocity int    `json:"velocity"`
+	Layout   string `json:"layout"`
+	// Sounding is the number of notes that are on.
+	Sounding int `json:"sounding"`
+}
+
+// LogLine is one line of the running HIDI's log.
+type LogLine struct {
+	// Seq numbers the lines in the order they were logged.
+	Seq   int       `json:"seq"`
+	Time  time.Time `json:"time"`
+	Level string    `json:"level"`
+	// Component is the part of HIDI the line comes from.
+	Component string `json:"component,omitempty"`
+	// Text is the whole line as HIDI writes it, with ANSI colour codes.
+	Text string `json:"text"`
+}
+
+// request is what a client sends.
+type request struct {
+	Op string `json:"op"`
+	// Logs, for "watch", asks for the log: this many of the lines already
+	// logged, then every new one. Zero asks for no log.
+	Logs int `json:"logs,omitempty"`
+}
+
+// response is one answer. Exactly one field is set.
+type response struct {
+	Snapshot *Snapshot `json:"snapshot,omitempty"`
+	Log      *LogLine  `json:"log,omitempty"`
+	Error    string    `json:"error,omitempty"`
+}
+
+// Host is what the server needs from the running HIDI.
+type Host struct {
+	// Snapshot returns the current state.
+	Snapshot func() Snapshot
+	// SetActive turns HIDI on or off.
+	SetActive func(active bool)
+	// Changes tells when a snapshot would be different from the last.
+	Changes *Notifier
+	// LogLines returns the kept log lines numbered from to to-1, and
+	// LogTotal the number of the next line. Both may be nil for a host
+	// without a log.
+	LogLines func(from, to int) []LogLine
+	LogTotal func() int
+}
+
+// Notifier tells any number of listeners that something changed, without
+// saying what. Signals that arrive faster than a listener looks merge into
+// one. The zero value is ready to use.
+type Notifier struct {
+	mu        sync.Mutex
+	listeners map[chan struct{}]struct{}
+}
+
+// Notify signals every listener. It never blocks.
+func (n *Notifier) Notify() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for ch := range n.listeners {
+		select {
+		case ch <- struct{}{}:
+		default: // a signal is waiting already
+		}
+	}
+}
+
+// Listen returns a channel that receives after each change, and a function
+// that ends the listening.
+func (n *Notifier) Listen() (changes <-chan struct{}, stop func()) {
+	ch := make(chan struct{}, 1)
+	n.mu.Lock()
+	if n.listeners == nil {
+		n.listeners = map[chan struct{}]struct{}{}
+	}
+	n.listeners[ch] = struct{}{}
+	n.mu.Unlock()
+	return ch, func() {
+		n.mu.Lock()
+		delete(n.listeners, ch)
+		n.mu.Unlock()
+	}
+}

@@ -56,7 +56,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
-| `ipc` | planned | Local control protocol between the engine and its clients. |
+| `ipc` | exists | Local control protocol between the running HIDI and its clients. |
 | `ui` | planned | Terminal views, tray icon and graphical UI. |
 
 ### Dependency rules
@@ -172,6 +172,16 @@ sequences to the terminal.
 
 ### Processes
 
-`hidi` runs the engine in the foreground. The terminal views (`hidi status`,
-`hidi monitor`) and the graphical UI connect to the running engine over local
-IPC, so closing a window never stops the instruments.
+`hidi run` runs the instruments in the foreground. The terminal views
+(`hidi status`, `hidi monitor`) and the graphical UI connect to it over a
+local control socket, so closing a window never stops the instruments.
+
+The socket is a Unix domain socket, which Windows has as well, in a directory
+only the user can enter: `$XDG_RUNTIME_DIR/hidi/control.sock` on Linux. The
+protocol is one JSON object per line and is described in the `ipc` package. A
+client asks for the state once, switches HIDI on or off, or watches: it then
+receives a snapshot after every change, at most twenty a second, and the log
+lines as they are written.
+
+The socket also makes HIDI a single instance. A second `hidi run` finds the
+first one answering and stops before it opens any device.
