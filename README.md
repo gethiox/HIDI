@@ -120,18 +120,22 @@ each change below the last.
 ./hidi gui
 ```
 
-opens a window with the instruments: their state, a keyboard that lights the
-notes being played, and a switch that turns HIDI on and off. Like the
+opens a window with the instruments and a switch that turns HIDI on and off.
+Each instrument shows its state, what its device reports, and the notes that
+are played because of it. A keyboard is drawn as a full-size keyboard with
+the keys that are down lit; keys that are down and not on the drawing are
+named beside it. Every other device shows the buttons and axes it has
+reported so far. Like the
 terminal views it only looks at the running HIDI; closing it stops nothing,
 and it waits for a HIDI that is not running yet.
 
-![The window with two instruments and the log pulled up](docs/images/gui.png)
+![The window with a keyboard and a game controller](docs/images/gui-bar.png)
 
 The log lives in the bar at the bottom, which shows its last line, faint.
 Pull the bar up, or click it, for the whole log, and choose the least severe
 level to show.
 
-![The window with only the last log line showing](docs/images/gui-bar.png)
+![The window with the log pulled up](docs/images/gui.png)
 
 | Option | Meaning |
 | --- | --- |

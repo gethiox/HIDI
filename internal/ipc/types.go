@@ -46,6 +46,29 @@ type Instrument struct {
 	// Notes are the numbers of the notes that are on, lowest first; note
 	// 60 is middle C.
 	Notes []int `json:"notes"`
+	// Buttons and Axes are the controls the device has reported so far,
+	// and where each stands: its raw input, before the profile.
+	Buttons []Button `json:"buttons"`
+	Axes    []Axis   `json:"axes"`
+}
+
+// Button is a key or button of an input device, as the device reports it.
+type Button struct {
+	// Name is the control's name, such as "KEY_A" or "BTN_SOUTH".
+	Name string `json:"name"`
+	// Part names the part of the device the control belongs to, for a
+	// device with several, such as "Touchpad"; empty for the main part.
+	Part string `json:"part,omitempty"`
+	Down bool   `json:"down"`
+}
+
+// Axis is an axis of an input device, as the device reports it.
+type Axis struct {
+	// Name is the control's name, such as "ABS_X".
+	Name string `json:"name"`
+	Part string `json:"part,omitempty"`
+	// Value is the position, from 0 to 1.
+	Value float64 `json:"value"`
 }
 
 // LogLine is one line of the running HIDI's log.

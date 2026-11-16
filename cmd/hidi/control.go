@@ -48,7 +48,17 @@ func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.No
 func snapshot(manager *instrument.Manager) ipc.Snapshot {
 	s := ipc.Snapshot{Version: buildinfo.Get().String(), Active: manager.Active(), Instruments: []ipc.Instrument{}}
 	for _, st := range manager.Status() {
+		buttons := make([]ipc.Button, len(st.Input.Buttons))
+		for i, b := range st.Input.Buttons {
+			buttons[i] = ipc.Button{Name: b.Code.String(), Part: b.Part, Down: b.Down}
+		}
+		axes := make([]ipc.Axis, len(st.Input.Axes))
+		for i, a := range st.Input.Axes {
+			axes[i] = ipc.Axis{Name: a.Code.String(), Part: a.Part, Value: a.Value}
+		}
 		s.Instruments = append(s.Instruments, ipc.Instrument{
+			Buttons:   buttons,
+			Axes:      axes,
 			Name:      st.Device.Name,
 			Type:      st.Device.Type.String(),
 			Hardware:  st.Device.Hardware.String(),

@@ -103,6 +103,9 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
 - MIDI input on Linux (`alsaseq.Input`), which the test uses as its
   receiver and which lighting the played keys will build on.
 - `hidi run` and `hidi devices`.
+- The window shows the raw input of each device: a full-size keyboard
+  with the keys that are down, or the list of buttons and axes a game
+  controller has reported.
 - Chord memory (the `chord` command; the 1.x "multinote", which computed
   its intervals but never applied them) and the `learn` command, which
   holds back axes that are not moved far (the 1.x "cc_learning").
@@ -241,8 +244,11 @@ rest on assumptions about real devices and should be checked first:
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
 - The engine reports which notes sound, and the window shows them; the
-  terminal monitor still shows only how many. Controller values are not
-  reported yet, so neither view shows what an axis does.
+  terminal monitor still shows only how many. The window shows where an
+  axis stands, not the controller value sent for it.
+- The window lists a control of a game controller once it was used.
+  Listing all of them from the start needs the input backends to say
+  which controls a device has.
 - The icons of `hidi tray` are drawn placeholders, and the window has no
   icon of its own; the maintainer will supply the art.
 - `-connect` applies to every instrument. Choosing ports for each
