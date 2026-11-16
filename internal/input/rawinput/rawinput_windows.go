@@ -180,7 +180,12 @@ func (w *Watcher) Devices() <-chan *Device { return w.devices }
 func (w *Watcher) Close() error {
 	w.close.Do(func() {
 		procPostMessage.Call(w.hwnd, wmClose, 0, 0)
-		<-w.done
+		// The window's thread ends on that message. Should it not, HIDI
+		// still has to be able to stop.
+		select {
+		case <-w.done:
+		case <-time.After(3 * time.Second):
+		}
 	})
 	return nil
 }
