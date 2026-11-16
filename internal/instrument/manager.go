@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
@@ -29,6 +30,7 @@ const EndpointPrefix = "HIDI "
 type Options struct {
 	// Profiles are the available instrument profiles. Later entries take
 	// precedence over earlier ones that describe a device equally well.
+	// [Manager.SetProfiles] replaces them while the manager runs.
 	Profiles []*config.Profile
 	// OpenEndpoint creates the MIDI output for an instrument.
 	OpenEndpoint func(name string) (output.Endpoint, error)
@@ -54,10 +56,12 @@ type Manager struct {
 	opts Options
 	log  *slog.Logger
 
-	mu      sync.Mutex
-	running map[*runner]struct{}
-	active  bool
-	done    sync.WaitGroup
+	mu       sync.Mutex
+	profiles []*config.Profile
+	running  map[*runner]struct{} // every connected device, parked ones too
+	active   bool
+	done     sync.WaitGroup
+	quit     chan struct{} // closed when Run ends
 }
 
 // NewManager returns a manager with no instruments.
@@ -66,7 +70,11 @@ func NewManager(opts Options) *Manager {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Manager{opts: opts, log: log, running: map[*runner]struct{}{}, active: !opts.StartInactive}
+	return &Manager{
+		opts: opts, log: log, profiles: opts.Profiles,
+		running: map[*runner]struct{}{}, active: !opts.StartInactive,
+		quit: make(chan struct{}),
+	}
 }
 
 // Active reports whether HIDI is turned on.
@@ -120,12 +128,63 @@ loop:
 		}
 	}
 
+	close(m.quit)
 	m.mu.Lock()
 	for r := range m.running {
 		r.device.Close()
 	}
 	m.mu.Unlock()
 	m.done.Wait()
+}
+
+// SetProfiles replaces the available profiles while the manager runs. Every
+// connected device is matched again. An instrument whose profile is the
+// same as before is not disturbed. One whose profile changed goes silent
+// and continues with the new profile on the same MIDI device, so that
+// connections made in other programs survive. A device that no profile
+// selected before can become an instrument, and an instrument whose
+// profile is gone stops.
+func (m *Manager) SetProfiles(profiles []*config.Profile) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.profiles = profiles
+	for r := range m.running {
+		a := m.choose(r.info, r.log)
+		if sameProfile(a.profile, r.assigned) {
+			continue
+		}
+		r.assign(a)
+	}
+}
+
+// sameProfile reports whether two profiles make the same instrument.
+func sameProfile(a, b *config.Profile) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Digest == b.Digest
+}
+
+// assignment is what a device is to be: an instrument with a profile and
+// the engine built from it, or, with both nil, nothing.
+type assignment struct {
+	profile *config.Profile
+	engine  *engine.Engine
+}
+
+// choose decides what a device is to be with the current profiles. The
+// caller holds m.mu.
+func (m *Manager) choose(info control.DeviceInfo, log *slog.Logger) assignment {
+	profile := config.Select(m.profiles, info)
+	if profile == nil || !usable(info, profile) {
+		return assignment{}
+	}
+	eng, err := engine.New(profile.Engine)
+	if err != nil {
+		log.Error("profile cannot be used", "profile", profile.Name, "source", profile.Source, "error", err)
+		return assignment{}
+	}
+	return assignment{profile: profile, engine: eng}
 }
 
 // usable reports whether a device with this profile should become an
@@ -140,46 +199,25 @@ func usable(info control.DeviceInfo, p *config.Profile) bool {
 	return p.Match.Vendor != nil || p.Match.Product != nil || p.Match.Serial != ""
 }
 
-// add starts an instrument for the device, or closes the device if it is
-// not going to be used.
+// add takes a device in. It becomes an instrument if a profile selects it.
+// Otherwise it is parked: kept open and unused, so that a profile added
+// later can still turn it into an instrument.
 func (m *Manager) add(dev input.Device) {
 	info := dev.Info()
-	log := m.log.With("device", info.Name)
-
-	profile := config.Select(m.opts.Profiles, info)
-	if profile == nil || !usable(info, profile) {
-		log.Debug("device ignored", "type", info.Type.String(), "hardware", info.Hardware.String())
-		dev.Close()
-		return
-	}
-	eng, err := engine.New(profile.Engine)
-	if err != nil {
-		log.Error("profile cannot be used", "profile", profile.Name, "error", err)
-		dev.Close()
-		return
-	}
-	endpoint, err := m.opts.OpenEndpoint(EndpointPrefix + info.Name)
-	if err != nil {
-		log.Error("MIDI device cannot be created", "error", err)
-		dev.Close()
-		return
-	}
-
 	r := &runner{
-		device: dev, engine: eng, endpoint: endpoint, log: log,
-		status:   Status{Device: info, Profile: profile.Name, State: eng.State()},
+		device: dev, info: info, log: m.log.With("device", info.Name),
+		open:     m.opts.OpenEndpoint,
 		grab:     m.opts.Grab != nil && m.opts.Grab(info),
 		toggle:   m.opts.Toggle,
 		onToggle: m.toggle,
 		wake:     make(chan struct{}, 1),
+		quit:     m.quit,
 	}
 	m.mu.Lock()
 	m.running[r] = struct{}{}
-	r.setWanted(m.active)
+	r.wanted.Store(m.active)
+	r.assign(m.choose(info, r.log))
 	m.mu.Unlock()
-	log.Info("instrument started",
-		"type", info.Type.String(), "hardware", info.Hardware.String(),
-		"location", info.Location, "profile", profile.Name)
 
 	m.done.Add(1)
 	go func() {
@@ -207,17 +245,27 @@ func (m *Manager) Status() []Status {
 	defer m.mu.Unlock()
 	out := make([]Status, 0, len(m.running))
 	for r := range m.running {
-		out = append(out, r.snapshot())
+		if status, ok := r.snapshot(); ok {
+			out = append(out, status)
+		}
 	}
 	return out
 }
 
-// runner is one running instrument.
+// parkedPoll is how often a parked device is looked at. Its input is of no
+// interest, so it is taken slowly: a mouse reports a thousand times a
+// second, and following that for nothing would keep the processor busy.
+// What the device sends faster than this is dropped by the kernel.
+var parkedPoll = 500 * time.Millisecond
+
+// runner looks after one connected device. While a profile selects the
+// device it is an instrument, with an engine and a MIDI endpoint; otherwise
+// it is parked.
 type runner struct {
-	device   input.Device
-	engine   *engine.Engine
-	endpoint output.Endpoint
-	log      *slog.Logger
+	device input.Device
+	info   control.DeviceInfo
+	log    *slog.Logger
+	open   func(name string) (output.Endpoint, error)
 
 	// grab says whether the device is grabbed while the instrument is on.
 	grab bool
@@ -226,45 +274,141 @@ type runner struct {
 	toggle   []control.Code
 	onToggle func()
 
-	// wanted is the state the manager asked for. The instrument's own
-	// goroutine applies it, because the engine must not be used from two
-	// goroutines; wake tells that goroutine to look.
-	wanted atomic.Bool
-	wake   chan struct{}
+	// assigned is the profile the manager last asked for; the manager
+	// guards it with its own lock.
+	assigned *config.Profile
 
-	mu     sync.Mutex
-	status Status
+	// wanted and pending are what the manager asked for: on or off, and a
+	// new assignment. The runner's own goroutine applies them, because the
+	// engine must not be used from two goroutines; wake tells that
+	// goroutine to look.
+	wanted  atomic.Bool
+	pending atomic.Pointer[assignment]
+	wake    chan struct{}
+	// quit is closed when the manager stops.
+	quit <-chan struct{}
+
+	mu         sync.Mutex
+	status     Status
+	instrument bool // whether status describes a running instrument
 }
 
-func (r *runner) snapshot() Status {
+// snapshot returns the status of the instrument, if the device is one.
+func (r *runner) snapshot() (Status, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.status
+	return r.status, r.instrument
 }
 
-// setWanted asks the instrument to turn on or off.
-func (r *runner) setWanted(active bool) {
-	r.wanted.Store(active)
+func (r *runner) setStatus(status Status, instrument bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status, r.instrument = status, instrument
+}
+
+// poke tells the runner's goroutine to look at what the manager asked for.
+func (r *runner) poke() {
 	select {
 	case r.wake <- struct{}{}:
 	default: // a wake-up is already pending
 	}
 }
 
+// setWanted asks the instrument to turn on or off.
+func (r *runner) setWanted(active bool) {
+	r.wanted.Store(active)
+	r.poke()
+}
+
+// assign asks the runner to become what a describes. The caller holds the
+// manager's lock.
+func (r *runner) assign(a assignment) {
+	r.assigned = a.profile
+	r.pending.Store(&a)
+	r.poke()
+}
+
 // run feeds the device's input through the engine to the endpoint until the
 // device stops, then leaves the instrument silent and removes its endpoint.
 func (r *runner) run() {
-	var out []midi.Message
-	state := r.engine.State()
-	active := false
-	failed := false
+	var (
+		eng      *engine.Engine  // nil while parked
+		endpoint output.Endpoint // nil while parked
+		profile  *config.Profile
+		state    engine.State
+		out      []midi.Message
+		active   = false // the instrument is on, and grabbed if it should be
+		failed   = false // the endpoint broke; waiting for the device to stop
+	)
 	// held tracks which keys of the toggle combination are down.
 	held := map[control.Code]bool{}
 
-	// apply brings the instrument to the state the manager wants.
+	fail := func() {
+		// Without an output there is no instrument. Stopping the device
+		// ends the loop below.
+		failed = true
+		go r.device.Close()
+	}
+	release := func() {
+		if !r.grab {
+			return
+		}
+		if err := r.device.Release(); err != nil {
+			r.log.Warn("the device cannot be released", "error", err)
+		}
+	}
+
+	// reassign makes the device what the manager last asked for.
+	reassign := func() {
+		a := r.pending.Swap(nil)
+		if a == nil || failed {
+			return
+		}
+		if eng != nil && active && !r.send(endpoint, eng.Reset(out[:0])) {
+			fail() // the old profile's notes could not be released
+			return
+		}
+		if a.engine == nil {
+			if eng == nil {
+				r.log.Debug("device not used", "type", r.info.Type.String(), "hardware", r.info.Hardware.String())
+				return
+			}
+			if active {
+				release()
+				active = false
+			}
+			if err := endpoint.Close(); err != nil {
+				r.log.Warn("closing the MIDI device failed", "error", err)
+			}
+			eng, endpoint, profile = nil, nil, nil
+			clear(held)
+			r.setStatus(Status{}, false)
+			r.log.Info("instrument stopped", "reason", "no profile selects the device any more")
+			return
+		}
+		if endpoint == nil {
+			e, err := r.open(EndpointPrefix + r.info.Name)
+			if err != nil {
+				r.log.Error("MIDI device cannot be created", "error", err)
+				return
+			}
+			endpoint = e
+			r.log.Info("instrument started",
+				"type", r.info.Type.String(), "hardware", r.info.Hardware.String(),
+				"location", r.info.Location, "profile", a.profile.Name, "source", a.profile.Source)
+		} else {
+			r.log.Info("profile changed", "profile", a.profile.Name, "source", a.profile.Source, "was", profile.Name)
+		}
+		eng, profile = a.engine, a.profile
+		state = eng.State()
+		r.setStatus(Status{Device: r.info, Profile: profile.Name, State: state}, true)
+	}
+
+	// apply brings the device to the state the manager wants.
 	apply := func() {
+		reassign()
 		want := r.wanted.Load()
-		if want == active || failed {
+		if eng == nil || want == active || failed {
 			return
 		}
 		active = want
@@ -278,22 +422,35 @@ func (r *runner) run() {
 		}
 		// Turning off: nothing may keep sounding, and the device goes
 		// back to the system.
-		if !r.send(r.engine.Reset(out[:0])) {
-			failed = true
-			go r.device.Close()
+		if !r.send(endpoint, eng.Reset(out[:0])) {
+			fail()
 		}
-		if r.grab {
-			if err := r.device.Release(); err != nil {
-				r.log.Warn("the device cannot be released", "error", err)
-			}
-		}
-		r.publish(&state)
+		release()
+		r.publish(eng, &state)
 	}
 
 	apply()
 	events := r.device.Events()
 loop:
 	for {
+		if eng == nil && !failed {
+			// Parked: wait for a profile, and notice the device going.
+			select {
+			case <-r.wake:
+				apply()
+			case <-r.quit:
+				break loop
+			case <-time.After(parkedPoll):
+				select {
+				case _, ok := <-events:
+					if !ok {
+						break loop
+					}
+				default:
+				}
+			}
+			continue
+		}
 		select {
 		case <-r.wake:
 			apply()
@@ -304,8 +461,8 @@ loop:
 			// A request from the manager may be waiting behind this
 			// event; it comes first.
 			apply()
-			if failed {
-				continue // draining until the device has stopped
+			if failed || eng == nil {
+				continue // draining, or parked a moment ago
 			}
 			if r.toggled(held, ev) {
 				r.onToggle()
@@ -315,25 +472,27 @@ loop:
 			if !active {
 				continue
 			}
-			out = r.engine.Handle(ev, out[:0])
-			if !r.send(out) {
-				// Without an output there is no instrument. Stopping
-				// the device ends this loop.
-				failed = true
-				go r.device.Close()
+			out = eng.Handle(ev, out[:0])
+			if !r.send(endpoint, out) {
+				fail()
 				continue
 			}
-			r.publish(&state)
+			r.publish(eng, &state)
 		}
 	}
 
+	if eng == nil {
+		r.log.Debug("unused device gone", "reason", r.device.Err())
+		return
+	}
 	if !failed && active {
 		// Release whatever is still held, so that nothing keeps sounding.
-		r.send(r.engine.Reset(out[:0]))
+		r.send(endpoint, eng.Reset(out[:0]))
 	}
-	if err := r.endpoint.Close(); err != nil {
+	if err := endpoint.Close(); err != nil {
 		r.log.Warn("closing the MIDI device failed", "error", err)
 	}
+	r.setStatus(Status{}, false)
 	r.log.Info("instrument stopped", "reason", r.device.Err())
 }
 
@@ -356,8 +515,8 @@ func (r *runner) toggled(held map[control.Code]bool, ev control.Event) bool {
 
 // publish records the engine's state for [Manager.Status] and logs a change
 // the player made. last is the state published before.
-func (r *runner) publish(last *engine.State) {
-	now := r.engine.State()
+func (r *runner) publish(eng *engine.Engine, last *engine.State) {
+	now := eng.State()
 	if now == *last {
 		return
 	}
@@ -375,7 +534,7 @@ func (r *runner) publish(last *engine.State) {
 }
 
 // send writes messages to the endpoint and reports whether it worked.
-func (r *runner) send(msgs []midi.Message) bool {
+func (r *runner) send(endpoint output.Endpoint, msgs []midi.Message) bool {
 	if len(msgs) == 0 {
 		return true
 	}
@@ -384,7 +543,7 @@ func (r *runner) send(msgs []midi.Message) bool {
 			r.log.Debug("midi", "message", m.String())
 		}
 	}
-	if err := r.endpoint.Send(msgs); err != nil {
+	if err := endpoint.Send(msgs); err != nil {
 		r.log.Error("sending MIDI failed; stopping the instrument", "error", err)
 		return false
 	}

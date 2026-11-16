@@ -86,11 +86,16 @@ other programs.
 | `-off` | Start turned off. |
 | `-v` | Also log every MIDI message and every ignored device. |
 | `-no-color` | Write the log without colours. |
+| `-profiles DIR` | Read your profiles from another directory. |
 
 The log is coloured when it goes to a terminal, and plain when it goes to a
 file or a pipe. Besides `-no-color`, setting the `NO_COLOR` environment
 variable turns the colours off; `FORCE_COLOR` keeps them when the output is
 piped.
+
+To change what a device plays, run `./hidi profiles -export` and edit the
+files it writes to `~/.config/hidi/profiles`. HIDI picks up changes while it
+runs. The [profile format](docs/configuration.md) is documented.
 
 The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,

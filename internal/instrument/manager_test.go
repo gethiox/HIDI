@@ -17,6 +17,8 @@ import (
 
 var errUnplugged = errors.New("unplugged")
 
+func init() { parkedPoll = 2 * time.Millisecond }
+
 // fakeDevice is an input device driven by the test.
 type fakeDevice struct {
 	info   control.DeviceInfo
@@ -149,6 +151,13 @@ type rig struct {
 	mu        sync.Mutex
 	endpoints map[string]*fakeEndpoint
 	openErr   error
+	failures  int // attempts to open an endpoint that failed
+}
+
+func (r *rig) openFailures() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.failures
 }
 
 func newRig(t *testing.T, extra ...*config.Profile) *rig {
@@ -175,6 +184,7 @@ func newRigWith(t *testing.T, opts Options, extra ...*config.Profile) *rig {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		if r.openErr != nil {
+			r.failures++
 			return nil, r.openErr
 		}
 		e := &fakeEndpoint{name: name}
@@ -226,6 +236,14 @@ func (r *rig) plug(d *fakeDevice) *fakeEndpoint {
 	r.devices <- d
 	name := EndpointPrefix + d.info.Name
 	eventually(r.t, "the endpoint "+name, func() bool { return r.endpoint(name) != nil })
+	eventually(r.t, "the instrument "+d.info.Name, func() bool {
+		for _, s := range r.manager.Status() {
+			if s.Device.Name == d.info.Name {
+				return true
+			}
+		}
+		return false
+	})
 	return r.endpoint(name)
 }
 
@@ -324,15 +342,45 @@ func TestStatus(t *testing.T) {
 	eventually(t, "the octave to change", func() bool { return r.manager.Status()[0].State.Octave == 1 })
 }
 
-func TestUnusableDevicesAreClosed(t *testing.T) {
-	r := newRig(t)
+// A device no profile selects is parked: it gets no MIDI device and is not
+// grabbed, but stays open until HIDI stops or it is unplugged.
+func TestUnusableDevicesAreParked(t *testing.T) {
+	r := newRigWith(t, Options{Grab: func(control.DeviceInfo) bool { return true }})
+	var parked []*fakeDevice
 	for _, typ := range []control.DeviceType{control.DeviceMouse, control.DeviceUnknown} {
 		d := newFakeDevice("Other "+typ.String(), typ)
 		r.devices <- d
-		eventually(t, "the "+typ.String()+" device to be closed", d.wasClosed)
+		d.set(keyZ, 1)
+		parked = append(parked, d)
 	}
-	if got := r.manager.Status(); len(got) != 0 {
-		t.Errorf("Status = %+v, want no instruments", got)
+	// A keyboard plugged in afterwards shows that the others were dealt
+	// with.
+	r.plug(newFakeDevice("Test Keyboard", control.DeviceKeyboard))
+	time.Sleep(5 * parkedPoll)
+	if got := r.manager.Status(); len(got) != 1 {
+		t.Errorf("Status = %+v, want only the keyboard", got)
+	}
+	for _, d := range parked {
+		if d.wasClosed() || d.isGrabbed() {
+			t.Errorf("%s: closed %v, grabbed %v; want neither", d.info.Name, d.wasClosed(), d.isGrabbed())
+		}
+		if r.endpoint(EndpointPrefix+d.info.Name) != nil {
+			t.Errorf("%s got a MIDI device", d.info.Name)
+		}
+	}
+
+	// Unplugging a parked device is noticed, although nothing reads it
+	// eagerly.
+	parked[0].stop(errUnplugged)
+	eventually(t, "the unplugged device to be forgotten", func() bool {
+		r.manager.mu.Lock()
+		defer r.manager.mu.Unlock()
+		return len(r.manager.running) == 2
+	})
+
+	r.stop()
+	if !parked[1].wasClosed() {
+		t.Error("a parked device was not closed when the manager stopped")
 	}
 }
 
@@ -368,10 +416,13 @@ KEY_A = "C3"
 
 	other := newFakeDevice("Something", control.DeviceUnknown)
 	r.devices <- other
-	eventually(t, "the unrelated device to be closed", other.wasClosed)
+	r.plug(newFakeDevice("Test Keyboard", control.DeviceKeyboard)) // other was dealt with
+	if r.endpoint(EndpointPrefix+"Something") != nil || len(r.manager.Status()) != 2 {
+		t.Errorf("the unrelated device became an instrument: %+v", r.manager.Status())
+	}
 }
 
-func TestEndpointFailureClosesDevice(t *testing.T) {
+func TestEndpointFailureLeavesNoInstrument(t *testing.T) {
 	r := newRig(t)
 	r.mu.Lock()
 	r.openErr = errors.New("no MIDI")
@@ -379,7 +430,7 @@ func TestEndpointFailureClosesDevice(t *testing.T) {
 
 	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
 	r.devices <- kbd
-	eventually(t, "the device to be closed", kbd.wasClosed)
+	eventually(t, "the attempt to create the MIDI device", func() bool { return r.openFailures() == 1 })
 
 	// The manager keeps working for the next device.
 	r.mu.Lock()
@@ -389,6 +440,12 @@ func TestEndpointFailureClosesDevice(t *testing.T) {
 	e := r.plug(second)
 	second.set(keyZ, 1)
 	r.expectSent(e, "NoteOn ch=1 note=C0 velocity=64")
+	if got := r.manager.Status(); len(got) != 1 || got[0].Device.Name != "Second Keyboard" {
+		t.Errorf("Status = %+v, want only the second keyboard", got)
+	}
+	if kbd.isGrabbed() {
+		t.Error("a device without a MIDI device was grabbed")
+	}
 }
 
 func TestSendFailureStopsInstrument(t *testing.T) {
@@ -581,4 +638,167 @@ func TestUnplugWhileInactive(t *testing.T) {
 	if sent, _ := e.state(); sent != noteOn+"; "+noteOff {
 		t.Errorf("sent after unplugging while off: %s", sent)
 	}
+}
+
+// profile parses a keyboard profile that plays the given note on Z.
+func profile(t *testing.T, name, match, note string) *config.Profile {
+	t.Helper()
+	p, err := config.Parse([]byte("schema = 1\nname = \"" + name + "\"\n[match]\n" + match +
+		"\n[[layout]]\nname = \"Main\"\n[layout.bindings]\nKEY_Z = \"" + note + "\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func builtin(t *testing.T) []*config.Profile {
+	t.Helper()
+	profiles, err := config.Builtin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return profiles
+}
+
+// A changed profile takes over a playing instrument: the held note is
+// released, the MIDI device stays, and the next press plays the new note.
+func TestSetProfilesReplacesProfile(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards}, profile(t, "Mine", `type = "keyboard"`, "C3"))
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Mine", `type = "keyboard"`, "D3")))
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100; NoteOff ch=1 note=C3 velocity=0")
+	kbd.set(keyZ, 0) // the release of the old press plays nothing
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100; NoteOff ch=1 note=C3 velocity=0; NoteOn ch=1 note=D3 velocity=100")
+
+	if _, closed := e.state(); closed {
+		t.Error("the MIDI device was removed for a profile change")
+	}
+	if !kbd.isGrabbed() || kbd.wasClosed() {
+		t.Errorf("the device: grabbed %v, closed %v; want it kept grabbed", kbd.isGrabbed(), kbd.wasClosed())
+	}
+	if got := r.manager.Status(); len(got) != 1 || got[0].Profile != "Mine" {
+		t.Errorf("Status = %+v", got)
+	}
+}
+
+// Reloading profiles whose content did not change must not interrupt what
+// is being played.
+func TestSetProfilesLeavesUnchangedInstrumentsAlone(t *testing.T) {
+	r := newRig(t, profile(t, "Mine", `type = "keyboard"`, "C3"))
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	pad := newFakeDevice("Pad", control.DeviceGamepad)
+	e := r.plug(kbd)
+	r.plug(pad)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+
+	// The same content, parsed anew, plus a change that concerns only
+	// game controllers.
+	r.manager.SetProfiles(append(builtin(t),
+		profile(t, "Mine", `type = "keyboard"`, "C3"),
+		profile(t, "Pad profile", `type = "gamepad"`, "E3")))
+	eventually(t, "the game controller's new profile", func() bool {
+		for _, s := range r.manager.Status() {
+			if s.Profile == "Pad profile" {
+				return true
+			}
+		}
+		return false
+	})
+	kbd.set(keyZ, 0)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100; NoteOff ch=1 note=C3 velocity=0")
+}
+
+// A device nothing selected becomes an instrument when a profile for it
+// appears, and stops being one when that profile goes away.
+func TestSetProfilesStartsAndStopsInstruments(t *testing.T) {
+	r := newRigWith(t, Options{Grab: func(control.DeviceInfo) bool { return true }})
+	pedal := newFakeDevice("Pedal", control.DeviceUnknown)
+	pedal.info.Hardware = control.HardwareID{Vendor: 0x1234, Product: 1}
+	r.devices <- pedal
+	r.plug(newFakeDevice("Test Keyboard", control.DeviceKeyboard))
+	if len(r.manager.Status()) != 1 {
+		t.Fatalf("Status = %+v, want the pedal parked", r.manager.Status())
+	}
+
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Pedal", "vendor = 0x1234\nproduct = 1", "C3")))
+	name := EndpointPrefix + "Pedal"
+	eventually(t, "the pedal's MIDI device", func() bool { return r.endpoint(name) != nil })
+	e := r.endpoint(name)
+	eventually(t, "the pedal to be grabbed", pedal.isGrabbed)
+	pedal.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+
+	r.manager.SetProfiles(builtin(t))
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100; NoteOff ch=1 note=C3 velocity=0")
+	eventually(t, "the pedal's MIDI device to close", func() bool { _, closed := e.state(); return closed })
+	eventually(t, "the pedal to be given back", func() bool { return !pedal.isGrabbed() })
+	eventually(t, "the pedal to leave the status", func() bool { return len(r.manager.Status()) == 1 })
+	if pedal.wasClosed() {
+		t.Error("the device was closed; it must stay available for a later profile")
+	}
+
+	// And back again, with a new MIDI device.
+	r.mu.Lock()
+	delete(r.endpoints, name)
+	r.mu.Unlock()
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Pedal", "vendor = 0x1234\nproduct = 1", "D3")))
+	eventually(t, "the pedal's second MIDI device", func() bool { return r.endpoint(name) != nil })
+	pedal.set(keyZ, 0)
+	pedal.set(keyZ, 1)
+	r.expectSent(r.endpoint(name), "NoteOn ch=1 note=D3 velocity=100")
+}
+
+// While HIDI is off, a profile change is taken up silently and plays once
+// HIDI is on again.
+func TestSetProfilesWhileInactive(t *testing.T) {
+	r := newRig(t, profile(t, "Mine", `type = "keyboard"`, "C3"))
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	r.manager.SetActive(false)
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Mine", `type = "keyboard"`, "D3")))
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+	r.expectSent(e, "")
+	r.manager.SetActive(true)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=D3 velocity=100")
+}
+
+// Profiles may change while instruments are being played and devices come
+// and go.
+func TestSetProfilesConcurrently(t *testing.T) {
+	r := newRig(t)
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.plug(kbd)
+	sets := [][]*config.Profile{
+		builtin(t),
+		append(builtin(t), profile(t, "A", `type = "keyboard"`, "C3")),
+		{}, // nothing selects the keyboard
+		append(builtin(t), profile(t, "B", `type = "keyboard"`, "D3")),
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := range 200 {
+			r.manager.SetProfiles(sets[i%len(sets)])
+		}
+	})
+	wg.Go(func() {
+		for i := range 200 {
+			kbd.set(keyZ, float64(i%2))
+			r.manager.Status()
+		}
+	})
+	wg.Wait()
+	r.manager.SetProfiles(sets[1])
+	eventually(t, "the last profile to be in use", func() bool {
+		got := r.manager.Status()
+		return len(got) == 1 && got[0].Profile == "A"
+	})
 }

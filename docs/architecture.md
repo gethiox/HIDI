@@ -140,6 +140,15 @@ Configuration files are TOML and carry a schema version. A file written for an
 older schema is migrated on load. HIDI 1.x configuration files are not
 supported.
 
+Profiles come from two places: built into the binary, and files in the
+user's profile directory, which take precedence. The directory is polled once
+a second and loaded again when it changes; polling keeps this code free of
+platform-specific file watching. A changed profile reaches a running
+instrument through `Manager.SetProfiles`, which replaces the engine and keeps
+the MIDI endpoint. A device that no profile selects stays open but is read
+only twice a second, so that a profile added later can still claim it without
+HIDI following every movement of a mouse.
+
 ### Logging
 
 Every component logs through `log/slog` to one `logging.Log`, which writes

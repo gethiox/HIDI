@@ -31,6 +31,7 @@ Usage:
 Commands:
   run       run the instruments until interrupted
   devices   list the connected input devices and the profile each would use
+  profiles  list the profiles, check them, or write the built-in ones out
   version   print version information
   help      show this help
 
@@ -54,6 +55,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdRun(ctx, args[1:], stderr)
 	case "devices":
 		return cmdDevices(args[1:], stdout, stderr)
+	case "profiles":
+		return cmdProfiles(args[1:], stdout, stderr)
 	case "version", "-version", "--version":
 		fmt.Fprintln(stdout, buildinfo.Get())
 		return 0
@@ -90,6 +93,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
 	noColour := fs.Bool("no-color", false, "write the log without colours")
+	profilesDir := profilesFlag(fs)
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
@@ -125,10 +129,20 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	log := logs.Logger("hidi")
 	inputLog := logs.Logger("input")
 
-	profiles, err := config.Builtin()
+	configLog := logs.Logger("config")
+	reportProblems := func(problems []config.Problem) {
+		for _, p := range problems {
+			configLog.Error("profile cannot be used", "file", p.File, "error", p.Err)
+		}
+	}
+	profiles, problems, err := config.Load(*profilesDir)
 	if err != nil {
-		log.Error("loading the built-in profiles failed", "error", err)
+		configLog.Error("loading the built-in profiles failed", "error", err)
 		return 1
+	}
+	reportProblems(problems)
+	if *profilesDir != "" {
+		configLog.Info("profiles loaded", "directory", *profilesDir, "yours", countUser(profiles), "built-in", len(profiles)-countUser(profiles))
 	}
 	source, err := backend.Devices(func(what string, err error) {
 		inputLog.Warn("device cannot be used", "device", what, "error", err)
@@ -164,6 +178,13 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		Toggle:        toggle,
 		StartInactive: *startOff,
 	})
+	if *profilesDir != "" {
+		go config.Watch(ctx, *profilesDir, time.Second, func(profiles []*config.Profile, problems []config.Problem) {
+			configLog.Info("profiles changed; loading them again", "yours", countUser(profiles))
+			reportProblems(problems)
+			manager.SetProfiles(profiles)
+		})
+	}
 	manager.Run(ctx, source.Devices)
 	log.Info("HIDI stopped")
 	return 0
@@ -205,16 +226,91 @@ func formatToggle(keys []control.Code) string {
 	return strings.Join(names, "+")
 }
 
-func cmdDevices(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("devices", flag.ContinueOnError)
+// profilesFlag adds the option that names the directory of the user's
+// profiles.
+func profilesFlag(fs *flag.FlagSet) *string {
+	dir, err := config.DefaultDir()
+	if err != nil {
+		dir = "" // no home directory: built-in profiles only
+	}
+	return fs.String("profiles", dir, "`directory` of your profiles; empty uses the built-in profiles only")
+}
+
+// countUser returns how many of the profiles are the user's own.
+func countUser(profiles []*config.Profile) int {
+	n := 0
+	for _, p := range profiles {
+		if !p.IsBuiltin() {
+			n++
+		}
+	}
+	return n
+}
+
+// cmdProfiles lists the profiles and what is wrong with the files that
+// cannot be used, or writes the built-in profiles out as files to edit.
+func cmdProfiles(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
+	dir := profilesFlag(fs)
+	export := fs.Bool("export", false, "write the built-in profiles into the directory, as files to start from")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
 
-	profiles, err := config.Builtin()
+	if *export {
+		if *dir == "" {
+			fmt.Fprintln(stderr, "hidi profiles: -export needs a directory; set -profiles")
+			return 2
+		}
+		written, skipped, err := config.WriteBuiltin(*dir)
+		for _, file := range written {
+			fmt.Fprintf(stdout, "written  %s\n", file)
+		}
+		for _, file := range skipped {
+			fmt.Fprintf(stdout, "kept     %s (it exists already)\n", file)
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "hidi profiles: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	profiles, problems, err := config.Load(*dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "hidi profiles: loading the built-in profiles failed: %v\n", err)
+		return 1
+	}
+	if *dir != "" {
+		fmt.Fprintf(stdout, "Your profiles are read from %s\n\n", *dir)
+	}
+	// Later profiles take precedence, so the user's own come first here.
+	for _, p := range slices.Backward(profiles) {
+		fmt.Fprintf(stdout, "%-26q %-34s for %s\n", p.Name, p.Source, p.Match)
+	}
+	for _, p := range problems {
+		fmt.Fprintf(stderr, "\nhidi profiles: cannot be used: %v\n", p)
+	}
+	if len(problems) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func cmdDevices(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("devices", flag.ContinueOnError)
+	profilesDir := profilesFlag(fs)
+	if ok, code := parseFlags(fs, args, stderr); !ok {
+		return code
+	}
+
+	profiles, problems, err := config.Load(*profilesDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "hidi devices: loading the built-in profiles failed: %v\n", err)
 		return 1
+	}
+	for _, p := range problems {
+		fmt.Fprintf(stderr, "hidi devices: profile cannot be used: %v\n", p)
 	}
 	source, err := backend.Devices(func(what string, err error) {
 		fmt.Fprintf(stderr, "hidi devices: %s cannot be used: %v\n", what, err)
