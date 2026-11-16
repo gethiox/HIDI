@@ -53,40 +53,75 @@ completes or changes an item.
 
 ## Current focus
 
-Windows, tried on the maintainer's machine (Windows 11 build 26300,
-`Windows.Devices.Midi2.dll` from Microsoft's Preview 11 NuGet package
-beside `hidi.exe`).
+Windows, second round. Tried on the maintainer's machine (Windows 11 build
+26300, `Windows.Devices.Midi2.dll` from Microsoft's Preview 11 NuGet
+package beside `hidi.exe`), with `dev` at 24c54ff.
 
-What is known:
+### What works there
 
-- `hidi doctor` creates one MIDI device, and Bitwig lists it and plays the
-  notes. Removing it by disconnecting never returned.
-- `hidi run` finds keyboards and game controllers, an Xbox controller
-  through XInput among them. With ten devices it created no MIDI device:
-  every one ran into its time limit at "creating the device", all at the
-  same moment.
+- `hidi run -v -no-grab` after a fresh start of Windows: seven input
+  devices became instruments within a second (a HyperX keyboard, a Razer
+  mouse that presents a keyboard, two VKB joysticks, a Saitek throttle,
+  vJoy, a device called "gamepad"). Their MIDI devices were created one
+  after another, about 100 ms each.
+- **Keyboard input works**: keys of the HyperX played notes (NoteOn and
+  NoteOff logged), so Raw Input delivers them. The toggle combination
+  turned HIDI off and on.
+- Game controllers through Raw Input send controller values.
+- `hidi doctor` creates three devices one after another; Bitwig shows
+  incoming MIDI.
+- Leaving that first `run` with Ctrl+C removed all six MIDI devices at
+  once, without a hang.
+- The duplicates are gone for the keyboard and the mouse.
 
-What was changed for that, and is to be tried next with `hidi doctor`,
-which now makes three devices, removes them, and makes one more:
+### What does not, in the order to work on
 
-1. MIDI devices are created and removed one at a time. Whether the ten at
-   once were the cause, or a MIDI service left stuck by an earlier removal
-   that hung, is what the next run tells.
-2. A device is given up by closing its session, without disconnecting
-   first. `hidi doctor -removal disconnect` and `-removal release` try the
-   other ways.
-3. Once a call to the MIDI service did not return, nothing more is asked
-   of it, so that HIDI says so once and at once.
-4. Every instrument's MIDI device has a name of its own; the second
-   device of a model gets a number.
-5. The interfaces of one piece of hardware are one device: they are told
-   by the container Windows puts them in. Before, a keyboard with several
-   interfaces was listed several times.
+1. **Removing a MIDI device sometimes never returns**, now in "closing the
+   MIDI session" (before, in disconnecting). When it happens, the MIDI
+   service answers nobody afterwards: the next `hidi run` fails at its
+   first device until Windows is restarted. Seen so far:
+   - `hidi doctor`: the close of the first device hung. It came right
+     after the last note was sent, with devices 2 and 3 still open.
+   - second `hidi run`: five devices closed in a millisecond each; the
+     sixth, created 22 ms before, hung.
+   - first `hidi run`: all six closed fine; HIDI had been off and idle
+     for seconds.
+   So the guess to try first: closing too soon after something else was
+   asked of that session or device (a send, the creation). Wait until
+   half a second has passed since the last use before closing; if that
+   is not it, try the other ways (`hidi doctor -removal release`).
+   Since the devices go away with the process anyway, a HIDI that is
+   stopping could also skip the removal and just end; only an instrument
+   unplugged while HIDI runs needs a real removal.
+2. **The second device of a model cannot be created.** For the second VKB
+   joystick the service answered status 808 "error from the service",
+   for the name "HIDI VKBsim Gladiator EVO R #2" with the identifier
+   "HIDI-HIDI-VKBsim-Gladiator-EVO-R--2". The guess: the "#" in the name,
+   which Windows uses as a separator in device paths. Number without it
+   ("... 2"). The identifier also carries "HIDI" twice, since the name
+   already begins with it.
+3. **An axis that does not rest still floods.** The Saitek throttle sent
+   controller 6 as 63, 64, 63, 64 … every 8 ms, forever. A value should
+   only be sent on when it has moved clearly away from the last one sent
+   (hysteresis of a bit more than half a step), in the engine, for every
+   system.
+4. **Logging** (asked for by the maintainer):
+   - Single MIDI messages do not belong in the log at all, not at debug
+     level either. Only a flag of its own, for debugging, turns them on.
+   - `hidi run` on a terminal should keep a few lines at the bottom with
+     the state of HIDI and its devices, like the window does, with the
+     log scrolling above them; writing the log only stays possible.
+   - The interfaces should say how much is going on: input events a
+     second and MIDI messages sent a second, for each instrument.
+5. A mouse that presents a keyboard interface (Razer Basilisk V3) is an
+   instrument. Still no sure way to tell.
+6. `hidi run` with grabbing (without `-no-grab`), an Xbox controller
+   through XInput, and what a HIDI that was killed leaves behind, are
+   still untried there.
 
-Still open there: a mouse that also presents a keyboard interface is
-listed as a keyboard; after a HIDI that was killed, whether the next one
-can create its devices; keyboard input itself, which could not be tried
-while no instrument started.
+Open besides: pull request #46 (changing profiles in the window) awaits
+merging. After the Windows round, "Release" is next: packaging, the udev
+rule, the release workflow.
 
 ## Done
 
