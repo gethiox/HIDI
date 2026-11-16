@@ -43,7 +43,11 @@ func Start(dir string) (previous string, err error) {
 	path := filepath.Join(dir, current)
 	if info, statErr := os.Stat(path); statErr == nil && info.Size() > 0 {
 		kept := filepath.Join(dir, "crash-"+info.ModTime().Format("20060102-150405")+".log")
+		// Windows does not rename a file that is open, which this one is
+		// if the program holding it is still around; copying works there.
 		if os.Rename(path, kept) == nil {
+			previous = kept
+		} else if data, readErr := os.ReadFile(path); readErr == nil && os.WriteFile(kept, data, 0o600) == nil {
 			previous = kept
 		}
 	}
@@ -58,6 +62,9 @@ func Start(dir string) (previous string, err error) {
 	}
 	return previous, nil
 }
+
+// Stop ends the recording of crashes and lets go of the file.
+func Stop() { debug.SetCrashOutput(nil, debug.CrashOptions{}) }
 
 // Path returns the file a crash of the running program is written to.
 func Path(dir string) string { return filepath.Join(dir, current) }

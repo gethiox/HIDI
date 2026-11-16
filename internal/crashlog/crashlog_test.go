@@ -22,6 +22,7 @@ func TestCrashIsWrittenAndFoundAtTheNextStart(t *testing.T) {
 		return
 	}
 
+	t.Cleanup(Stop) // or the directory cannot be removed on Windows
 	previous, err := Start(dir)
 	if err != nil || previous != "" {
 		t.Fatalf("first Start = %q, %v; want no earlier crash", previous, err)
