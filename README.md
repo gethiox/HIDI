@@ -152,7 +152,9 @@ the output up to that point says where.
 Windows MIDI Services needs Windows 11 25H2 or later. Until Windows itself
 ships the API, `Windows.Devices.Midi2.dll` from Microsoft's preview has to be
 in the same folder as `hidi.exe`, unless `hidi doctor` reports that it found
-the API in Windows.
+the API in Windows. A program started with `go run` lives in a temporary
+folder, so either build it first (`go build -o hidi.exe ./cmd/hidi`) or set
+the environment variable `HIDI_MIDI_DLL` to the full path of the DLL.
 
 ## Development
 
