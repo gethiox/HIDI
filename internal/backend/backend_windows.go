@@ -5,16 +5,27 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/gethiox/HIDI/internal/input"
+	"github.com/gethiox/HIDI/internal/input/rawinput"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/output/winmidi"
 )
 
-var errNoInput = errors.New("HIDI cannot read input devices on Windows yet")
-
-// Devices starts watching for input devices. It is not implemented for
-// Windows yet.
+// Devices starts watching for input devices. On Windows these are the
+// keyboards so far; game controllers are not read yet.
 func Devices(problem func(what string, err error)) (*Source, error) {
-	return nil, errNoInput
+	w, err := rawinput.Watch()
+	if err != nil {
+		return nil, err
+	}
+	devices := make(chan input.Device)
+	go func() {
+		defer close(devices)
+		for d := range w.Devices() {
+			devices <- d
+		}
+	}()
+	return &Source{Devices: devices, close: w.Close}, nil
 }
 
 // Ports lists the existing MIDI ports an instrument can be connected to. It

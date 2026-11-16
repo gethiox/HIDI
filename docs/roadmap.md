@@ -83,8 +83,10 @@ In planned order. Each item is roughly one pull request.
    stage; it has to be run on a real Windows machine and corrected from
    what that shows. Most positions in the interface tables are derived
    from Microsoft's interface definitions and not yet confirmed.
-2. **Input**: Raw Input for keyboards and game controllers, and the
-   low-level hook that suppresses keyboard input while HIDI is on.
+2. **Input**: Raw Input for keyboards and the low-level hook that
+   suppresses keyboard input while HIDI is on are written
+   (`internal/input/rawinput`) and have to be tried on a real machine.
+   Game controllers are still to do.
 3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
@@ -153,6 +155,9 @@ rest on assumptions about real devices and should be checked first:
   once Raw Input has said which device they came from. To be tried in the
   Windows input stage; the known costs are that injected keys do not reach
   elevated windows and that some games reject them.
+- Two input devices of the same model get MIDI devices of the same name.
+  They need to be told apart, in the name and, on Windows, in the
+  identifier the device declares.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
 - The monitor shows how many notes sound, not which. Showing the notes

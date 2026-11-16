@@ -192,8 +192,9 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 		return nil, err
 	}
 	defer hName.free()
-	// The identifier must differ between devices; the name does, since
-	// HIDI numbers devices that share one.
+	// The identifier should differ between devices. Two input devices of
+	// the same model have the same name, and so far get the same
+	// identifier; what Windows does then is not known yet.
 	hInstance, err := newHString("HIDI-" + name)
 	if err != nil {
 		return nil, err

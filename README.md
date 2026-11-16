@@ -136,8 +136,10 @@ and switches layout with F11 and F12. Escape silences everything.
 
 ## Trying it on Windows
 
-Only MIDI output exists on Windows so far, and it has not run on a real
-machine yet. `hidi doctor` is the way to find out whether it works on yours:
+The Windows side is written but has not run on a real machine yet, so expect
+it to need corrections. Keyboards are read; game controllers are not yet.
+
+Start with `hidi doctor`, which checks MIDI output on its own:
 
 ```
 hidi.exe doctor
@@ -153,6 +155,12 @@ Windows MIDI Services needs Windows 11 25H2 or later. Until Windows itself
 ships the API, `Windows.Devices.Midi2.dll` from Microsoft's preview has to be
 in the same folder as `hidi.exe`, unless `hidi doctor` reports that it found
 the API in Windows.
+
+Once `hidi doctor` passes, `hidi.exe run -v` turns every keyboard into an
+instrument, as on Linux. Windows cannot keep one keyboard from typing and let
+another type: while HIDI is on, no keyboard types. The toggle combination,
+Left Ctrl + Left Shift + Left Alt, turns HIDI off and gives them back. To try
+it without that, run `hidi.exe run -v -no-grab`; the keys then also type.
 
 ## Development
 
