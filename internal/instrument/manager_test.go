@@ -827,3 +827,56 @@ func TestChangedIsCalled(t *testing.T) {
 	expectMore("turning off", func() { r.manager.SetActive(false) })
 	expectMore("unplugging", func() { kbd.stop(errUnplugged) })
 }
+
+// A fast-moving axis reaches the MIDI device thinned out, and always with
+// its final position.
+func TestAxisRateIsLimited(t *testing.T) {
+	stick, err := config.Parse([]byte(`
+schema = 1
+name = "Stick"
+[match]
+type = "gamepad"
+[defaults]
+axis_rate = 10
+[[layout]]
+name = "Main"
+[layout.bindings]
+ABS_X = { pitch_bend = true, centered = true }
+KEY_Z = "C3"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, stick)
+	pad := newFakeDevice("Pad", control.DeviceGamepad)
+	e := r.plug(pad)
+
+	// Fifteen positions at once, a key in the middle, ending fully right.
+	for i := 1; i <= 15; i++ {
+		pad.set(control.Axis(0), 0.5+float64(i)/30)
+		if i == 8 {
+			pad.set(keyZ, 1)
+		}
+	}
+	var sent string
+	eventually(t, "the final position", func() bool {
+		sent, _ = e.state()
+		return strings.HasSuffix(sent, "PitchBend ch=1 bend=+8191")
+	})
+	if n := strings.Count(sent, "PitchBend"); n != 2 {
+		t.Errorf("%d pitch bends were sent, want the first position and the last:\n%s", n, sent)
+	}
+	if !strings.Contains(sent, "NoteOn ch=1 note=C3") {
+		t.Errorf("the key press did not get through at once:\n%s", sent)
+	}
+
+	// Turning off drops a position that is still held back.
+	pad.set(control.Axis(0), 0.5)
+	pad.set(control.Axis(0), 0.75)
+	pad.drain(t)
+	r.manager.SetActive(false)
+	time.Sleep(250 * time.Millisecond)
+	if after, _ := e.state(); strings.Contains(after, "bend=+4095") {
+		t.Errorf("a held position arrived after HIDI was turned off:\n%s", after)
+	}
+}

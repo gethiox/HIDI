@@ -434,10 +434,10 @@ func (t target) sameOnWire(a, b uint32) bool {
 // abandon detaches a source from the target it was driving. Pitch bend, and
 // controllers driven by a self-centering source, are returned to rest; a
 // controller driven by a control that stays where it is put, such as a
-// throttle lever, keeps its value.
+// throttle lever, keeps its value unless the profile asks for rest.
 func (e *Engine) abandon(st *sourceState, out []midi.Message) []midi.Message {
 	st.driving = false
-	if st.centering || st.target.pitchBend {
+	if st.centering || st.target.pitchBend || e.profile.RestAxes {
 		out = e.rest(st.target, out)
 	}
 	return out
