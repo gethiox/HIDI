@@ -19,6 +19,7 @@ func TestStructSizes(t *testing.T) {
 		{"RAWKEYBOARD", unsafe.Sizeof(rawKeyboard{}), 16},
 		{"RAWINPUTDEVICELIST", unsafe.Sizeof(rawInputDeviceList{}), 16},
 		{"KBDLLHOOKSTRUCT", unsafe.Sizeof(kbdLLHook{}), 24},
+		{"DEVPROPKEY", unsafe.Sizeof(devPropKey{}), 20},
 		{"RAWHID", unsafe.Sizeof(rawHID{}), 8},
 		{"RID_DEVICE_INFO", unsafe.Sizeof(ridDeviceInfo{}), 32},
 		{"HIDP_CAPS", unsafe.Sizeof(hidpCaps{}), 64},

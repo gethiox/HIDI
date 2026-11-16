@@ -91,6 +91,13 @@ type Note struct {
 	// Velocity is a fixed velocity for this note, 1-127. Zero uses the
 	// instrument's current velocity.
 	Velocity uint8
+	// Touch takes the velocity from how fast the control was pressed: the
+	// time it took from leaving rest to the point where the note
+	// triggers. That is for controls that report how far they are
+	// pressed, or how hard: a trigger, an analog key, a pad. A control
+	// that is only on or off has no such time to measure, and plays with
+	// the fixed velocity or the instrument's.
+	Touch bool
 }
 
 // ControlChange sends the position of the source as a controller value. A

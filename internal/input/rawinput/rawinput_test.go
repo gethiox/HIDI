@@ -176,3 +176,17 @@ func TestGate(t *testing.T) {
 	g.grabs.Add(1)
 	step("an unknown release during a grab", a, true, true)
 }
+
+func TestInstanceID(t *testing.T) {
+	for path, want := range map[string]string{
+		`\\?\HID#VID_046D&PID_C31C&MI_00#7&2a1b3c4d&0&0000#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}`:       `HID\VID_046D&PID_C31C&MI_00\7&2a1b3c4d&0&0000`,
+		`\\?\HID#VID_03F0&PID_058F&MI_01&Col02#9&1f2e3d4c&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}`: `HID\VID_03F0&PID_058F&MI_01&Col02\9&1f2e3d4c&0&0001`,
+		`\\?\ACPI#PNP0303#4&1234&0#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}`:                               `ACPI\PNP0303\4&1234&0`,
+		`not a path`: "",
+		``:           "",
+	} {
+		if got := instanceID(path); got != want {
+			t.Errorf("instanceID(%q) = %q, want %q", path, got, want)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/midi"
@@ -59,6 +60,12 @@ type sourceState struct {
 	latched *Binding
 	// notes are the notes the press turned on.
 	notes []noteRef
+	// leftRest is when the source last left its rest position, for
+	// measuring how fast it is pressed; zero while it rests.
+	leftRest time.Time
+	// travel is how long the press took from there to the trigger point,
+	// zero if that was not seen.
+	travel time.Duration
 
 	// driving reports that the source last drove target with a
 	// position-following action. centering records whether the source
@@ -136,6 +143,8 @@ type Engine struct {
 	// chordText the same for display.
 	chord     []int
 	chordText string
+	// now is the time of the event being handled.
+	now time.Time
 	// usedChannels has a bit set for every channel a note was sent on.
 	usedChannels uint16
 }
@@ -200,6 +209,7 @@ func (e *Engine) State() State {
 // Handle processes one control event. It appends the resulting MIDI messages
 // to out and returns the extended slice, so a caller can reuse one buffer.
 func (e *Engine) Handle(ev control.Event, out []midi.Message) []midi.Message {
+	e.now = ev.Time
 	v := ev.Value
 	switch {
 	case !(v > 0): // also catches NaN
@@ -257,8 +267,29 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 	if st.driving { // the source followed a position under another binding
 		out = e.abandon(st, out)
 	}
+	// Follow the way from rest to the trigger point, for notes that take
+	// their velocity from how fast it is covered.
+	if !st.pressed {
+		switch {
+		case x <= restLevel:
+			st.leftRest = time.Time{}
+		case st.leftRest.IsZero() && x < pressThreshold:
+			st.leftRest = e.now // on its way, and not there yet
+		}
+	}
 	switch {
 	case !st.pressed && x >= pressThreshold:
+		st.travel = 0
+		switch {
+		case !st.leftRest.IsZero() && !e.now.IsZero():
+			st.travel = max(e.now.Sub(st.leftRest), 1)
+		case st.leftRest.IsZero() && b.Source.Code.Kind == control.KindAxis:
+			// From rest to the trigger point between two reports: as
+			// fast as can be told. A key, which is only on or off, says
+			// nothing of the kind.
+			st.travel = 1
+		}
+		st.leftRest = time.Time{}
 		st.pressed, st.latched = true, b
 		out = e.press(st, out)
 	case st.pressed && x < releaseThreshold:
@@ -368,6 +399,9 @@ func (e *Engine) noteOn(st *sourceState, a Note, out []midi.Message) []midi.Mess
 	velocity := e.velocity
 	if a.Velocity != 0 {
 		velocity = a.Velocity
+	}
+	if a.Touch && st.travel > 0 {
+		velocity = touchVelocity(st.travel)
 	}
 	// The note played comes first in st.notes; rememberChord relies on it.
 	out = e.sound(st, noteRef{channel, midi.Note(n)}, velocity, out)
@@ -540,6 +574,30 @@ func (e *Engine) commandPress(c Command, out []midi.Message) []midi.Message {
 		e.rememberChord()
 	}
 	return out
+}
+
+// restLevel is how far a control may be from rest and still count as
+// resting, when the time of a press is measured.
+const restLevel = 0.05
+
+// A press that takes fastTouch or less plays at full velocity, one that
+// takes slowTouch or more at the lowest. In between the velocity falls
+// evenly with each doubling of the time, which is how loudness is heard.
+const (
+	fastTouch = 4 * time.Millisecond
+	slowTouch = 160 * time.Millisecond
+)
+
+// touchVelocity turns the time a press took into a velocity.
+func touchVelocity(travel time.Duration) uint8 {
+	switch {
+	case travel <= fastTouch:
+		return 127
+	case travel >= slowTouch:
+		return 1
+	}
+	fraction := math.Log(float64(travel)/float64(fastTouch)) / math.Log(float64(slowTouch)/float64(fastTouch))
+	return uint8(127 - fraction*126 + 0.5)
 }
 
 // learnThreshold is how far an axis has to be moved to get through while

@@ -253,6 +253,11 @@ Start with `hidi doctor`, which checks MIDI output on its own:
 hidi.exe doctor
 ```
 
+It creates three MIDI devices, as HIDI makes one for every instrument, plays
+on the first, removes them, and creates one more to see that removing left
+the MIDI service working. `-devices N` changes how many, and `-removal
+disconnect` or `-removal release` try other ways of giving a device up.
+
 It prints the Windows build, where it found Windows MIDI Services, and each
 stage of creating a MIDI device. If all stages pass, a device named
 "HIDI test device" appears in other programs and plays a C major chord until

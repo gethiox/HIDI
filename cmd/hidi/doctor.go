@@ -10,6 +10,7 @@ import (
 	"github.com/gethiox/HIDI/internal/backend"
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/midi"
+	"github.com/gethiox/HIDI/internal/output"
 )
 
 // doctorDevice is the name of the MIDI device the check creates.
@@ -22,15 +23,37 @@ const doctorDevice = "HIDI test device"
 func cmdDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	seconds := fs.Int("seconds", 0, "how long to keep the test device and play on it; 0 means until Ctrl+C")
+	devices := fs.Int("devices", 3, "how many MIDI devices to create in all, as HIDI makes one for each instrument")
+	removal := fs.String("removal", "session", "on Windows, how devices are given up: session, disconnect or release")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
 
+	if err := backend.SetRemoval(*removal); err != nil {
+		fmt.Fprintf(stderr, "hidi doctor: %v\n", err)
+		return 2
+	}
 	fmt.Fprintln(stdout, buildinfo.Get())
 	endpoint, err := backend.CheckOutput(stdout, doctorDevice)
 	if err != nil {
 		fmt.Fprintf(stdout, "\nMIDI output does not work: %v\n", err)
 		return 1
+	}
+	// HIDI makes a device for every instrument, so more than one has to
+	// work, and so has making one after others were removed.
+	var more []output.Endpoint
+	defer func() {
+		for _, e := range more {
+			e.Close()
+		}
+	}()
+	for n := 2; n <= *devices; n++ {
+		e, err := backend.OpenTraced(stdout, fmt.Sprintf("%s %d", doctorDevice, n))
+		if err != nil {
+			fmt.Fprintf(stdout, "\nA further MIDI device cannot be created: %v\n", err)
+			return 1
+		}
+		more = append(more, e)
 	}
 	closed := false
 	defer func() {
@@ -82,10 +105,30 @@ func cmdDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	fmt.Fprintf(stdout, "Sent %d messages without an error.\nRemoving the MIDI device:\n", sent)
 	closed = true
-	if err := endpoint.Close(); err != nil {
+	removed := endpoint.Close()
+	for _, e := range more {
+		if err := e.Close(); err != nil && removed == nil {
+			removed = err
+		}
+	}
+	more = nil
+	if removed != nil {
+		fmt.Fprintf(stdout, "\nMIDI output works, but %v\n", removed)
+		return 1
+	}
+	// A device made after the others were removed shows that removing
+	// them left the MIDI service in good order.
+	fmt.Fprintln(stdout, "\nAfter the removal:")
+	again, err := backend.OpenTraced(stdout, doctorDevice+" again")
+	if err != nil {
+		fmt.Fprintf(stdout, "\nMIDI output works, but after devices were removed no new one can be created: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Removing it:")
+	if err := again.Close(); err != nil {
 		fmt.Fprintf(stdout, "\nMIDI output works, but %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "\nMIDI output works.")
+	fmt.Fprintln(stdout, "\nMIDI output works, with several devices, and removing them leaves it working.")
 	return 0
 }

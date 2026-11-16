@@ -56,27 +56,36 @@ Windows, tried on the maintainer's machine (Windows 11 build 26300,
 `Windows.Devices.Midi2.dll` from Microsoft's Preview 11 NuGet package
 beside `hidi.exe`).
 
-MIDI output works: `hidi doctor` creates its device, and Bitwig lists it
-and plays the notes. What is left there:
+What is known:
 
-1. Removing the device does not return: `DisconnectEndpointConnection`
-   never answers. The time limit catches it and the device goes away with
-   the process, so it does no harm, but it has to be fixed: to try next is
-   closing the session without disconnecting first. The maintainer asked
-   to collect such small fixes rather than open a pull request for each.
-2. After a HIDI that was killed, can the next one create its device, or
-   does the service keep the old one? If it does, the declared identifier
-   has to differ between runs, at the cost of a DAW no longer recognising
-   the device. The run after a restart of Windows created it without
-   trouble.
+- `hidi doctor` creates one MIDI device, and Bitwig lists it and plays the
+  notes. Removing it by disconnecting never returned.
+- `hidi run` finds keyboards and game controllers, an Xbox controller
+  through XInput among them. With ten devices it created no MIDI device:
+  every one ran into its time limit at "creating the device", all at the
+  same moment.
 
-The MIDI service on that machine got stuck once, after a removal that hung
-without a time limit and a killed process: creating a device no longer
-answered, and the service could not be stopped. A restart of Windows was
-the remedy.
+What was changed for that, and is to be tried next with `hidi doctor`,
+which now makes three devices, removes them, and makes one more:
 
-Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
-`hidi run -v`) and game controllers (`hidi devices`, then `hidi run -v`).
+1. MIDI devices are created and removed one at a time. Whether the ten at
+   once were the cause, or a MIDI service left stuck by an earlier removal
+   that hung, is what the next run tells.
+2. A device is given up by closing its session, without disconnecting
+   first. `hidi doctor -removal disconnect` and `-removal release` try the
+   other ways.
+3. Once a call to the MIDI service did not return, nothing more is asked
+   of it, so that HIDI says so once and at once.
+4. Every instrument's MIDI device has a name of its own; the second
+   device of a model gets a number.
+5. The interfaces of one piece of hardware are one device: they are told
+   by the container Windows puts them in. Before, a keyboard with several
+   interfaces was listed several times.
+
+Still open there: a mouse that also presents a keyboard interface is
+listed as a keyboard; after a HIDI that was killed, whether the next one
+can create its devices; keyboard input itself, which could not be tried
+while no instrument started.
 
 ## Done
 
@@ -118,6 +127,8 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
   the page is open and keeps its angle; the settings, with the switches and
   the frame limit changeable; where things are kept, with buttons to open
   the places in the file manager; and the list of all profiles.
+- Velocity from how fast a control is pressed (`touch = true` on a note),
+  for triggers, analog keys and pads.
 - Lighting the keys through OpenRGB: what every key plays, the state of
   the command keys, the notes that sound, and notes sent to the instrument
   by another program, for which its MIDI device accepts MIDI on Linux.
@@ -153,14 +164,7 @@ In planned order. Each item is roughly one pull request.
    codes Linux gives them: Xbox controllers through XInput
    (`internal/input/xinput`), every other one through Raw Input. Also
    untried.
-3. **Steam Controller** (the first one, the new one, and the controls of
-   a Steam Deck) on Windows. These speak a protocol of Valve's own
-   instead of describing themselves as game controllers, so neither
-   reader sees them unless Steam is running and presents them as an Xbox
-   controller. Reading them directly means a third reader for that
-   protocol, as the Linux kernel has in `hid-steam`; on Linux that driver
-   already makes them ordinary controllers.
-4. **Platform glue**, and testing on a real machine.
+3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
@@ -179,9 +183,6 @@ In planned order. Each item is roughly one pull request.
 
 ### Features
 
-9. **Velocity from how a control is pressed**, for controls that report
-    pressure or travel.
-
 ### Release
 
 10. Packaging, a udev rule so that HIDI needs neither root nor group
@@ -193,6 +194,15 @@ In planned order. Each item is roughly one pull request.
 13. Merging `dev` into `main`.
 
 ### After 2.0
+
+- **Steam Controller** (the first one, the new one, and the controls of a
+  Steam Deck) on Windows. These speak a protocol of Valve's own instead of
+  describing themselves as game controllers, so neither reader sees them
+  unless Steam is running and presents them as an Xbox controller. Reading
+  them directly means a third reader for that protocol, as the Linux
+  kernel has in `hid-steam`; on Linux that driver already makes them
+  ordinary controllers. Moved here because it cannot be written without
+  the hardware to try it on.
 
 - Bluetooth and network MIDI output, so that a single-board computer can
   present itself to another machine without a cable.
