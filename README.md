@@ -102,6 +102,15 @@ change what a device plays, edit its profile; HIDI picks up changes while it
 runs. The settings give the defaults for the options above. Both formats are
 [documented](docs/configuration.md).
 
+### Beside an input remapper
+
+A program such as [input-remapper](https://github.com/sezanzeb/input-remapper)
+takes a keyboard for itself and passes its keys on through a device of its
+own, named like "input-remapper ... forwarded". HIDI then gets nothing from
+the keyboard itself and says so in its log; the instrument to play is the
+forwarded one. What the remapper types by itself arrives through its
+"input-remapper keyboard", which is an instrument too.
+
 ### Looking at a running HIDI
 
 From another terminal:

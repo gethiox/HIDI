@@ -220,6 +220,10 @@ rest on assumptions about real devices and should be checked first:
   XInput reports the guide button and the model of a controller through
   its two functions without a name; that a DualShock 4 or DualSense numbers its controls
   as the table in `rawinput/pad.go` says, also over Bluetooth.
+- HIDI beside the real input-remapper (issue #23). Its devices were
+  imitated in a test from what its source does: a keyboard taken for
+  itself, the device that passes it on, and its own keyboard and game
+  controller with one shared identity.
 - That the toggle combination suits a keyboard with one Ctrl and no
   right-hand modifiers, and does not collide with a desktop shortcut.
 

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/input"
 )
 
 // Event types and codes from linux/input-event-codes.h.
@@ -271,6 +272,9 @@ func (n *Node) grabIfIdle() error {
 		return nil
 	}
 	if err := n.ioctlValue(reqGrab, 1); err != nil {
+		if errors.Is(err, unix.EBUSY) {
+			return fmt.Errorf("%s: %w", n.info.Path, input.ErrGrabbedElsewhere)
+		}
 		return fmt.Errorf("%s: grabbing the device: %w", n.info.Path, err)
 	}
 	n.grabbed = true
