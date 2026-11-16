@@ -18,6 +18,7 @@ import (
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/input"
+	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/midi"
 	"github.com/gethiox/HIDI/internal/output"
 )
@@ -45,6 +46,9 @@ type Options struct {
 	Toggle []control.Code
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
+	// Lights, if set, returns the lights of a keyboard that became an
+	// instrument, or nil if it has none to offer.
+	Lights func(control.DeviceInfo) Light
 	// Changed, if set, is called whenever what [Manager.Status] or
 	// [Manager.Active] report has changed. It is called from several
 	// goroutines and must return quickly.
@@ -218,6 +222,7 @@ func (m *Manager) add(dev input.Device) {
 	r := &runner{
 		device: dev, info: info, log: m.log.With("device", info.Name),
 		open:     m.opts.OpenEndpoint,
+		lights:   m.opts.Lights,
 		onToggle: m.toggle,
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
@@ -310,6 +315,10 @@ type runner struct {
 	rules atomic.Pointer[inputRules]
 	// onToggle is what the toggle combination calls.
 	onToggle func()
+	// lights gives the lights of the device, and heard holds the notes
+	// other programs send to the instrument, which the lights show.
+	lights func(control.DeviceInfo) Light
+	heard  external
 
 	// assigned is the profile the manager last asked for; the manager
 	// guards it with its own lock.
@@ -434,6 +443,34 @@ func (r *runner) run() {
 		regrab()
 	}
 
+	// lamp is the lights of the device while it is an instrument. show
+	// makes them fit the instrument; what every key does is worked out
+	// anew only for another engine or layout.
+	var (
+		lamp        Light
+		shownFor    *engine.Engine
+		shownName   string
+		keys        []engine.KeyRole
+		at, layouts int
+	)
+	show := func() {
+		if lamp == nil || eng == nil {
+			return
+		}
+		if shownFor != eng || shownName != state.Layout {
+			keys, at, layouts = eng.Keys()
+			shownFor, shownName = eng, state.Layout
+		}
+		lamp.Show(light.Scene{Active: active, Keys: keys, Layout: at, Layouts: layouts, State: state, External: r.heard.snapshot()})
+	}
+	dark := func() {
+		if lamp != nil {
+			lamp.Close()
+			lamp = nil
+		}
+		r.heard.clear()
+	}
+
 	// reassign makes the device what the manager last asked for.
 	reassign := func() {
 		a := r.pending.Swap(nil)
@@ -456,6 +493,7 @@ func (r *runner) run() {
 			if err := endpoint.Close(); err != nil {
 				r.log.Warn("closing the MIDI device failed", "error", err)
 			}
+			dark()
 			eng, endpoint, profile = nil, nil, nil
 			clear(held)
 			r.setStatus(Status{}, false)
@@ -469,6 +507,12 @@ func (r *runner) run() {
 				return
 			}
 			endpoint = e
+			if r.lights != nil && r.info.Type == control.DeviceKeyboard {
+				lamp = r.lights(r.info)
+			}
+			if receiver, ok := e.(output.Receiver); ok {
+				go r.listen(receiver)
+			}
 			r.log.Info("instrument started",
 				"type", r.info.Type.String(), "hardware", r.info.Hardware.String(),
 				"location", r.info.Location, "profile", a.profile.Name, "source", a.profile.Source)
@@ -483,6 +527,7 @@ func (r *runner) run() {
 
 	// apply brings the device to the state the manager wants.
 	apply := func() {
+		defer show() // whatever changed, the lights follow
 		reassign()
 		if now := r.rules.Load(); now != rules {
 			// Changed settings: another combination starts with no key
@@ -518,6 +563,7 @@ func (r *runner) run() {
 			return
 		}
 		r.publish(eng, &state)
+		show()
 	}
 	// flush plays the axis events the limiter held back long enough, and
 	// arranges to be called again for those it still holds.
@@ -607,8 +653,31 @@ loop:
 	if err := endpoint.Close(); err != nil {
 		r.log.Warn("closing the MIDI device failed", "error", err)
 	}
+	dark()
 	r.setStatus(Status{}, false)
 	r.log.Info("instrument stopped", "reason", r.device.Err())
+}
+
+// listen takes in what other programs send to the instrument, until its
+// MIDI device is closed. The notes show on the lights.
+func (r *runner) listen(from output.Receiver) {
+	var buf []midi.Message
+	for {
+		msgs, err := from.Receive(buf[:0])
+		if err != nil {
+			return
+		}
+		changed := false
+		for _, m := range msgs {
+			if r.heard.take(m) {
+				changed = true
+			}
+		}
+		if changed {
+			r.poke()
+		}
+		buf = msgs
+	}
 }
 
 // toggled tracks the keys of the toggle combination and reports whether ev

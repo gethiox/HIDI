@@ -84,7 +84,17 @@ func (r *Router) Add(name string, e Endpoint) Endpoint {
 	r.endpoints[added] = struct{}{}
 	r.mu.Unlock()
 	r.Sync()
+	if receiver, ok := e.(Receiver); ok {
+		// Keep what the endpoint can do besides sending.
+		return routedReceiver{added, receiver}
+	}
 	return added
+}
+
+// routedReceiver is a routed endpoint that also receives.
+type routedReceiver struct {
+	*routed
+	Receiver
 }
 
 // Run calls [Router.Sync] at every interval until ctx is cancelled.

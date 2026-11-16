@@ -20,6 +20,15 @@ type Endpoint interface {
 	Close() error
 }
 
+// Receiver is an endpoint that other programs can also send to.
+type Receiver interface {
+	// Receive waits for MIDI sent to the endpoint and appends the
+	// messages to out. It returns an error once the endpoint is closed.
+	// It must be called from one goroutine at a time, and be kept
+	// called: what is not read piles up.
+	Receive(out []midi.Message) ([]midi.Message, error)
+}
+
 // Port is a MIDI destination that already exists on the system: the input
 // of a hardware MIDI interface, a synthesizer, or another program.
 type Port struct {

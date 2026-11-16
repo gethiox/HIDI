@@ -293,3 +293,22 @@ func TestWatch(t *testing.T) {
 		t.Errorf("after the removal: %+v", r)
 	}
 }
+
+func TestLightsSettings(t *testing.T) {
+	s, err := Parse([]byte("schema = 1\n[lights]\nopenrgb = true\n"))
+	if err != nil || !s.Lights.OpenRGB || s.Lights.Address != DefaultOpenRGBAddress {
+		t.Errorf("lights turned on: %+v, %v", s.Lights, err)
+	}
+	s, err = Parse([]byte("schema = 1\n[lights]\naddress = \"192.168.1.20:6742\"\n"))
+	if err != nil || s.Lights.OpenRGB || s.Lights.Address != "192.168.1.20:6742" {
+		t.Errorf("another address: %+v, %v", s.Lights, err)
+	}
+	if _, err := Parse([]byte("schema = 1\n[lights]\naddress = \"nowhere\"\n")); err == nil || !strings.Contains(err.Error(), "lights.address") {
+		t.Errorf("an address without a port: %v", err)
+	}
+	changed := Default()
+	changed.Lights = Lights{OpenRGB: true, Address: "[::1]:7000"}
+	if got, err := Parse(changed.Text()); err != nil || got.Lights != changed.Lights {
+		t.Errorf("written and read back: %+v, %v", got.Lights, err)
+	}
+}

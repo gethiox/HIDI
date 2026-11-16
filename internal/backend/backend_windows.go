@@ -73,6 +73,13 @@ func OpenEndpoint(name string) (output.Endpoint, error) {
 	return winmidi.Open(name)
 }
 
+// OpenDuplexEndpoint creates a virtual MIDI device. Receiving what other
+// programs send to it is not implemented for Windows yet, so the device
+// only sends.
+func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
+	return winmidi.Open(name)
+}
+
 // CheckOutput reports to w whether virtual MIDI devices can be created, and
 // creates one, saying at which stage it fails if it does.
 func CheckOutput(w io.Writer, name string) (output.Endpoint, error) {

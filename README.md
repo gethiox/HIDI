@@ -102,6 +102,34 @@ change what a device plays, edit its profile; HIDI picks up changes while it
 runs. The settings give the defaults for the options above. Both formats are
 [documented](docs/configuration.md).
 
+### Lighting the keys
+
+HIDI can show an instrument on the lights of its keyboard, through
+[OpenRGB](https://openrgb.org), a program of its own that has to be running
+with its SDK server turned on:
+
+```
+./hidi run -openrgb 127.0.0.1:6742
+```
+
+or `openrgb = true` under `[lights]` in the settings. HIDI does not come with
+OpenRGB and works without it; the lights follow when the server runs, also
+when it starts later.
+
+- Keys that play are lit by what they play: every C in one colour, the other
+  white keys of a piano in a second, the black ones in a third. Keys that do
+  nothing are dim red.
+- A key whose note sounds turns white.
+- The command keys show state: the octave and transpose keys grow brighter
+  the further they have been used, the layout keys dim at the first and last
+  layout, the channel keys take the colour of the channel, panic is red.
+- While HIDI is off the keyboard is lit evenly, and types.
+
+With the lights on, each instrument's MIDI device can also be sent to. Notes
+another program sends there, a DAW playing a track for one, light the keys
+that would play them: white on the instrument's own channel, in the colour
+of their channel otherwise. On Windows that part is not there yet.
+
 ### Looking at a running HIDI
 
 From another terminal:

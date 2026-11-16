@@ -118,6 +118,9 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
   the page is open and keeps its angle; the settings, with the switches and
   the frame limit changeable; where things are kept, with buttons to open
   the places in the file manager; and the list of all profiles.
+- Lighting the keys through OpenRGB: what every key plays, the state of
+  the command keys, the notes that sound, and notes sent to the instrument
+  by another program, for which its MIDI device accepts MIDI on Linux.
 - A running HIDI follows its settings file: a changed toggle combination
   and changed grabbing apply within seconds, from the window or by hand.
 - HIDI's directory with the settings file and the profiles, filled on the
@@ -176,8 +179,6 @@ In planned order. Each item is roughly one pull request.
 
 ### Features
 
-8. **MIDI input and OpenRGB**: lighting the keys that are played here or
-    by another MIDI source.
 9. **Velocity from how a control is pressed**, for controls that report
     pressure or travel.
 
@@ -224,10 +225,23 @@ rest on assumptions about real devices and should be checked first:
   XInput reports the guide button and the model of a controller through
   its two functions without a name; that a DualShock 4 or DualSense numbers its controls
   as the table in `rawinput/pad.go` says, also over Bluetooth.
+- The lights with a real OpenRGB server and a real keyboard. The client
+  was written from OpenRGB's protocol documentation and tried against a
+  stand-in built from the same document: that the server sends what the
+  document says, the names it gives the lights of a given keyboard, and
+  that it reports the keyboard at a location HIDI can match, are unchecked.
 - That the toggle combination suits a keyboard with one Ctrl and no
   right-hand modifiers, and does not collide with a desktop shortcut.
 
 ## Open questions
+
+- The colours of the lights are those of 1.x and fixed. 1.x let a profile
+  set them; that, and showing an axis on a keyboard's light strip as 1.x
+  did for one model, are not carried over yet.
+- Receiving MIDI on Windows, for the lights there, needs the event of
+  Windows MIDI Services to be handled, which HIDI does not do yet.
+- The lights are switched on at the start of HIDI only, and not from the
+  window.
 
 - On Windows the directory is in the roaming `%AppData%`, the usual place
   for settings that follow the user. The local one would be

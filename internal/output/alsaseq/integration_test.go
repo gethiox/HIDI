@@ -416,3 +416,90 @@ func TestInputCloseInterruptsRead(t *testing.T) {
 		t.Errorf("Connect on a closed input = %v", err)
 	}
 }
+
+// An endpoint opened for both directions sends like any other, receives
+// what another program sends to it, and Close ends a Receive that waits.
+func TestDuplexEndpoint(t *testing.T) {
+	requireSequencer(t)
+
+	ep, err := OpenDuplex("HIDI test duplex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ep.Close()
+
+	// It is listed among the ports that can be sent to.
+	if _, ok := findPort(t, "HIDI test duplex"); !ok {
+		t.Error("the device is not listed as a port to send to")
+	}
+
+	// Another program sends to it.
+	daw, err := Open("HIDI test sender")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daw.Close()
+	if _, err := daw.Connect(formatAddr(ep.port)); err != nil {
+		t.Fatalf("connecting the sender: %v", err)
+	}
+	want := []midi.Message{midi.NoteOn(3, 64, midi.From7(90)), midi.NoteOff(3, 64, 0)}
+	if err := daw.Send(want); err != nil {
+		t.Fatal(err)
+	}
+	var got []midi.Message
+	deadline := time.Now().Add(5 * time.Second)
+	for len(got) < len(want) && time.Now().Before(deadline) {
+		if got, err = ep.Receive(got); err != nil {
+			t.Fatalf("Receive: %v", err)
+		}
+	}
+	if len(got) != 2 || got[0].Kind != midi.KindNoteOn || got[0].Channel != 3 || got[0].Note() != 64 || got[1].Kind != midi.KindNoteOff {
+		t.Errorf("received %v, want %v", got, want)
+	}
+
+	// It still sends.
+	rx := newReceiver(t, ep.port)
+	if err := ep.Send([]midi.Message{midi.NoteOn(0, 60, midi.From7(100))}); err != nil {
+		t.Fatal(err)
+	}
+	if evs := rx.read(1); len(evs) == 0 || evs[len(evs)-1].Type != eventNoteOn {
+		t.Errorf("the listener read %+v", evs)
+	}
+
+	// Close ends a Receive that waits.
+	done := make(chan error, 1)
+	go func() {
+		// The sequencer's own news, such as that a listener connected,
+		// makes Receive return without a message; only the end counts.
+		for {
+			if _, err := ep.Receive(nil); err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if err := ep.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrClosed) {
+			t.Errorf("the waiting Receive returned %v, want ErrClosed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not end the waiting Receive")
+	}
+	if _, err := ep.Receive(nil); !errors.Is(err, ErrClosed) {
+		t.Errorf("Receive after Close = %v", err)
+	}
+
+	plain, err := Open("HIDI test plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	if _, err := plain.Receive(nil); !errors.Is(err, ErrSendOnly) {
+		t.Errorf("Receive on an endpoint that only sends = %v", err)
+	}
+}

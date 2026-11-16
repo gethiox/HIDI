@@ -12,6 +12,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/input"
+	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/midi"
 	"github.com/gethiox/HIDI/internal/output"
 )
@@ -109,6 +110,10 @@ func (d *fakeDevice) set(code control.Code, value float64) {
 // fakeEndpoint records what an instrument sends.
 type fakeEndpoint struct {
 	name string
+	// incoming carries what another program sends to the instrument;
+	// gone is closed with the endpoint.
+	incoming chan []midi.Message
+	gone     chan struct{}
 
 	mu      sync.Mutex
 	sent    []string
@@ -131,8 +136,21 @@ func (e *fakeEndpoint) Send(msgs []midi.Message) error {
 func (e *fakeEndpoint) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if !e.closed {
+		close(e.gone)
+	}
 	e.closed = true
 	return nil
+}
+
+// Receive implements output.Receiver.
+func (e *fakeEndpoint) Receive(out []midi.Message) ([]midi.Message, error) {
+	select {
+	case msgs := <-e.incoming:
+		return append(out, msgs...), nil
+	case <-e.gone:
+		return out, errors.New("closed")
+	}
 }
 
 func (e *fakeEndpoint) state() (sent string, closed bool) {
@@ -188,7 +206,7 @@ func newRigWith(t *testing.T, opts Options, extra ...*config.Profile) *rig {
 			r.failures++
 			return nil, r.openErr
 		}
-		e := &fakeEndpoint{name: name}
+		e := &fakeEndpoint{name: name, incoming: make(chan []midi.Message, 8), gone: make(chan struct{})}
 		r.endpoints[name] = e
 		return e, nil
 	}
@@ -922,4 +940,116 @@ func TestSetInput(t *testing.T) {
 	}
 	kbd.set(control.Code{Kind: control.KindKey, Num: keyZ.Num + 1}, 1)
 	eventually(t, "the new combination to turn HIDI off", func() bool { return !r.manager.Active() })
+}
+
+// fakeLight records the scenes it is shown.
+type fakeLight struct {
+	mu     sync.Mutex
+	scene  light.Scene
+	shown  int
+	closed bool
+}
+
+func (l *fakeLight) Show(s light.Scene) {
+	l.mu.Lock()
+	l.scene = s
+	l.shown++
+	l.mu.Unlock()
+}
+
+func (l *fakeLight) Close() {
+	l.mu.Lock()
+	l.closed = true
+	l.mu.Unlock()
+}
+
+func (l *fakeLight) last() (light.Scene, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.scene, l.closed
+}
+
+// The lights of a keyboard follow its instrument: what the keys do, the
+// notes played, the notes another program sends, and HIDI being off.
+func TestLights(t *testing.T) {
+	var mu sync.Mutex
+	lamps := map[string]*fakeLight{}
+	r := newRigWith(t, Options{Toggle: toggleKeys, Lights: func(info control.DeviceInfo) Light {
+		mu.Lock()
+		defer mu.Unlock()
+		l := &fakeLight{}
+		lamps[info.Name] = l
+		return l
+	}})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	e := r.plug(kbd)
+	r.plug(pad)
+
+	mu.Lock()
+	lamp := lamps["Test Keyboard"]
+	_, padLit := lamps["Test Pad"]
+	mu.Unlock()
+	if lamp == nil || padLit {
+		t.Fatalf("lights: keyboard %v, game controller %v; want them for the keyboard only", lamp != nil, padLit)
+	}
+	scene := func() light.Scene { s, _ := lamp.last(); return s }
+	has := func(set [2]uint64, note int) bool { return set[note/64]&(1<<(note%64)) != 0 }
+
+	eventually(t, "the first scene", func() bool { s := scene(); return s.Active && len(s.Keys) > 20 && s.Layouts > 0 })
+
+	// A note played here.
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn)
+	eventually(t, "the played note to show", func() bool { return scene().State.Sounding == 1 })
+
+	// Notes from another program, and their end.
+	e.incoming <- []midi.Message{midi.NoteOn(2, 64, midi.From7(100)), midi.NoteOn(2, 67, midi.From7(100))}
+	eventually(t, "the notes from outside to show", func() bool {
+		s := scene()
+		return has(s.External[2], 64) && has(s.External[2], 67)
+	})
+	e.incoming <- []midi.Message{midi.NoteOff(2, 64, 0)}
+	eventually(t, "one of them to end", func() bool { s := scene(); return !has(s.External[2], 64) && has(s.External[2], 67) })
+	e.incoming <- []midi.Message{midi.ControlChange(2, 123, 0)}
+	eventually(t, "all notes off to end the other", func() bool { return scene().External[2] == [2]uint64{} })
+
+	// A layout switch shows other keys.
+	before := scene().Layout
+	kbd.set(control.Key(88), 1) // F12: the next layout
+	kbd.set(control.Key(88), 0)
+	eventually(t, "the next layout to show", func() bool { return scene().Layout == before+1 })
+
+	// HIDI turned off.
+	r.manager.SetActive(false)
+	eventually(t, "the lights to show that HIDI is off", func() bool { return !scene().Active })
+
+	// Unplugged.
+	kbd.stop(errors.New("unplugged"))
+	eventually(t, "the lights to be let go", func() bool { _, closed := lamp.last(); return closed })
+}
+
+func TestExternalNotes(t *testing.T) {
+	var x external
+	steps := []struct {
+		m    midi.Message
+		want bool
+	}{
+		{midi.NoteOn(0, 60, midi.From7(1)), true},
+		{midi.NoteOn(0, 60, midi.From7(90)), false},                        // on already
+		{midi.Message{Kind: midi.KindNoteOn, Channel: 0, Index: 60}, true}, // no force: ends it
+		{midi.NoteOff(0, 60, 0), false},
+		{midi.NoteOn(5, 127, midi.From7(90)), true},
+		{midi.ControlChange(5, 7, 0), false},
+		{midi.ControlChange(5, 120, 0), true},
+		{midi.PitchBend(5, midi.ValueCenter), false},
+	}
+	for i, step := range steps {
+		if got := x.take(step.m); got != step.want {
+			t.Errorf("step %d (%v): changed = %v, want %v", i, step.m, got, step.want)
+		}
+	}
+	if x.snapshot() != ([16][2]uint64{}) {
+		t.Errorf("notes left: %v", x.snapshot())
+	}
 }
