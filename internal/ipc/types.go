@@ -37,6 +37,9 @@ type Instrument struct {
 	Layout   string `json:"layout"`
 	// Sounding is the number of notes that are on.
 	Sounding int `json:"sounding"`
+	// Notes are the numbers of the notes that are on, lowest first; note
+	// 60 is middle C.
+	Notes []int `json:"notes"`
 }
 
 // LogLine is one line of the running HIDI's log.

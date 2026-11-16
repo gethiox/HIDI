@@ -60,6 +60,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Velocity:  int(st.State.Velocity),
 			Layout:    st.State.Layout,
 			Sounding:  st.State.Sounding,
+			Notes:     st.State.NoteNumbers(),
 		})
 	}
 	// Two devices of the same model have the same name; where they are

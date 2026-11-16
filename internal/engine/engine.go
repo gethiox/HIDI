@@ -78,6 +78,20 @@ type State struct {
 	Layout string
 	// Sounding is the number of notes currently on.
 	Sounding int
+	// Notes has a bit set for every note number that is on, on whatever
+	// channel: bit n%64 of element n/64 for note n.
+	Notes [2]uint64
+}
+
+// NoteNumbers lists the notes that are on, lowest first.
+func (s State) NoteNumbers() []int {
+	notes := []int{}
+	for n := range 128 {
+		if s.Notes[n/64]&(1<<(n%64)) != 0 {
+			notes = append(notes, n)
+		}
+	}
+	return notes
 }
 
 // Engine is one instrument. Create it with [New].
@@ -107,6 +121,9 @@ type Engine struct {
 	// sounding counts the sources holding each note.
 	sounding      [16][128]uint8
 	soundingNotes int
+	// pitches counts, for each note number, the channels it is on.
+	pitches  [128]uint8
+	noteBits [2]uint64
 	// usedChannels has a bit set for every channel a note was sent on.
 	usedChannels uint16
 }
@@ -162,6 +179,7 @@ func (e *Engine) State() State {
 		Velocity:  e.velocity,
 		Layout:    e.profile.Layouts[e.layout].Name,
 		Sounding:  e.soundingNotes,
+		Notes:     e.noteBits,
 	}
 }
 
@@ -353,6 +371,8 @@ func (e *Engine) noteOn(st *sourceState, a Note, out []midi.Message) []midi.Mess
 
 	if *count == 0 {
 		e.soundingNotes++
+		e.pitches[ref.note]++
+		e.noteBits[ref.note/64] |= 1 << (ref.note % 64)
 	}
 	*count++
 	e.usedChannels |= 1 << ref.channel
@@ -368,6 +388,9 @@ func (e *Engine) noteOff(ref noteRef, out []midi.Message) []midi.Message {
 	*count--
 	if *count == 0 {
 		e.soundingNotes--
+		if e.pitches[ref.note]--; e.pitches[ref.note] == 0 {
+			e.noteBits[ref.note/64] &^= 1 << (ref.note % 64)
+		}
 	}
 	if *count == 0 || e.profile.Collision == CollisionOff {
 		out = append(out, midi.NoteOff(ref.channel, ref.note, 0))
@@ -541,6 +564,8 @@ func (e *Engine) panic(out []midi.Message) []midi.Message {
 	}
 	e.sounding = [16][128]uint8{}
 	e.soundingNotes = 0
+	e.pitches = [128]uint8{}
+	e.noteBits = [2]uint64{}
 
 	channels := e.usedChannels | 1<<e.channel
 	for ch := uint8(0); ch < 16; ch++ {
