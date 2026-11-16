@@ -289,9 +289,13 @@ func TestEndpointConnect(t *testing.T) {
 	if err := ep.Send([]midi.Message{midi.NoteOn(0, 60, midi.From7(100))}); err != nil {
 		t.Fatal(err)
 	}
-	events := rx.read(1)
-	if events[0].Type != eventNoteOn || events[0].Source != ep.port || events[0].Dest != in {
-		t.Errorf("received %+v", events[0])
+	// The sequencer first tells a port that something connected to it; the
+	// note follows that announcement.
+	var got event
+	for got = rx.read(1)[0]; got.Source.Client == systemClient; got = rx.read(1)[0] {
+	}
+	if got.Type != eventNoteOn || got.Source != ep.port || got.Dest != in {
+		t.Errorf("received %+v", got)
 	}
 
 	if _, err := ep.Connect("not a port"); err == nil {
