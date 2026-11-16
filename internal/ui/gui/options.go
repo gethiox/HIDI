@@ -32,4 +32,7 @@ type Options struct {
 	Paths settings.Paths
 	// ShowSettings opens the window with the settings showing.
 	ShowSettings bool
+	// EditProfile, if set, is a profile file the window opens with, ready
+	// to be changed.
+	EditProfile string
 }

@@ -159,7 +159,9 @@ func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
 }
 
 // writeWhole writes a file so that it is either there complete or not
-// changed at all.
+// changed at all, also when the power fails in the middle: the new text
+// goes to a file beside it, is brought to the disk, and then takes the
+// place of the old file in one step.
 func writeWhole(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
@@ -172,6 +174,10 @@ func writeWhole(path string, data []byte) error {
 	}
 	if info, err := os.Stat(path); err == nil {
 		tmp.Chmod(info.Mode().Perm())
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err

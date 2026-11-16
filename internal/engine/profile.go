@@ -424,3 +424,12 @@ func (b *Binding) validate() error {
 	}
 	return nil
 }
+
+// Commands returns every command, in the order they are declared.
+func Commands() []Command {
+	out := make([]Command, 0, commandCount-1)
+	for c := Command(1); c < commandCount; c++ {
+		out = append(out, c)
+	}
+	return out
+}
