@@ -25,7 +25,7 @@ completes or changes an item.
 | Devices | Every input device is one independent instrument with its own MIDI device, which appears and disappears with the hardware. Merging several devices into one instrument is out of scope. |
 | MIDI | MIDI 1.0 messages. Values are kept at full resolution internally so that MIDI 2.0 output can be added later. HIDI has its own MIDI code and no MIDI library. |
 | Linux output | ALSA sequencer, through the kernel interface. A virtual device is the default; sending to an existing port stays possible for single-board computers. |
-| Windows output | Windows MIDI Services through the in-box `Windows.Devices.Midi2` API, with no fallback. Until Microsoft ships the API in Windows, users install its preview. A small C++ helper DLL is acceptable if calling the API from Go proves impractical. |
+| Windows output | Windows MIDI Services through the in-box `Windows.Devices.Midi2` API, with no fallback. Microsoft announces the API's DLL as part of Windows from 2027; until then the preview copy of `Windows.Devices.Midi2.dll` sits beside `hidi.exe`. A small C++ helper DLL is acceptable if calling the API from Go proves impractical. |
 | Windows input | While HIDI is on, all keyboard input is suppressed, and devices are told apart through Raw Input. Suppressing one keyboard and not another would need a driver and is left for later. |
 | Grabbing | Recognised devices do not reach the rest of the system while HIDI is on. Game controllers are the exception unless the user asks otherwise. |
 | Configuration | TOML, with a schema version and migrations from 2.0 onwards. HIDI 1.x files are not read. |
@@ -78,8 +78,11 @@ In planned order. Each item is roughly one pull request.
 
 ### Windows
 
-1. **MIDI output** through Windows MIDI Services. This starts with a small
-   test program to prove that a virtual device can be created from Go.
+1. **MIDI output** through Windows MIDI Services. The code is written
+   (`internal/output/winmidi`) and `hidi doctor` exercises it stage by
+   stage; it has to be run on a real Windows machine and corrected from
+   what that shows. Most positions in the interface tables are derived
+   from Microsoft's interface definitions and not yet confirmed.
 2. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
 3. **Platform glue**, and testing on a real machine.

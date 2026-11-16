@@ -52,7 +52,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | exists | Configuration schema, versioning, migration, validation. |
 | `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. |
-| `output` | partial | MIDI output backend interface and the router that connects endpoints to existing ports, with one subpackage per transport. The ALSA sequencer backend exists. |
+| `output` | partial | MIDI output backend interface and the router that connects endpoints to existing ports, with one subpackage per transport. The ALSA sequencer backend exists; the Windows MIDI Services backend is written and awaits its first run on a real machine. |
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
@@ -110,7 +110,13 @@ virtual MIDI endpoint created for that instrument:
 - Linux: an ALSA sequencer port, implemented in Go against the kernel
   interface.
 - Windows: a virtual device created through the in-box Windows MIDI Services
-  API (`Windows.Devices.Midi2`), which requires Windows 11 25H2 or later.
+  API (`Windows.Devices.Midi2`), which requires Windows 11 25H2 or later. The
+  `winmidi` package calls this WinRT API without cgo, through the interface
+  tables. Until Windows ships the API's DLL, which Microsoft announces for
+  2027, the preview copy of `Windows.Devices.Midi2.dll` has to sit beside
+  `hidi.exe`; the package asks Windows first and falls back to that copy.
+  `docs/research/windows-midi-abi.md` records the interface facts and where
+  each comes from.
 
 An instrument can also be connected to existing MIDI ports. That covers a
 single-board computer bridging to a hardware MIDI interface or acting as a USB
