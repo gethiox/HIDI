@@ -3,6 +3,7 @@ package instrument
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -1168,4 +1169,151 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// passingDevice is a fake device that can also hide keys from the system.
+type passingDevice struct {
+	*fakeDevice
+	pmu     sync.Mutex
+	passing bool
+	hidden  []control.Code
+	typed   []string
+	passErr error
+}
+
+func (d *passingDevice) Pass(hidden []control.Code) error {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	if d.passErr != nil {
+		return d.passErr
+	}
+	d.passing, d.hidden = true, hidden
+	d.fakeDevice.Release()
+	return nil
+}
+
+func (d *passingDevice) Grab() error {
+	d.pmu.Lock()
+	d.passing = false
+	d.pmu.Unlock()
+	return d.fakeDevice.Grab()
+}
+
+func (d *passingDevice) Release() error {
+	d.pmu.Lock()
+	d.passing = false
+	d.pmu.Unlock()
+	return d.fakeDevice.Release()
+}
+
+func (d *passingDevice) Type(key control.Code, down bool) error {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	d.typed = append(d.typed, fmt.Sprintf("%v=%v", key, down))
+	return nil
+}
+
+func (d *passingDevice) isPassing() bool {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	return d.passing
+}
+
+func (d *passingDevice) typedKeys() string {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	return strings.Join(d.typed, " ")
+}
+
+// A toggle of one key that works by a tap: a short press toggles, a long
+// one does not, and the key plays nothing.
+func TestToggleTap(t *testing.T) {
+	old := TapHold
+	TapHold = 60 * time.Millisecond
+	t.Cleanup(func() { TapHold = old })
+
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+
+	kbd.set(keyZ, 1)
+	kbd.drain(t)
+	if !r.manager.Active() {
+		t.Fatal("the press alone turned HIDI off")
+	}
+	kbd.set(keyZ, 0)
+	eventually(t, "the tap to turn HIDI off", func() bool { return !r.manager.Active() })
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() })
+
+	// Held for longer than a tap: nothing happens.
+	kbd.set(keyZ, 1)
+	time.Sleep(3 * TapHold)
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+	if r.manager.Active() {
+		t.Error("a long press turned HIDI on")
+	}
+
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	eventually(t, "the tap to turn HIDI on", r.manager.Active)
+	if sent, _ := e.state(); sent != "" {
+		t.Errorf("the toggle key played: %s", sent)
+	}
+}
+
+// With the key hidden, the device is passed on while HIDI is off, and a
+// long press reaches the system as a press and a release of the key.
+func TestHiddenToggle(t *testing.T) {
+	old := TapHold
+	TapHold = 60 * time.Millisecond
+	t.Cleanup(func() { TapHold = old })
+
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true, StartInactive: true})
+	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
+	r.devices <- kbd
+	eventually(t, "the keyboard to be passed on while HIDI is off", kbd.isPassing)
+	if len(kbd.hidden) != 1 || kbd.hidden[0] != keyZ {
+		t.Errorf("hidden keys: %v", kbd.hidden)
+	}
+
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	eventually(t, "the tap to turn HIDI on", r.manager.Active)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	if kbd.isPassing() {
+		t.Error("still passing while grabbed")
+	}
+	if got := kbd.typedKeys(); got != "" {
+		t.Errorf("a tap was passed on to the system: %s", got)
+	}
+
+	kbd.set(keyZ, 1)
+	eventually(t, "the long press to be passed on", func() bool { return kbd.typedKeys() == keyZ.String()+"=true" })
+	kbd.set(keyZ, 0)
+	eventually(t, "its release to be passed on", func() bool {
+		return kbd.typedKeys() == keyZ.String()+"=true "+keyZ.String()+"=false"
+	})
+	if !r.manager.Active() {
+		t.Error("the long press turned HIDI off")
+	}
+
+	// Without the setting the device is simply released while off.
+	r.manager.SetToggleTap(true, false)
+	r.manager.SetActive(false)
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() && !kbd.isPassing() })
+}
+
+// A device that cannot hide the key is released while HIDI is off.
+func TestHiddenToggleFallsBack(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true})
+	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard), passErr: errors.New("no uinput")}
+	r.devices <- kbd
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	r.manager.SetActive(false)
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() })
+	if kbd.isPassing() {
+		t.Error("passing although it failed")
+	}
 }

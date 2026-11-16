@@ -106,6 +106,19 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
    the terminal; every interface shows input events and MIDI messages a
    second.
 
+5. **One key to turn HIDI off and on** (asked for after the third
+   round): `toggle_tap` makes a toggle of one key work by a tap, with a
+   longer hold passed on as the key itself. Windows hides the tap from
+   the system through its keyboard hook. Linux does only with
+   `always_grab`, which keeps keyboards grabbed while HIDI is off and
+   types their keys again through uinput; the maintainer chose to leave
+   that off by default, and the default toggle stays the three keys.
+   Untried on Windows and on a real Linux desktop. The udev rule of the
+   release (pull request 48) still has to give access to `/dev/uinput`
+   for it.
+6. The buttons of a joystick play notes in the default profile, and two
+   instruments of one name in one place keep their order.
+
 Still open there:
 
 - A mouse that presents a keyboard interface (Razer Basilisk V3) is an

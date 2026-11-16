@@ -215,6 +215,8 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		{"Keyboards do not type while HIDI is on", "needs a toggle combination", &s.Input.GrabKeyboards},
 		{"Game controllers are kept from other programs", "not possible on Windows", &s.Input.GrabGamepads},
 		{"HIDI is on when it starts", "", &s.Input.StartOn},
+		{"The toggle is one key, tapped", "held longer, the key does what it normally does", &s.Input.ToggleTap},
+		{"Keyboards stay grabbed while HIDI is off", "Linux; hides the tapped key from the system", &s.Input.AlwaysGrab},
 	} {
 		vx := row(item.name, item.about)
 		if w.pill(*item.value, vx, y) && editable {

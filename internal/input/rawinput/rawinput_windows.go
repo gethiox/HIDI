@@ -34,6 +34,7 @@ var (
 	procSetWindowsHookEx        = user32.NewProc("SetWindowsHookExW")
 	procUnhookWindowsHookEx     = user32.NewProc("UnhookWindowsHookEx")
 	procCallNextHookEx          = user32.NewProc("CallNextHookEx")
+	procSendInput               = user32.NewProc("SendInput")
 	procGetProductString        = hid.NewProc("HidD_GetProductString")
 	cfgmgr                      = windows.NewLazySystemDLL("cfgmgr32.dll")
 	procLocateDevNode           = cfgmgr.NewProc("CM_Locate_DevNodeW")
@@ -373,8 +374,17 @@ func keyboardHook(code int32, wParam, lParam uintptr) uintptr {
 	if code >= 0 && w != nil {
 		// lParam is the address of a structure owned by Windows.
 		info := *(*kbdLLHook)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam)))
-		if info.flags&llkhfInjected == 0 && w.gate.swallow(info.vkCode, wParam == wmKeyUp || wParam == wmSysKeyUp) {
-			return 1
+		if info.flags&llkhfInjected == 0 {
+			// The hook names the key by its scan code too, which gives
+			// the code HIDI knows it by.
+			var flags uint16
+			if info.flags&llkhfExtended != 0 {
+				flags = flagE0
+			}
+			code, known := keyCode(uint16(info.scanCode), flags)
+			if w.gate.swallowKey(info.vkCode, code, known, wParam == wmKeyUp || wParam == wmSysKeyUp) {
+				return 1
+			}
 		}
 	}
 	r, _, _ := procCallNextHookEx.Call(0, uintptr(code), wParam, lParam)
@@ -776,6 +786,83 @@ type Device struct {
 	mu      sync.Mutex
 	err     error
 	grabbed bool
+	passing bool
+}
+
+// llkhfExtended marks a key with the E0 prefix in what the hook is told.
+const llkhfExtended = 0x01
+
+// keyInput is INPUT with a KEYBDINPUT in it, as SendInput takes it on a
+// 64-bit Windows: 40 bytes.
+type keyInput struct {
+	typ   uint32
+	_     uint32
+	vk    uint16
+	scan  uint16
+	flags uint32
+	time  uint32
+	extra uintptr
+	_     [8]byte
+}
+
+const (
+	inputKeyboard    = 1
+	keyEventExtended = 0x0001
+	keyEventKeyUp    = 0x0002
+	keyEventScanCode = 0x0008
+	sizeofKeyInput   = 40
+	_                = uint(sizeofKeyInput - unsafe.Sizeof(keyInput{})) // both differences must
+	_                = uint(unsafe.Sizeof(keyInput{}) - sizeofKeyInput) // be zero
+)
+
+// Pass lets the keys of every keyboard through to other programs except
+// for the hidden ones. Like a grab, hiding cannot tell keyboards apart on
+// Windows: the keys are hidden whichever keyboard they are pressed on.
+func (d *Device) Pass(hidden []control.Code) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.err != nil {
+		return d.err
+	}
+	if d.controller {
+		return errors.New("a game controller has no keys to hide")
+	}
+	set := make(map[uint16]bool, len(hidden))
+	for _, code := range hidden {
+		if code.Kind == control.KindKey {
+			set[code.Num] = true
+		}
+	}
+	d.watcher.gate.hidden.Store(&set)
+	if !d.passing {
+		d.passing = true
+		d.watcher.gate.hides.Add(1)
+	}
+	if d.grabbed {
+		d.grabbed = false
+		d.watcher.gate.grabs.Add(-1)
+	}
+	return nil
+}
+
+// Type presses or releases a key for the other programs. What HIDI types
+// itself is never swallowed, and does not come back to it as input.
+func (d *Device) Type(key control.Code, down bool) error {
+	scan, e0, ok := scanCode(key.Num)
+	if key.Kind != control.KindKey || !ok {
+		return fmt.Errorf("%v cannot be typed", key)
+	}
+	in := keyInput{typ: inputKeyboard, scan: scan, flags: keyEventScanCode}
+	if e0 {
+		in.flags |= keyEventExtended
+	}
+	if !down {
+		in.flags |= keyEventKeyUp
+	}
+	if n, _, err := procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in)); n != 1 {
+		return fmt.Errorf("typing %v: %w", key, err)
+	}
+	return nil
 }
 
 // Info describes the device.
@@ -808,7 +895,15 @@ func (d *Device) Grab() error {
 		d.grabbed = true
 		d.watcher.gate.grabs.Add(1)
 	}
+	d.unpass()
 	return nil
+}
+
+func (d *Device) unpass() {
+	if d.passing {
+		d.passing = false
+		d.watcher.gate.hides.Add(-1)
+	}
 }
 
 // Release ends the grab.
@@ -820,6 +915,7 @@ func (d *Device) Release() error {
 }
 
 func (d *Device) ungrab() {
+	d.unpass()
 	if d.grabbed {
 		d.grabbed = false
 		d.watcher.gate.grabs.Add(-1)

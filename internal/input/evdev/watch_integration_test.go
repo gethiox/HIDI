@@ -309,3 +309,96 @@ func TestWatcherBesideInputRemapper(t *testing.T) {
 		t.Errorf("event = %+v, want KEY_A pressed", ev)
 	}
 }
+
+// A device that is passed on keeps one key from the system and types the
+// others again on a keyboard of HIDI's own, which the watcher leaves alone.
+func TestDevicePass(t *testing.T) {
+	const keyA, keyB, keyCaps = 30, 48, 58
+	board := createVirtualDevice(t, virtualSpec{name: "HIDI test pass", phys: "hidi-pass-test/input0", keys: []uint16{keyA, keyB, keyCaps}})
+	w := startWatcher(t)
+	d := awaitDevice(t, w, "HIDI test pass")
+	direct := startReader(openNode(t, board.path))
+
+	if err := d.Pass([]control.Code{control.Key(keyCaps)}); err != nil {
+		t.Fatal(err)
+	}
+	d.pass.mu.Lock()
+	through := startReader(openNode(t, d.pass.out.Path))
+	d.pass.mu.Unlock()
+
+	// An ordinary key reaches the system through HIDI's keyboard only.
+	board.emit(evKey, keyA, 1)
+	board.emit(evKey, keyA, 0)
+	awaitEvent(t, d)
+	awaitEvent(t, d)
+	if got := through.next(t); got.Code != control.Key(keyA) || !got.Pressed() {
+		t.Errorf("passed on %v, want KEY_A pressed", got)
+	}
+	if got := through.next(t); got.Code != control.Key(keyA) || got.Pressed() {
+		t.Errorf("passed on %v, want KEY_A released", got)
+	}
+	if !direct.quiet() {
+		t.Error("the device itself still delivers keys to others")
+	}
+
+	// The hidden key reaches HIDI and nobody else.
+	board.emit(evKey, keyCaps, 1)
+	board.emit(evKey, keyCaps, 0)
+	if got := awaitEvent(t, d); got.Code != control.Key(keyCaps) {
+		t.Errorf("HIDI got %v, want KEY_CAPSLOCK", got)
+	}
+	awaitEvent(t, d)
+	if !through.quiet() || !direct.quiet() {
+		t.Error("the hidden key reached the system")
+	}
+
+	// Typed by HIDI, it does.
+	if err := d.Type(control.Key(keyCaps), true); err != nil {
+		t.Fatal(err)
+	}
+	if got := through.next(t); got.Code != control.Key(keyCaps) || !got.Pressed() {
+		t.Errorf("typed %v, want KEY_CAPSLOCK pressed", got)
+	}
+	d.Type(control.Key(keyCaps), false)
+	through.next(t)
+
+	// A key that is down when the device is grabbed for playing is
+	// released for the system, and nothing is passed on after that.
+	board.emit(evKey, keyB, 1)
+	awaitEvent(t, d)
+	through.next(t)
+	if err := d.Grab(); err != nil {
+		t.Fatal(err)
+	}
+	if got := through.next(t); got.Code != control.Key(keyB) || got.Pressed() {
+		t.Errorf("on the grab the system got %v, want KEY_B released", got)
+	}
+	board.emit(evKey, keyB, 0)
+	board.emit(evKey, keyA, 1)
+	awaitEvent(t, d)
+	awaitEvent(t, d)
+	if !through.quiet() || !direct.quiet() {
+		t.Error("keys reached the system while the device was grabbed")
+	}
+	board.emit(evKey, keyA, 0)
+	awaitEvent(t, d)
+
+	// Released, the system has the device itself again.
+	if err := d.Release(); err != nil {
+		t.Fatal(err)
+	}
+	board.emit(evKey, keyA, 1)
+	if got := direct.next(t); got.Code != control.Key(keyA) {
+		t.Errorf("after the release the device delivered %v", got)
+	}
+
+	// HIDI's own keyboard never became a device of the watcher.
+	select {
+	case other := <-w.Devices():
+		if other.Info().Name == "HIDI test pass (through HIDI)" {
+			t.Error("the watcher delivered the keyboard HIDI made to pass keys on")
+		}
+		other.Close()
+	case <-time.After(300 * time.Millisecond):
+	}
+}

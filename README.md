@@ -73,7 +73,13 @@ with. To get it back, turn HIDI off with the toggle combination:
 
 **Left Ctrl + Left Shift + Left Alt**, pressed together.
 
-Pressing it again turns HIDI back on. While HIDI is off the instruments are
+Pressing it again turns HIDI back on. One key can do the same with a tap,
+Caps Lock for instance: `-toggle KEY_CAPSLOCK -toggle-tap`. What the rest
+of the system then sees of that key differs between Windows and Linux; see
+"One key that turns HIDI off and on" in the
+[configuration reference](docs/configuration.md).
+
+ While HIDI is off the instruments are
 silent, and the MIDI devices stay in place. To stop HIDI, turn it off and
 press Ctrl+C. Game controllers are not taken away, so they keep working in
 other programs.
@@ -81,6 +87,8 @@ other programs.
 | Option | Effect |
 |---|---|
 | `-toggle KEYS` | Use another combination, such as `-toggle KEY_SCROLLLOCK` or `-toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. |
+| `-toggle-tap` | The toggle is one key and works by a tap. |
+| `-always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
 | `-no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `-grab-gamepads` | Also take game controllers away from other programs. |
 | `-off` | Start turned off. |

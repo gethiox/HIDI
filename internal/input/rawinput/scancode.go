@@ -117,3 +117,26 @@ func keyCode(makeCode, flags uint16) (code uint16, ok bool) {
 	code, ok = plainExtra[makeCode]
 	return code, ok
 }
+
+// scanCode is the reverse of keyCode: the scan code a key has, and whether
+// it carries the E0 prefix. It reports false for a key no scan code is
+// known for.
+func scanCode(code uint16) (scan uint16, e0, ok bool) {
+	if code == 119 { // KEY_PAUSE has a sequence of its own
+		return 0, false, false
+	}
+	for sc, c := range extended {
+		if c == code {
+			return sc, true, true
+		}
+	}
+	for sc, c := range plainExtra {
+		if c == code {
+			return sc, false, true
+		}
+	}
+	if code != 0 && code <= maxPlain {
+		return code, false, true
+	}
+	return 0, false, false
+}

@@ -312,3 +312,18 @@ func TestLightsSettings(t *testing.T) {
 		t.Errorf("written and read back: %+v, %v", got.Lights, err)
 	}
 }
+
+func TestToggleTapSettings(t *testing.T) {
+	s, err := Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_CAPSLOCK\"]\ntoggle_tap = true\nalways_grab = true\n"))
+	if err != nil || !s.Input.ToggleTap || !s.Input.AlwaysGrab {
+		t.Fatalf("parsed %+v, %v", s.Input, err)
+	}
+	again, err := Parse(s.Text())
+	if err != nil || !again.Input.ToggleTap || !again.Input.AlwaysGrab || len(again.Input.Toggle) != 1 {
+		t.Errorf("written and read again: %+v, %v", again.Input, err)
+	}
+	// A tap needs exactly one key.
+	if _, err := Parse([]byte("schema = 1\n[input]\ntoggle_tap = true\n")); err == nil || !strings.Contains(err.Error(), "toggle_tap") {
+		t.Errorf("a tap with three keys: %v", err)
+	}
+}

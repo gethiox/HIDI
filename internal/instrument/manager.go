@@ -46,6 +46,15 @@ type Options struct {
 	// Toggle is a set of keys that, pressed together on one device, turns
 	// HIDI off and on again. Empty disables the combination.
 	Toggle []control.Code
+	// ToggleTap makes a Toggle of one key work by tapping it: pressed and
+	// let go within [TapHold], it turns HIDI off or on. The key plays
+	// nothing. Held for longer it does not toggle.
+	ToggleTap bool
+	// HideToggle keeps the tapped key from the rest of the system, also
+	// while HIDI is off, on devices that can do that (see [input.Passer]).
+	// Held for longer than [TapHold], the key is passed on to the system,
+	// so that it can still do what it normally does.
+	HideToggle bool
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
 	// Lights, if set, returns the lights of a keyboard that became an
@@ -277,14 +286,38 @@ func (m *Manager) add(dev input.Device) {
 	}()
 }
 
+// TapHold is how long the key of a tapped toggle may be held and still
+// count as a tap.
+var TapHold = 500 * time.Millisecond
+
 // inputRules is what the settings say about one device.
 type inputRules struct {
 	grab   bool
 	toggle []control.Code
+	// tap says that the toggle is one key and works by a tap, and hide
+	// that the key is kept from the system.
+	tap, hide bool
 }
 
 func (m *Manager) rulesFor(info control.DeviceInfo) *inputRules {
-	return &inputRules{grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: m.opts.Toggle}
+	tap := m.opts.ToggleTap && len(m.opts.Toggle) == 1
+	return &inputRules{
+		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: m.opts.Toggle,
+		tap: tap, hide: tap && m.opts.HideToggle,
+	}
+}
+
+// SetToggleTap changes whether the toggle works by a tap and whether its
+// key is hidden from the system, while the manager runs. See
+// [Options.ToggleTap] and [Options.HideToggle].
+func (m *Manager) SetToggleTap(tap, hide bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.ToggleTap, m.opts.HideToggle = tap, hide
+	for r := range m.running {
+		r.rules.Store(m.rulesFor(r.info))
+		r.poke()
+	}
 }
 
 // SetInput replaces the toggle combination and the grab policy while the
@@ -502,14 +535,41 @@ func (r *runner) run() {
 		failed = true
 		go r.device.Close()
 	}
-	// rules are the input rules in force, and grabbed says whether the
-	// device is held. regrab makes that fit the rules and the state.
+	// rules are the input rules in force, and hold says how the device is
+	// held now. regrab makes that fit the rules and the state.
 	rules := r.rules.Load()
-	grabbed := false
+	const (
+		holdFree    = iota // the system has the device
+		holdGrabbed        // only HIDI has it
+		holdPassing        // the system has it, except for the toggle key
+	)
+	hold := holdFree
+	passer, _ := r.device.(input.Passer)
+	cannotPass := false // passing was tried and failed; it is not tried again
 	regrab := func() {
-		want := active && rules.grab && eng != nil
+		want := holdFree
 		switch {
-		case want && !grabbed:
+		case eng == nil || !rules.grab:
+		case active:
+			want = holdGrabbed
+		case rules.hide && passer != nil && !cannotPass:
+			want = holdPassing
+		}
+		if want == hold {
+			return
+		}
+		if want == holdPassing {
+			if err := passer.Pass(rules.toggle); err != nil {
+				cannotPass = true
+				r.log.Warn("the toggle key cannot be hidden from the system on this device", "error", err)
+				want = holdFree
+				if hold == holdFree {
+					return
+				}
+			}
+		}
+		switch want {
+		case holdGrabbed:
 			if err := r.device.Grab(); errors.Is(err, input.ErrGrabbedElsewhere) {
 				// Not a fault: the user runs a program that takes the
 				// device and passes its input on through one of its own.
@@ -517,17 +577,43 @@ func (r *runner) run() {
 			} else if err != nil {
 				r.log.Warn("the device cannot be grabbed; it stays usable by other programs", "error", err)
 			}
-			grabbed = true
-		case !want && grabbed:
+		case holdFree:
 			if err := r.device.Release(); err != nil {
 				r.log.Warn("the device cannot be released", "error", err)
 			}
-			grabbed = false
 		}
+		hold = want
 	}
 	ungrab := func() {
 		active = false
 		regrab()
+	}
+
+	// A tapped toggle: tapDown says its key is down, tapTimer fires when
+	// it has been down too long for a tap, and typed says that the key
+	// was then passed on to the system, which still awaits its release.
+	var (
+		tapDown, tapLong, typed bool
+		tapTimer                <-chan time.Time
+	)
+	endTap := func() {
+		if typed && passer != nil {
+			passer.Type(rules.toggle[0], false)
+		}
+		tapDown, tapLong, typed, tapTimer = false, false, false, nil
+	}
+	// tap handles an event of the toggle key and reports whether it was a
+	// tap that toggles.
+	tap := func(ev control.Event) bool {
+		switch {
+		case ev.Pressed() && !tapDown:
+			tapDown, tapLong, tapTimer = true, false, time.After(TapHold)
+		case !ev.Pressed() && tapDown:
+			toggles := !tapLong
+			endTap()
+			return toggles
+		}
+		return false
 	}
 
 	// lamp is the lights of the device while it is an instrument. show
@@ -620,12 +706,24 @@ func (r *runner) run() {
 		if now := r.rules.Load(); now != rules {
 			// Changed settings: another combination starts with no key
 			// of it held, and the grab follows at once.
+			if tapDown {
+				endTap()
+			}
 			rules = now
 			clear(held)
+			cannotPass = false
+			if hold == holdPassing {
+				// The keys to hide may be others now.
+				if err := r.device.Release(); err != nil {
+					r.log.Warn("the device cannot be released", "error", err)
+				}
+				hold = holdFree
+			}
 			regrab()
 		}
 		want := r.wanted.Load()
 		if eng == nil || want == active || failed {
+			regrab() // a new instrument, or one that stopped being one
 			return
 		}
 		active = want
@@ -706,7 +804,15 @@ loop:
 				continue // draining, or parked a moment ago
 			}
 			r.saw(ev)
-			if toggled(rules.toggle, held, ev) {
+			if rules.tap {
+				if ev.Code == rules.toggle[0] {
+					if tap(ev) {
+						r.onToggle()
+						apply()
+					}
+					continue // the key of a tapped toggle plays nothing
+				}
+			} else if toggled(rules.toggle, held, ev) {
 				r.onToggle()
 				apply()
 				continue
@@ -725,6 +831,16 @@ loop:
 				continue
 			}
 			play(ev)
+		case <-tapTimer:
+			// Held too long for a tap: the key does what it normally
+			// does, which takes passing it on where it is hidden.
+			tapTimer = nil
+			if tapDown {
+				tapLong = true
+				if rules.hide && passer != nil && hold != holdFree {
+					typed = passer.Type(rules.toggle[0], true) == nil
+				}
+			}
 		case <-release:
 			release = nil
 			apply()
@@ -734,6 +850,9 @@ loop:
 		}
 	}
 
+	if tapDown {
+		endTap()
+	}
 	if eng == nil {
 		r.log.Debug("unused device gone", "reason", r.device.Err())
 		return

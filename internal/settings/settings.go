@@ -48,6 +48,15 @@ type Input struct {
 	GrabGamepads bool
 	// StartOn says whether HIDI is on when it starts.
 	StartOn bool
+	// ToggleTap makes a toggle of one key work by a tap: pressed and let
+	// go within half a second it turns HIDI off or on, and held for
+	// longer it does what the key normally does. On Windows the tap is
+	// hidden from the system.
+	ToggleTap bool
+	// AlwaysGrab, on Linux, keeps keyboards grabbed while HIDI is off as
+	// well and types their keys again on a keyboard of HIDI's own, so
+	// that the tapped key can be hidden from the system there too.
+	AlwaysGrab bool
 }
 
 // Output says where the instruments send, besides their own MIDI devices.
@@ -86,6 +95,8 @@ type file struct {
 		GrabKeyboards *bool     `toml:"grab_keyboards"`
 		GrabGamepads  *bool     `toml:"grab_gamepads"`
 		StartOn       *bool     `toml:"start_on"`
+		ToggleTap     *bool     `toml:"toggle_tap"`
+		AlwaysGrab    *bool     `toml:"always_grab"`
 	} `toml:"input"`
 	Output struct {
 		Connect *[]string `toml:"connect"`
@@ -138,6 +149,8 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.GrabKeyboards, f.Input.GrabKeyboards)
 	set(&s.Input.GrabGamepads, f.Input.GrabGamepads)
 	set(&s.Input.StartOn, f.Input.StartOn)
+	set(&s.Input.ToggleTap, f.Input.ToggleTap)
+	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
 	set(&s.Output.Connect, f.Output.Connect)
 	set(&s.Lights.OpenRGB, f.Lights.OpenRGB)
 	set(&s.Lights.Address, f.Lights.Address)
@@ -174,6 +187,9 @@ func (s Settings) Check() []string {
 	}
 	if len(s.Input.Toggle) == 0 && !s.Input.StartOn {
 		problems = append(problems, "input: starting turned off needs a toggle combination to turn HIDI on")
+	}
+	if s.Input.ToggleTap && len(s.Input.Toggle) != 1 {
+		problems = append(problems, "input: toggle_tap needs a toggle of exactly one key, such as [\"KEY_CAPSLOCK\"]")
 	}
 	return problems
 }
@@ -230,6 +246,22 @@ grab_gamepads = %t
 # Whether HIDI is on when it starts.
 start_on = %t
 
+# Turn HIDI off and on by tapping one key, such as Caps Lock: set toggle to
+# that one key and this to true. The key then plays nothing. Held for
+# longer than half a second it does not toggle, and does what it normally
+# does instead. On Windows the tap is hidden from the system. On Linux it
+# is hidden only with always_grab; without it, the tap that turns HIDI on
+# also reaches the system.
+toggle_tap = %t
+
+# Linux only, and only of use with toggle_tap. Keep keyboards grabbed
+# while HIDI is off too, and type their keys again on a keyboard of HIDI's
+# own, so that the tapped key never reaches the system. This puts HIDI
+# between your keyboard and everything you type for as long as it runs:
+# should HIDI ever hang, the keyboard does nothing until HIDI is ended.
+# It needs access to /dev/uinput.
+always_grab = %t
+
 [output]
 # Existing MIDI ports that every instrument also sends to, by a part of
 # their name or by their ID as "hidi ports" lists them.
@@ -251,7 +283,7 @@ background_fps = %d
 # The height of the log when the window opens, in pixels. 0 shows only its
 # last line.
 log_height = %d
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn,
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab,
 		list(s.Output.Connect), s.Lights.OpenRGB, s.Lights.Address, s.Window.BackgroundFPS, s.Window.LogHeight)
 	return []byte(b.String())
 }

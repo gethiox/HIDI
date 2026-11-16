@@ -10,7 +10,10 @@ import (
 	"github.com/gethiox/HIDI/internal/input"
 )
 
-var _ input.Device = (*Device)(nil)
+var (
+	_ input.Device = (*Device)(nil)
+	_ input.Passer = (*Device)(nil)
+)
 
 // ErrClosed is reported by [Device.Err] after the device was closed.
 var ErrClosed = errors.New("input device closed")
@@ -30,6 +33,10 @@ type Device struct {
 
 	mu  sync.Mutex
 	err error
+
+	// pass is how the device's keys are passed on to the system while it
+	// is held for the sake of a hidden key; see [Device.Pass].
+	pass passing
 }
 
 // newDevice merges nodes into a device and starts reading them. The nodes
@@ -64,6 +71,7 @@ func (d *Device) read(node *Node, part string) {
 	for {
 		var err error
 		buf, err = node.Read(buf[:0])
+		d.pass.forward(node, buf)
 		for _, ev := range buf {
 			ev.Part = part
 			select {
@@ -91,6 +99,7 @@ func (d *Device) shutdown(reason error) {
 		for _, n := range d.nodes {
 			n.Close()
 		}
+		d.pass.close()
 	})
 }
 
@@ -125,6 +134,7 @@ func (d *Device) Err() error {
 // described at [Node.Grab], the grab of a node takes effect once none of its
 // keys is down. If one node cannot be grabbed, none stays grabbed.
 func (d *Device) Grab() error {
+	d.pass.stop()
 	for i, n := range d.nodes {
 		if err := n.Grab(); err != nil {
 			for _, grabbed := range d.nodes[:i] {
@@ -138,6 +148,7 @@ func (d *Device) Grab() error {
 
 // Release ends a grab on every node.
 func (d *Device) Release() error {
+	d.pass.stop()
 	var errs []error
 	for _, n := range d.nodes {
 		if err := n.Release(); err != nil {

@@ -171,6 +171,12 @@ func (w *Watcher) run(changes <-chan change) {
 		}
 		opened[name] = true
 		delete(failed, name)
+		if node.Info().Phys == PassPhys {
+			// A keyboard this or another HIDI made to pass keys on. It is
+			// not a device to play: what it types was typed already.
+			node.Close()
+			return
+		}
 		pending[name] = node
 		settle.Reset(w.opts.Settle)
 	}
