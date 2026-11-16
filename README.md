@@ -129,6 +129,14 @@ With the lights on, each instrument's MIDI device can also be sent to. Notes
 another program sends there, a DAW playing a track for one, light the keys
 that would play them: white on the instrument's own channel, in the colour
 of their channel otherwise. On Windows that part is not there yet.
+### Beside an input remapper
+
+A program such as [input-remapper](https://github.com/sezanzeb/input-remapper)
+takes a keyboard for itself and passes its keys on through a device of its
+own, named like "input-remapper ... forwarded". HIDI then gets nothing from
+the keyboard itself and says so in its log; the instrument to play is the
+forwarded one. What the remapper types by itself arrives through its
+"input-remapper keyboard", which is an instrument too.
 
 ### Looking at a running HIDI
 

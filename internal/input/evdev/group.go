@@ -32,6 +32,11 @@ const (
 	// as a keyboard. Power buttons, headsets and mice expose a handful of
 	// keys; macro pads and keyboards expose many.
 	minKeyboardKeys = 10
+	// wholeKeyboardKeys is how many keyboard keys make a node a keyboard
+	// even though it is a pointer as well. A mouse with keys for its
+	// extra buttons has a few; a keyboard that is also a pointer, real or
+	// made by a program that combines the two, has all of them.
+	wholeKeyboardKeys = 60
 )
 
 // groupKey identifies the hardware a node belongs to. Two nodes with equal
@@ -40,14 +45,21 @@ type groupKey struct {
 	hardware control.HardwareID
 	location string
 	uniq     string
-	// path is set only for a node that reports neither a location nor a
-	// unique id. Such a node cannot be matched to others and stands alone.
+	// path is set only for a node that cannot be matched to others and
+	// stands alone.
 	path string
 }
 
 func groupKeyOf(info Info) groupKey {
 	key := groupKey{hardware: info.Hardware, location: location(info.Phys), uniq: info.Uniq}
-	if key.location == "" && key.uniq == "" {
+	// What says that two nodes are one piece of hardware is a unique id,
+	// or a location that names an interface of the hardware, which the
+	// kernel writes as ".../input0". A node with neither stands alone,
+	// however much else it shares with another. Devices that programs
+	// create are of that kind: an input remapper makes a keyboard, a
+	// mouse and a game controller that all report the same identity and
+	// the same made-up location, and they are three devices.
+	if key.uniq == "" && key.location == info.Phys {
 		key.path = info.Path
 	}
 	return key
@@ -102,7 +114,7 @@ func nodeType(info Info) control.DeviceType {
 	switch {
 	case gameButton:
 		return control.DeviceGamepad
-	case info.Relative && mouseButton:
+	case info.Relative && mouseButton && keyboardKeys < wholeKeyboardKeys:
 		return control.DeviceMouse
 	case keyboardKeys >= minKeyboardKeys:
 		return control.DeviceKeyboard

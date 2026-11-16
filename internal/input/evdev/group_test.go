@@ -81,6 +81,23 @@ func TestGroupKey(t *testing.T) {
 		t.Error("two Bluetooth devices on one adapter are grouped")
 	}
 
+	// Devices a program makes report whatever the program likes. An input
+	// remapper gives its keyboard, its mouse and its game controller one
+	// identity and one made-up location; they are three devices.
+	made1 := Info{Path: "/dev/input/event20", Phys: "input-remapper", Hardware: control.HardwareID{Bus: 3, Vendor: 1, Product: 1}}
+	made2 := made1
+	made2.Path = "/dev/input/event21"
+	if groupKeyOf(made1) == groupKeyOf(made2) {
+		t.Error("two devices made by a program are grouped because they report the same location")
+	}
+	// The device through which it passes a keyboard on names the
+	// keyboard's interfaces, and those still belong together.
+	passed1 := Info{Path: "/dev/input/event22", Phys: "input-remapper/usb-1/input0"}
+	passed2 := Info{Path: "/dev/input/event23", Phys: "input-remapper/usb-1/input1"}
+	if groupKeyOf(passed1) != groupKeyOf(passed2) {
+		t.Error("the interfaces of a keyboard that is passed on are not grouped")
+	}
+
 	// Nodes that report nothing to match on stand alone.
 	anon1 := Info{Path: "/dev/input/event7"}
 	anon2 := Info{Path: "/dev/input/event8"}
@@ -109,6 +126,8 @@ func TestNodeType(t *testing.T) {
 		{"power button", Info{Keys: keyCodes(116)}, control.DeviceUnknown},
 		{"media keys only", Info{Keys: typingKeys(minKeyboardKeys - 1)}, control.DeviceUnknown},
 		{"mouse", Info{Keys: keyCodes(0x110, 0x111, 0x112), Relative: true}, control.DeviceMouse},
+		{"mouse with keys for its buttons", Info{Keys: append(typingKeys(20), keyCodes(0x110, 0x111)...), Relative: true}, control.DeviceMouse},
+		{"keyboard that is also a pointer", Info{Keys: append(typingKeys(100), keyCodes(0x110, 0x111)...), Relative: true}, control.DeviceKeyboard},
 		{"touchpad", Info{Keys: keyCodes(0x110, 0x14a), Axes: axisCodes(0, 1)}, control.DeviceUnknown},
 		{"gamepad", Info{Keys: keyCodes(0x130, 0x131), Axes: axisCodes(0, 1)}, control.DeviceGamepad},
 		{"joystick", Info{Keys: keyCodes(0x120), Axes: axisCodes(0, 1)}, control.DeviceGamepad},

@@ -230,6 +230,10 @@ rest on assumptions about real devices and should be checked first:
   stand-in built from the same document: that the server sends what the
   document says, the names it gives the lights of a given keyboard, and
   that it reports the keyboard at a location HIDI can match, are unchecked.
+- HIDI beside the real input-remapper (issue #23). Its devices were
+  imitated in a test from what its source does: a keyboard taken for
+  itself, the device that passes it on, and its own keyboard and game
+  controller with one shared identity.
 - That the toggle combination suits a keyboard with one Ctrl and no
   right-hand modifiers, and does not collide with a desktop shortcut.
 
