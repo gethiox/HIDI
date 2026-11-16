@@ -21,7 +21,15 @@ const systemClient = 0
 // Ports lists the sequencer ports an endpoint can be connected to: those
 // that accept MIDI from other clients. The ID of a port is its address in
 // the form "client:port", as aconnect prints it.
-func Ports() ([]output.Port, error) {
+func Ports() ([]output.Port, error) { return listPorts(acceptsConnections) }
+
+// Sources lists the sequencer ports an [Input] can be connected to: those
+// that other clients may read from, which includes HIDI's instruments.
+func Sources() ([]output.Port, error) { return listPorts(offersConnections) }
+
+// listPorts returns the ports of all other clients whose capabilities pass
+// the filter.
+func listPorts(wanted func(capability uint32) bool) ([]output.Port, error) {
 	c, err := openClient("HIDI", unix.O_WRONLY)
 	if err != nil {
 		return nil, err
@@ -46,7 +54,7 @@ func Ports() ([]output.Port, error) {
 		// Port 255 is before the first: the kernel adds one, which wraps.
 		port := portInfo{Addr: addr{Client: uint8(client.Client), Port: 255}}
 		for c.ioctl(ioctlNextPort, unsafe.Pointer(&port)) == nil {
-			if !acceptsConnections(port.Capability) {
+			if !wanted(port.Capability) {
 				continue
 			}
 			ports = append(ports, output.Port{
@@ -61,6 +69,13 @@ func Ports() ([]output.Port, error) {
 // with these capabilities to send to it.
 func acceptsConnections(capability uint32) bool {
 	const need = portCapWrite | portCapSubsWrite
+	return capability&need == need && capability&portCapNoExport == 0
+}
+
+// offersConnections reports whether another client may connect to a port
+// with these capabilities to receive from it.
+func offersConnections(capability uint32) bool {
+	const need = portCapRead | portCapSubsRead
 	return capability&need == need && capability&portCapNoExport == 0
 }
 

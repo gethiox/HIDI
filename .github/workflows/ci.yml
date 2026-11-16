@@ -103,6 +103,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/tests"
           go test -race -c -o "$RUNNER_TEMP/tests/alsaseq.test" ./internal/output/alsaseq
           go test -race -c -o "$RUNNER_TEMP/tests/evdev.test" ./internal/input/evdev
+          go test -race -c -o "$RUNNER_TEMP/tests/e2e.test" ./internal/e2e
+          go build -race -o "$RUNNER_TEMP/tests/hidi" ./cmd/hidi
       - name: Install the virtual machine and a generic kernel
         run: |
           sudo apt-get update -qq
@@ -121,6 +123,7 @@ jobs:
             modprobe uinput || status=1
             HIDI_REQUIRE_ALSA=1 '$RUNNER_TEMP/tests/alsaseq.test' -test.v || status=1
             HIDI_REQUIRE_UINPUT=1 '$RUNNER_TEMP/tests/evdev.test' -test.v || status=1
+            HIDI_E2E_BINARY='$RUNNER_TEMP/tests/hidi' '$RUNNER_TEMP/tests/e2e.test' -test.v || status=1
             echo \"tests exited with status \$status\"
           " 2>&1 | tee "$RUNNER_TEMP/vm.log"
           grep -q 'tests exited with status 0' "$RUNNER_TEMP/vm.log"

@@ -192,3 +192,54 @@ func TestAcceptsConnections(t *testing.T) {
 		}
 	}
 }
+
+// What encode writes, decode must read back as the same MIDI.
+func TestDecodeReversesEncode(t *testing.T) {
+	source := addr{Client: 130, Port: 2}
+	for _, tt := range messages {
+		ev, ok := encode(tt.msg, source)
+		if !ok {
+			t.Fatalf("%s: not encoded", tt.name)
+		}
+		got, ok := decode(ev)
+		if !ok {
+			t.Errorf("%s: not decoded", tt.name)
+			continue
+		}
+		want := tt.msg.AppendBytes(nil)
+		if b := got.AppendBytes(nil); string(b) != string(want) {
+			t.Errorf("%s: decoded to % x, want % x", tt.name, b, want)
+		}
+	}
+}
+
+func TestDecodeSpecialCases(t *testing.T) {
+	source := addr{Client: 130}
+	// A note on with velocity zero means note off.
+	ev, _ := encode(midi.NoteOn(2, 60, midi.From7(100)), source)
+	ev.Data[2] = 0
+	if got, ok := decode(ev); !ok || got.Kind != midi.KindNoteOff || got.Channel != 2 {
+		t.Errorf("note on with velocity 0 decoded to %v, %v", got, ok)
+	}
+	// The sequencer's own events and unknown types are not MIDI.
+	ev, _ = encode(midi.NoteOn(0, 60, midi.From7(100)), addr{Client: systemClient, Port: 1})
+	if _, ok := decode(ev); ok {
+		t.Error("an event of the sequencer itself was decoded")
+	}
+	if _, ok := decode(event{Type: 66, Source: source}); ok {
+		t.Error("a port announcement was decoded")
+	}
+}
+
+func TestOffersConnections(t *testing.T) {
+	for capability, want := range map[uint32]bool{
+		portCapRead | portCapSubsRead:                   true,
+		portCapRead:                                     false,
+		portCapWrite | portCapSubsWrite:                 false,
+		portCapRead | portCapSubsRead | portCapNoExport: false,
+	} {
+		if offersConnections(capability) != want {
+			t.Errorf("offersConnections(%#x) = %v, want %v", capability, !want, want)
+		}
+	}
+}
