@@ -5,6 +5,9 @@ package backend
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/input"
@@ -33,6 +36,36 @@ func Devices(problem func(what string, err error)) (*Source, error) {
 // Ports lists the existing MIDI ports an instrument can be connected to.
 func Ports() ([]output.Port, error) {
 	return alsaseq.Ports()
+}
+
+// CheckInput reports to w whether the input devices can be read, and what
+// to do if they cannot. It returns false if none can.
+func CheckInput(w io.Writer) bool {
+	nodes, _ := filepath.Glob("/dev/input/event*")
+	if len(nodes) == 0 {
+		fmt.Fprintln(w, "Input devices: none found in /dev/input")
+		return false
+	}
+	readable := 0
+	var why error
+	for _, node := range nodes {
+		f, err := os.OpenFile(node, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			why = err
+			continue
+		}
+		f.Close()
+		readable++
+	}
+	fmt.Fprintf(w, "Input devices: %d of %d can be read\n", readable, len(nodes))
+	if readable == len(nodes) {
+		return true
+	}
+	fmt.Fprintf(w, "  the others fail with: %v\n", why)
+	fmt.Fprintln(w, "  To let the person logged in at this machine read them, install the udev")
+	fmt.Fprintln(w, "  rule 70-hidi.rules that comes with HIDI; the file says how. Or add your")
+	fmt.Fprintln(w, "  user to the input group: sudo usermod -aG input \"$USER\", then log in again.")
+	return readable > 0
 }
 
 // CheckOutput reports to w whether virtual MIDI devices can be created, and

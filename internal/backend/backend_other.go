@@ -43,6 +43,10 @@ func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
 	return nil, errUnsupported
 }
 
+// CheckInput reports to w whether the input devices can be read. Here
+// there is nothing that could keep HIDI from them.
+func CheckInput(w io.Writer) bool { return true }
+
 // SetRemoval chooses how MIDI devices are given up, where there is a
 // choice; here there is none.
 func SetRemoval(how string, wait time.Duration) error { return nil }
