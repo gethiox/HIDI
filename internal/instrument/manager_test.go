@@ -1053,3 +1053,36 @@ func TestExternalNotes(t *testing.T) {
 		t.Errorf("notes left: %v", x.snapshot())
 	}
 }
+
+// Two devices of one name get MIDI devices of different names, and a name
+// that was given back can be used again.
+func TestDistinctEndpointNames(t *testing.T) {
+	r := newRig(t)
+	first := newFakeDevice("Twin Keyboard", control.DeviceKeyboard)
+	second := newFakeDevice("Twin Keyboard", control.DeviceKeyboard)
+	r.devices <- first
+	eventually(t, "the first instrument", func() bool { return r.endpoint(EndpointPrefix+"Twin Keyboard") != nil })
+	r.devices <- second
+	eventually(t, "the second instrument under a name of its own", func() bool {
+		return r.endpoint(EndpointPrefix+"Twin Keyboard #2") != nil
+	})
+
+	second.set(keyZ, 1)
+	r.expectSent(r.endpoint(EndpointPrefix+"Twin Keyboard #2"), noteOn)
+	if sent, _ := r.endpoint(EndpointPrefix + "Twin Keyboard").state(); sent != "" {
+		t.Errorf("the first twin played what the second was asked to: %s", sent)
+	}
+
+	// The first one leaves; a third device takes the free name.
+	first.stop(errors.New("unplugged"))
+	eventually(t, "the first instrument to stop", func() bool {
+		_, closed := r.endpoint(EndpointPrefix + "Twin Keyboard").state()
+		return closed
+	})
+	m := r.manager
+	eventually(t, "the name to be free", func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return !m.names[EndpointPrefix+"Twin Keyboard"]
+	})
+}

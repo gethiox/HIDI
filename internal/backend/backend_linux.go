@@ -51,3 +51,13 @@ func OpenEndpoint(name string) (output.Endpoint, error) {
 func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
 	return alsaseq.OpenDuplex(name)
 }
+
+// SetRemoval chooses how MIDI devices are given up, where there is a
+// choice; here there is none.
+func SetRemoval(how string) error { return nil }
+
+// OpenTraced creates a virtual MIDI device and says so on w.
+func OpenTraced(w io.Writer, name string) (output.Endpoint, error) {
+	fmt.Fprintf(w, "Creating the MIDI device %q\n", name)
+	return alsaseq.Open(name)
+}

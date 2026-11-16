@@ -80,6 +80,23 @@ func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
 	return winmidi.Open(name)
 }
 
+// SetRemoval chooses how MIDI devices are given up: "session",
+// "disconnect" or "release". It is for the diagnostic command.
+func SetRemoval(how string) error {
+	switch r := winmidi.Removal(how); r {
+	case winmidi.RemoveBySession, winmidi.RemoveByDisconnect, winmidi.RemoveByRelease:
+		winmidi.HowToRemove = r
+		return nil
+	}
+	return fmt.Errorf("unknown way to remove a device %q; it is session, disconnect or release", how)
+}
+
+// OpenTraced creates a virtual MIDI device and reports every stage to w.
+func OpenTraced(w io.Writer, name string) (output.Endpoint, error) {
+	fmt.Fprintf(w, "Creating the MIDI device %q:\n", name)
+	return winmidi.OpenTraced(name, w)
+}
+
 // CheckOutput reports to w whether virtual MIDI devices can be created, and
 // creates one, saying at which stage it fails if it does.
 func CheckOutput(w io.Writer, name string) (output.Endpoint, error) {

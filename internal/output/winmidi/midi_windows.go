@@ -137,8 +137,14 @@ func within(d time.Duration, fn func()) bool {
 	}
 }
 
+// serviceStuck is set once a call into Windows did not return. Whatever
+// is asked of the service after that would wait behind it, so nothing more
+// is asked: ten instruments then fail at once and say why, instead of
+// each waiting its turn to find out the same.
+var serviceStuck atomic.Bool
+
 func (t *tracer) step(what string, do func() error) error {
-	if t.stuck.Load() {
+	if t.stuck.Load() || serviceStuck.Load() {
 		return errStuck
 	}
 	if t.w != nil {
@@ -147,6 +153,7 @@ func (t *tracer) step(what string, do func() error) error {
 	var err error
 	if !within(stepTimeout, func() { err = do() }) {
 		t.stuck.Store(true)
+		serviceStuck.Store(true)
 		if t.w != nil {
 			fmt.Fprintf(t.w, "NO ANSWER after %v\n", stepTimeout)
 		}
@@ -250,14 +257,42 @@ func Open(name string) (*Endpoint, error) { return open(name, &tracer{}) }
 // command, which exists to find the stage that fails on a given machine.
 func OpenTraced(name string, w io.Writer) (*Endpoint, error) { return open(name, &tracer{w: w}) }
 
+// service is held by whatever creates or removes a device. Windows MIDI
+// Services did not answer at all when ten devices were created at once;
+// one after another is what its own samples do, and costs nothing that
+// matters here.
+var service sync.Mutex
+
+// Removal chooses how a device is given up. It exists to find out, with
+// the diagnostic command, what Windows MIDI Services takes well: on the
+// machine this was first tried on, disconnecting never returned.
+type Removal string
+
+const (
+	// RemoveBySession closes the session, which ends its connections.
+	RemoveBySession Removal = "session"
+	// RemoveByDisconnect disconnects first, as Microsoft's sample does.
+	RemoveByDisconnect Removal = "disconnect"
+	// RemoveByRelease only lets go of the objects.
+	RemoveByRelease Removal = "release"
+)
+
+// HowToRemove is the way devices are given up.
+var HowToRemove = RemoveBySession
+
 func open(name string, t *tracer) (_ *Endpoint, err error) {
+	service.Lock()
+	defer service.Unlock()
+	if serviceStuck.Load() {
+		return nil, errStuck
+	}
 	if _, err := Check(); err != nil {
 		return nil, err
 	}
 	e := &Endpoint{trace: t}
 	defer func() {
 		if err != nil {
-			e.Close()
+			e.closeLocked()
 		}
 	}()
 
@@ -599,6 +634,13 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 // Windows does not finish within a few seconds, Close returns an error and
 // leaves the rest to the end of the program.
 func (e *Endpoint) Close() error {
+	service.Lock()
+	defer service.Unlock()
+	return e.closeLocked()
+}
+
+// closeLocked is Close for a caller that holds service.
+func (e *Endpoint) closeLocked() error {
 	e.mu.Lock()
 	if e.closed {
 		e.mu.Unlock()
@@ -607,26 +649,26 @@ func (e *Endpoint) Close() error {
 	e.closed = true
 	e.mu.Unlock()
 
-	if e.trace.stuck.Load() {
+	if e.trace.stuck.Load() || serviceStuck.Load() {
 		// An earlier call never returned; another one would not either.
 		return errors.New("the MIDI device was not removed, because Windows stopped answering; it goes away when the program ends")
 	}
 	if !within(closeTimeout, e.teardown) {
 		e.trace.stuck.Store(true)
+		serviceStuck.Store(true)
 		return errors.New("Windows did not finish removing the MIDI device; it goes away when the program ends")
 	}
 	return nil
 }
 
-// teardown gives the device up in the order Microsoft's sample does:
-// disconnect, release what belongs to the connection, close the session.
-// Each stage is announced before it runs, like the stages of opening.
+// teardown gives the device up in the way [HowToRemove] says. Each stage
+// is announced before it runs, like the stages of opening.
 func (e *Endpoint) teardown() {
 	e.trace.step("releasing the fast way to send", func() error {
 		e.raw.release()
 		return nil
 	})
-	if !e.session.isNil() && !e.connection.isNil() && e.connectionID != (windows.GUID{}) {
+	if HowToRemove == RemoveByDisconnect && !e.session.isNil() && !e.connection.isNil() && e.connectionID != (windows.GUID{}) {
 		e.trace.step("disconnecting from the device", func() error {
 			if hr := e.session.call(slotSessionDisconnectEndpointConnection, guidArgs(&e.connectionID)...); hr.failed() {
 				return hr
@@ -639,6 +681,13 @@ func (e *Endpoint) teardown() {
 		e.device.release()
 		return nil
 	})
+	if HowToRemove == RemoveByRelease {
+		e.trace.step("letting go of the session", func() error {
+			e.session.release()
+			return nil
+		})
+		return
+	}
 	if !e.session.isNil() {
 		e.trace.step("closing the MIDI session", func() error {
 			closable, err := e.session.query(iidIClosable)
