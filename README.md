@@ -81,7 +81,7 @@ sudo udevadm control --reload
 ```
 
 ```bash
-sudo udevadm trigger --subsystem-match=input
+sudo udevadm trigger --subsystem-match=input --subsystem-match=misc
 ```
 
 Or make your user a member of the `input` group, and of `audio` where sound

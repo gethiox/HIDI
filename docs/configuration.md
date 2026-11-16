@@ -108,7 +108,7 @@ of its own, named after yours with "(through HIDI)". Everything you type then
 passes through HIDI for as long as it runs. If HIDI were ever to hang, the
 keyboard would do nothing until HIDI is ended from elsewhere; when HIDI ends
 or is killed, the keyboard is yours again at once. It needs write access to
-`/dev/uinput`. A part of a keyboard that has a wheel or a pointer stays with
+`/dev/uinput`, which the udev rule that comes with HIDI gives. A part of a keyboard that has a wheel or a pointer stays with
 the system and is not held.
 
 Without `toggle_tap`, `always_grab` does nothing.
