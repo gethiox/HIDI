@@ -1,4 +1,4 @@
-//go:build amd64 && !cgo || arm64 && !cgo
+//go:build (amd64 && !cgo) || (arm64 && !cgo)
 
 package gui
 
