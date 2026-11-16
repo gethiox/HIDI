@@ -15,6 +15,10 @@ completes or changes an item.
 - One pull request is open at a time. The next stage starts when the
   previous one is merged.
 - Every pull request for 2.0 carries the label `v2.0`.
+- A pull request is a whole area that can be tried in one go, not a small
+  step towards one: the remaining work is planned as about six of them
+  (see "Remaining"). While one is being written, pictures of the state so
+  far go to the maintainer before it is opened.
 - A pull request holds one topic. A fix for something else, found while
   it is open, goes into a pull request of its own, also when that means
   two are open at once. Whatever a pull request contains is described in
