@@ -155,14 +155,7 @@ In planned order. Each item is roughly one pull request.
    codes Linux gives them: Xbox controllers through XInput
    (`internal/input/xinput`), every other one through Raw Input. Also
    untried.
-3. **Steam Controller** (the first one, the new one, and the controls of
-   a Steam Deck) on Windows. These speak a protocol of Valve's own
-   instead of describing themselves as game controllers, so neither
-   reader sees them unless Steam is running and presents them as an Xbox
-   controller. Reading them directly means a third reader for that
-   protocol, as the Linux kernel has in `hid-steam`; on Linux that driver
-   already makes them ordinary controllers.
-4. **Platform glue**, and testing on a real machine.
+3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
@@ -192,6 +185,15 @@ In planned order. Each item is roughly one pull request.
 13. Merging `dev` into `main`.
 
 ### After 2.0
+
+- **Steam Controller** (the first one, the new one, and the controls of a
+  Steam Deck) on Windows. These speak a protocol of Valve's own instead of
+  describing themselves as game controllers, so neither reader sees them
+  unless Steam is running and presents them as an Xbox controller. Reading
+  them directly means a third reader for that protocol, as the Linux
+  kernel has in `hid-steam`; on Linux that driver already makes them
+  ordinary controllers. Moved here because it cannot be written without
+  the hardware to try it on.
 
 - Bluetooth and network MIDI output, so that a single-board computer can
   present itself to another machine without a cable.
