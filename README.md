@@ -86,6 +86,10 @@ other programs.
 | `-off` | Start turned off. |
 | `-v` | Also log every MIDI message and every ignored device. |
 
+The log is coloured when it goes to a terminal. Set the `NO_COLOR`
+environment variable to turn the colours off, or `FORCE_COLOR` to keep them
+when the output is piped.
+
 The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,
 and switches layout with F11 and F12. Escape silences everything.
