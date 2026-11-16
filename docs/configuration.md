@@ -261,11 +261,28 @@ The long form is a table with exactly one of these settings:
 
 | Setting | Meaning |
 |---|---|
-| `note = "C1"` | Play a note while the control is pressed. Optional `velocity` (1 to 127) fixes the velocity of this note. |
+| `note = "C1"` | Play a note while the control is pressed. Optional `velocity` (1 to 127) fixes the velocity of this note. Optional `touch = true` takes the velocity from how fast the control is pressed; see below. |
 | `cc = 64` | Send a controller, 0 to 127. An axis sends its position. A key sends 127 while held and 0 when released. |
 | `pitch_bend = true` | Bend the pitch. A centered axis bends both ways. Anything else bends one way; write `"down"` instead of `true` to bend down. |
 | `program = 5` | Send a program change, 0 to 127, when the control is pressed. |
 | `command = "panic"` | Run a command; the same as the short form. |
+
+**`touch = true`** on a note makes it louder the faster its control is
+pressed. HIDI takes the time the control needs from its rest position to the
+point where the note triggers, halfway: 4 ms or less plays at full velocity,
+160 ms or more at the lowest, and in between the velocity falls evenly with
+each doubling of the time. It is for controls that report how far or how
+hard they are pressed: the trigger of a game controller, an analog key, a
+pad.
+
+```toml
+ABS_RZ = { note = "C1", touch = true }
+```
+
+A control that is only on or off has no such time; with `touch` it plays as
+without. How finely the time is measured depends on how often the axis is
+passed on: with the default `axis_rate` of 120 the steps are about 8 ms, and
+`axis_rate = 0` passes on everything the device reports.
 
 and any of these options:
 

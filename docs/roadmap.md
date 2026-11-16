@@ -118,6 +118,8 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
   the page is open and keeps its angle; the settings, with the switches and
   the frame limit changeable; where things are kept, with buttons to open
   the places in the file manager; and the list of all profiles.
+- Velocity from how fast a control is pressed (`touch = true` on a note),
+  for triggers, analog keys and pads.
 - Lighting the keys through OpenRGB: what every key plays, the state of
   the command keys, the notes that sound, and notes sent to the instrument
   by another program, for which its MIDI device accepts MIDI on Linux.
@@ -153,14 +155,7 @@ In planned order. Each item is roughly one pull request.
    codes Linux gives them: Xbox controllers through XInput
    (`internal/input/xinput`), every other one through Raw Input. Also
    untried.
-3. **Steam Controller** (the first one, the new one, and the controls of
-   a Steam Deck) on Windows. These speak a protocol of Valve's own
-   instead of describing themselves as game controllers, so neither
-   reader sees them unless Steam is running and presents them as an Xbox
-   controller. Reading them directly means a third reader for that
-   protocol, as the Linux kernel has in `hid-steam`; on Linux that driver
-   already makes them ordinary controllers.
-4. **Platform glue**, and testing on a real machine.
+3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
@@ -179,9 +174,6 @@ In planned order. Each item is roughly one pull request.
 
 ### Features
 
-9. **Velocity from how a control is pressed**, for controls that report
-    pressure or travel.
-
 ### Release
 
 10. Packaging, a udev rule so that HIDI needs neither root nor group
@@ -193,6 +185,15 @@ In planned order. Each item is roughly one pull request.
 13. Merging `dev` into `main`.
 
 ### After 2.0
+
+- **Steam Controller** (the first one, the new one, and the controls of a
+  Steam Deck) on Windows. These speak a protocol of Valve's own instead of
+  describing themselves as game controllers, so neither reader sees them
+  unless Steam is running and presents them as an Xbox controller. Reading
+  them directly means a third reader for that protocol, as the Linux
+  kernel has in `hid-steam`; on Linux that driver already makes them
+  ordinary controllers. Moved here because it cannot be written without
+  the hardware to try it on.
 
 - Bluetooth and network MIDI output, so that a single-board computer can
   present itself to another machine without a cable.

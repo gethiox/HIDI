@@ -161,8 +161,8 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 		if err != nil {
 			r.failf(at, "%v", err)
 		}
-		allowed = append(allowed, "velocity")
-		action = engine.Note{Note: note, ChannelOffset: offset, Velocity: uint8(t.integer("velocity", 0, 1, 127))}
+		allowed = append(allowed, "velocity", "touch")
+		action = engine.Note{Note: note, ChannelOffset: offset, Velocity: uint8(t.integer("velocity", 0, 1, 127)), Touch: t.boolean("touch", false)}
 	case "cc":
 		action = engine.ControlChange{Controller: uint8(t.integer("cc", 0, 0, 127)), ChannelOffset: offset}
 	case "program":
