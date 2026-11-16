@@ -45,9 +45,19 @@ func indent(s string) string {
 // and does not keep the others from loading. A directory that does not
 // exist holds no profiles and is not a problem.
 func LoadDir(dir string) (profiles []*Profile, problems []Problem) {
-	entries, err := os.ReadDir(dir)
+	// Asking about the directory first tells a missing one from a file in
+	// its place; reading a file as a directory fails differently on each
+	// system, and on Windows looks like a missing path.
+	info, err := os.Stat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
+	}
+	if err == nil && !info.IsDir() {
+		err = errors.New("is not a directory")
+	}
+	var entries []os.DirEntry
+	if err == nil {
+		entries, err = os.ReadDir(dir)
 	}
 	if err != nil {
 		return nil, []Problem{{File: dir, Err: err}}
