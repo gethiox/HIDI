@@ -21,6 +21,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/instrument"
+	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
 	"github.com/gethiox/HIDI/internal/output"
 )
@@ -33,6 +34,10 @@ Usage:
 Commands:
   run       run the instruments until interrupted
   devices   list the connected input devices and the profile each would use
+  status    show what the running HIDI is doing
+  monitor   keep showing it, with the log, until interrupted
+  on, off, toggle
+            turn the running HIDI on or off
   ports     list the MIDI ports an instrument can be connected to
   profiles  list the profiles, check them, or write the built-in ones out
   version   print version information
@@ -58,6 +63,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdRun(ctx, args[1:], stderr)
 	case "devices":
 		return cmdDevices(args[1:], stdout, stderr)
+	case "status", "on", "off", "toggle":
+		return cmdControl(ctx, args[0], args[1:], stdout, stderr)
+	case "monitor":
+		return cmdMonitor(ctx, args[1:], stdout, stderr)
 	case "ports":
 		return cmdPorts(args[1:], stdout, stderr)
 	case "profiles":
@@ -102,6 +111,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	var connect listFlag
 	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
+	socket := socketFlag(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
@@ -135,6 +145,22 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	})
 	log := logs.Logger("hidi")
 	inputLog := logs.Logger("input")
+
+	// The control socket comes first: it is also what tells a second HIDI
+	// that one is running, before it would open any device.
+	var server *ipc.Server
+	if *socket != "" {
+		server, err = ipc.Listen(*socket)
+		switch {
+		case errors.Is(err, ipc.ErrRunning):
+			log.Error("HIDI is already running; see \"hidi status\"", "socket", *socket)
+			return 1
+		case err != nil:
+			log.Warn("no control socket; \"hidi status\" and the like will not reach this HIDI", "error", err)
+		default:
+			defer server.Close() // for every way out before it is served
+		}
+	}
 
 	configLog := logs.Logger("config")
 	reportProblems := func(problems []config.Problem) {
@@ -192,6 +218,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		}
 		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(connect, ", "))
 	}
+	var changes ipc.Notifier
 	manager := instrument.NewManager(instrument.Options{
 		Profiles:      profiles,
 		OpenEndpoint:  openEndpoint,
@@ -199,7 +226,17 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		Grab:          grab,
 		Toggle:        toggle,
 		StartInactive: *startOff,
+		Changed:       changes.Notify,
 	})
+	served := make(chan struct{})
+	if server != nil {
+		go func() {
+			defer close(served)
+			server.Serve(ctx, controlHost(manager, logs, &changes))
+		}()
+	} else {
+		close(served)
+	}
 	if *profilesDir != "" {
 		go config.Watch(ctx, *profilesDir, time.Second, func(profiles []*config.Profile, problems []config.Problem) {
 			configLog.Info("profiles changed; loading them again", "yours", countUser(profiles))
@@ -208,6 +245,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		})
 	}
 	manager.Run(ctx, source.Devices)
+	<-served
 	log.Info("HIDI stopped")
 	return 0
 }

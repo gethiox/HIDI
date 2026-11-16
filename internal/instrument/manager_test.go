@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -801,4 +802,28 @@ func TestSetProfilesConcurrently(t *testing.T) {
 		got := r.manager.Status()
 		return len(got) == 1 && got[0].Profile == "A"
 	})
+}
+
+// Changed must be called for everything Status and Active report, so that
+// an interface can follow without asking again and again.
+func TestChangedIsCalled(t *testing.T) {
+	var calls atomic.Int64
+	r := newRigWith(t, Options{Changed: func() { calls.Add(1) }})
+	expectMore := func(what string, do func()) {
+		t.Helper()
+		before := calls.Load()
+		do()
+		eventually(t, "a change to be announced after "+what, func() bool { return calls.Load() > before })
+	}
+
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	var e *fakeEndpoint
+	expectMore("an instrument started", func() { e = r.plug(kbd) })
+	expectMore("a note", func() {
+		kbd.set(keyZ, 1)
+		r.expectSent(e, "NoteOn ch=1 note=C0 velocity=64")
+	})
+	expectMore("an octave change", func() { kbd.set(keyF2, 1) })
+	expectMore("turning off", func() { r.manager.SetActive(false) })
+	expectMore("unplugging", func() { kbd.stop(errUnplugged) })
 }

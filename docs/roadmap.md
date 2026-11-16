@@ -59,6 +59,8 @@ completes or changes an item.
   check and export them.
 - Connecting instruments to existing MIDI ports on Linux, with `hidi ports`
   and `hidi run -connect`.
+- The control interface: a local socket to the running HIDI, with
+  `hidi status`, `hidi on`, `hidi off`, `hidi toggle` and `hidi monitor`.
 - `hidi run` and `hidi devices`.
 - CI runs the tests that need kernel interfaces in a virtual machine.
 
@@ -68,52 +70,50 @@ In planned order. Each item is roughly one pull request.
 
 ### Linux
 
-1. **Control interface.** A local protocol to a running HIDI, with
-   `hidi status`, `hidi on`, `hidi off` and a live `hidi monitor` view.
-2. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
+1. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
    and the setting for what an axis does on a channel or layout change.
-3. **An end-to-end test** from a virtual input device to a received MIDI
+2. **An end-to-end test** from a virtual input device to a received MIDI
    message, in the CI virtual machine.
 
 ### Windows
 
-4. **MIDI output** through Windows MIDI Services. This starts with a small
+3. **MIDI output** through Windows MIDI Services. This starts with a small
    test program to prove that a virtual device can be created from Go.
-5. **Input**: Raw Input for keyboards and game controllers, and the
+4. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
-6. **Platform glue**, and testing on a real machine.
+5. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
-7. **Tray icon** with the on/off switch.
-8. **Graphical interface**: status of the instruments, a live view of what
+6. **Tray icon** with the on/off switch.
+7. **Graphical interface**: status of the instruments, a live view of what
     is played, and the log. Frame pacing as decided above. The log lives
     in a status bar at the bottom: it shows the last line, coloured but
     faint, and dragging it up reveals the whole log, with a choice of the
     least level to show.
-9. **Configuring in the graphical interface**: every setting and every
+8. **Configuring in the graphical interface**: every setting and every
     part of a profile, including learning a binding by pressing the
     control. This needs the configuration to be written back to its file
     without losing what the user wrote there by hand.
 
 ### Features
 
-10. **Chord memory** (the 1.x "multinote" action, which computed its
+9. **Chord memory** (the 1.x "multinote" action, which computed its
     intervals but never applied them) and **CC learning**.
-11. **MIDI input and OpenRGB**: lighting the keys that are played here or
+10. **MIDI input and OpenRGB**: lighting the keys that are played here or
     by another MIDI source.
-12. **Velocity from how a control is pressed**, for controls that report
+11. **Velocity from how a control is pressed**, for controls that report
     pressure or travel.
 
 ### Release
 
-13. Packaging, a udev rule so that HIDI needs neither root nor group
+12. Packaging, a udev rule so that HIDI needs neither root nor group
     changes, and updating the dependencies of the CI workflow.
-14. The release workflow: reproducible builds (`-trimpath`, a pinned
+13. The release workflow: reproducible builds (`-trimpath`, a pinned
     toolchain, no build time in the binary), checksums, build provenance
     attestation, and immutable releases.
-15. Rewriting the README and the user documentation.
-16. Merging `dev` into `main`.
+14. Rewriting the README and the user documentation.
+15. Merging `dev` into `main`.
 
 ### After 2.0
 
@@ -147,5 +147,8 @@ rest on assumptions about real devices and should be checked first:
   marked as centred always keeps its controller value.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
+- The monitor shows how many notes sound, not which. Showing the notes
+  and controller values needs the engine to report them, and is wanted
+  for the graphical interface as well.
 - `-connect` applies to every instrument. Choosing ports for each
   instrument separately needs those settings, and belongs with them.

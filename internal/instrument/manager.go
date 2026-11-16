@@ -45,6 +45,10 @@ type Options struct {
 	Toggle []control.Code
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
+	// Changed, if set, is called whenever what [Manager.Status] or
+	// [Manager.Active] report has changed. It is called from several
+	// goroutines and must return quickly.
+	Changed func()
 }
 
 // GrabKeyboards is a grab policy that takes keyboards and leaves every
@@ -102,6 +106,13 @@ func (m *Manager) SetActive(active bool) {
 		m.log.Info("HIDI is on")
 	} else {
 		m.log.Info("HIDI is off; devices are released")
+	}
+	m.changed()
+}
+
+func (m *Manager) changed() {
+	if m.opts.Changed != nil {
+		m.opts.Changed()
 	}
 }
 
@@ -212,6 +223,7 @@ func (m *Manager) add(dev input.Device) {
 		onToggle: m.toggle,
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
+		changed:  m.changed,
 	}
 	m.mu.Lock()
 	m.running[r] = struct{}{}
@@ -287,6 +299,8 @@ type runner struct {
 	wake    chan struct{}
 	// quit is closed when the manager stops.
 	quit <-chan struct{}
+	// changed tells the manager's owner that the status is different.
+	changed func()
 
 	mu         sync.Mutex
 	status     Status
@@ -302,8 +316,9 @@ func (r *runner) snapshot() (Status, bool) {
 
 func (r *runner) setStatus(status Status, instrument bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.status, r.instrument = status, instrument
+	r.mu.Unlock()
+	r.changed()
 }
 
 // poke tells the runner's goroutine to look at what the manager asked for.
@@ -526,6 +541,7 @@ func (r *runner) publish(eng *engine.Engine, last *engine.State) {
 	r.mu.Lock()
 	r.status.State = now
 	r.mu.Unlock()
+	r.changed()
 	if changed {
 		r.log.Info("instrument changed",
 			"octave", now.Octave, "transpose", now.Transpose,
