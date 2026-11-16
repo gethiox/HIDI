@@ -147,6 +147,11 @@ rest on assumptions about real devices and should be checked first:
 - Where the setting for axes on a channel or layout change belongs: one
   value for a profile, or one for each binding. Today an axis that is not
   marked as centred always keeps its controller value.
+- Windows, opt-in: suppress all keyboard input in the hook, and type the
+  keys of keyboards that are not instruments back in with `SendInput`
+  once Raw Input has said which device they came from. To be tried in the
+  Windows input stage; the known costs are that injected keys do not reach
+  elevated windows and that some games reject them.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
 - The monitor shows how many notes sound, not which. Showing the notes
