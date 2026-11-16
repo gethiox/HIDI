@@ -1,8 +1,10 @@
 package winmidi
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -118,5 +120,46 @@ func TestInstanceID(t *testing.T) {
 func TestResponseStatusNames(t *testing.T) {
 	if responseStatus(808) != "error from the service" || responseStatus(0) != "success" || responseStatus(1) != "unknown" {
 		t.Error("status names are wrong")
+	}
+}
+
+// A stage that never returns must not hang its caller, and nothing may be
+// attempted after it.
+func TestStuckStageIsAbandoned(t *testing.T) {
+	old := stepTimeout
+	stepTimeout = 50 * time.Millisecond
+	defer func() { stepTimeout = old }()
+
+	var out strings.Builder
+	tr := &tracer{w: &out}
+	if err := tr.step("a quick stage", func() error { return nil }); err != nil {
+		t.Fatalf("a quick stage failed: %v", err)
+	}
+	never := make(chan struct{})
+	defer close(never)
+	start := time.Now()
+	err := tr.step("a stage that hangs", func() error { <-never; return nil })
+	if !errors.Is(err, errStuck) {
+		t.Fatalf("the hanging stage returned %v", err)
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Errorf("waited %v for a stage limited to %v", waited, stepTimeout)
+	}
+	ran := false
+	if err := tr.step("the next stage", func() error { ran = true; return nil }); !errors.Is(err, errStuck) || ran {
+		t.Errorf("a stage ran after one got stuck: ran %v, error %v", ran, err)
+	}
+	if text := out.String(); !strings.Contains(text, "a quick stage ... ok") || !strings.Contains(text, "NO ANSWER") {
+		t.Errorf("the trace reads:\n%s", text)
+	}
+
+	// An endpoint whose calls stopped returning neither sends nor waits.
+	e := &Endpoint{trace: tr}
+	if err := e.Send([]midi.Message{midi.NoteOn(0, 60, midi.From7(100))}); !errors.Is(err, errStuck) {
+		t.Errorf("Send on a stuck endpoint = %v", err)
+	}
+	start = time.Now()
+	if err := e.Close(); err == nil || time.Since(start) > time.Second {
+		t.Errorf("Close on a stuck endpoint = %v after %v", err, time.Since(start))
 	}
 }

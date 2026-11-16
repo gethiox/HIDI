@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -99,13 +100,58 @@ const (
 // it still shows where it happened.
 type tracer struct {
 	w io.Writer
+	// stuck is set when a stage did not return in time. Its call into
+	// Windows is then still running, and nothing it may be using can be
+	// released or reused.
+	stuck atomic.Bool
 }
 
-func (t tracer) step(what string, do func() error) error {
+// Limits on the calls into Windows. They go to the MIDI service, another
+// process, and have been seen never to return. HIDI must not hang with
+// them: a hung HIDI can neither be used nor stopped.
+var (
+	checkTimeout = 15 * time.Second // may have to start the service
+	stepTimeout  = 10 * time.Second
+	sendTimeout  = 2 * time.Second
+	closeTimeout = 3 * time.Second
+)
+
+// errStuck is what a call that did not return in time is reported as.
+var errStuck = errors.New("Windows did not answer in time. The MIDI service may be stuck: " +
+	"restart the service named midisrv (as administrator: Restart-Service midisrv), or restart Windows")
+
+// within runs fn and waits for it at most d. It reports false if fn has
+// not returned by then; fn keeps running, since a call into Windows cannot
+// be interrupted.
+func within(d time.Duration, fn func()) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func (t *tracer) step(what string, do func() error) error {
+	if t.stuck.Load() {
+		return errStuck
+	}
 	if t.w != nil {
 		fmt.Fprintf(t.w, "  %s ... ", what)
 	}
-	err := do()
+	var err error
+	if !within(stepTimeout, func() { err = do() }) {
+		t.stuck.Store(true)
+		if t.w != nil {
+			fmt.Fprintf(t.w, "NO ANSWER after %v\n", stepTimeout)
+		}
+		return fmt.Errorf("%s: %w", what, errStuck)
+	}
 	if t.w != nil {
 		if err != nil {
 			fmt.Fprintf(t.w, "FAILED: %v\n", err)
@@ -136,6 +182,19 @@ type Status struct {
 // Check finds out whether virtual MIDI devices can be created. It returns
 // what it learned together with an error that says what is missing.
 func Check() (Status, error) {
+	var st Status
+	var err error
+	if !within(checkTimeout, func() { st, err = check1() }) {
+		var build Status
+		_, _, build.Build = windows.RtlGetNtVersionNumbers()
+		build.Build &= 0xFFFF
+		build.Found = "unknown"
+		return build, errStuck
+	}
+	return st, err
+}
+
+func check1() (Status, error) {
 	var st Status
 	_, _, st.Build = windows.RtlGetNtVersionNumbers()
 	st.Build &= 0xFFFF
@@ -178,26 +237,20 @@ type Endpoint struct {
 	device       object // IMidiVirtualDevice
 	connectionID windows.GUID
 	words        []uint32
-	trace        tracer
+	trace        *tracer
 }
-
-// closeTimeout is how long removing a device may take. The calls go into
-// the MIDI service and have been seen not to return; a program that is
-// ending must not wait for them, and Windows removes the device of a
-// program that has ended anyway.
-const closeTimeout = 3 * time.Second
 
 // ErrClosed is returned by [Endpoint.Send] after the endpoint was closed.
 var ErrClosed = errors.New("MIDI endpoint is closed")
 
 // Open creates a virtual MIDI device with the given name.
-func Open(name string) (*Endpoint, error) { return open(name, tracer{}) }
+func Open(name string) (*Endpoint, error) { return open(name, &tracer{}) }
 
 // OpenTraced is Open, reporting every stage to w. It is for the diagnostic
 // command, which exists to find the stage that fails on a given machine.
-func OpenTraced(name string, w io.Writer) (*Endpoint, error) { return open(name, tracer{w}) }
+func OpenTraced(name string, w io.Writer) (*Endpoint, error) { return open(name, &tracer{w: w}) }
 
-func open(name string, t tracer) (_ *Endpoint, err error) {
+func open(name string, t *tracer) (_ *Endpoint, err error) {
 	if _, err := Check(); err != nil {
 		return nil, err
 	}
@@ -212,7 +265,6 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer hName.free()
 	// The identifier should differ between devices. Two input devices of
 	// the same model have the same name, and so far get the same
 	// identifier; what Windows does then is not known yet.
@@ -220,14 +272,17 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer hInstance.free()
 	hDescription, _ := newHString("An instrument made from an input device by HIDI")
-	defer hDescription.free()
 	hManufacturer, _ := newHString("HIDI")
-	defer hManufacturer.free()
 
 	var info, config, blocks, block, group object
 	defer func() {
+		if t.stuck.Load() {
+			return // a call that never returned may still be using them
+		}
+		for _, h := range []hstring{hName, hInstance, hDescription, hManufacturer} {
+			h.free()
+		}
 		for _, o := range []object{info, config, blocks, block, group} {
 			o.release()
 		}
@@ -521,8 +576,19 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 	if len(e.words) == 0 {
 		return nil
 	}
+	if e.trace.stuck.Load() {
+		return errStuck
+	}
 	// A timestamp of zero means now.
-	hr := e.raw.call(slotConnectionRawSendMessage, 0, uintptr(len(e.words)), uintptr(unsafe.Pointer(&e.words[0])))
+	var hr hresult
+	words := e.words
+	if !within(sendTimeout, func() {
+		hr = e.raw.call(slotConnectionRawSendMessage, 0, uintptr(len(words)), uintptr(unsafe.Pointer(&words[0])))
+	}) {
+		e.trace.stuck.Store(true)
+		e.words = nil // the call that did not return still reads the old ones
+		return fmt.Errorf("sending to Windows MIDI Services: %w", errStuck)
+	}
 	if hr.failed() {
 		return fmt.Errorf("sending to Windows MIDI Services: %w", hr)
 	}
@@ -541,17 +607,15 @@ func (e *Endpoint) Close() error {
 	e.closed = true
 	e.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.teardown()
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(closeTimeout):
+	if e.trace.stuck.Load() {
+		// An earlier call never returned; another one would not either.
+		return errors.New("the MIDI device was not removed, because Windows stopped answering; it goes away when the program ends")
+	}
+	if !within(closeTimeout, e.teardown) {
+		e.trace.stuck.Store(true)
 		return errors.New("Windows did not finish removing the MIDI device; it goes away when the program ends")
 	}
+	return nil
 }
 
 // teardown gives the device up in the order Microsoft's sample does:
