@@ -156,8 +156,8 @@ and switches layout with F11 and F12. Escape silences everything.
 ## Trying it on Windows
 
 The Windows side is new, so expect it to need corrections. MIDI output has
-created a device and sent to it on one machine. Reading keyboards has not run
-on a real machine yet; game controllers are not read at all.
+created a device on one machine, and a DAW there played what was sent to it.
+Reading keyboards and game controllers has not run on a real machine yet.
 
 Start with `hidi doctor`, which checks MIDI output on its own:
 
@@ -183,11 +183,18 @@ the API in Windows. A program started with `go run` lives in a temporary
 folder, so either build it first (`go build -o hidi.exe ./cmd/hidi`) or set
 the environment variable `HIDI_MIDI_DLL` to the full path of the DLL.
 
-Once `hidi doctor` passes, `hidi.exe run -v` turns every keyboard into an
-instrument, as on Linux. Windows cannot keep one keyboard from typing and let
+Once `hidi doctor` passes, `hidi.exe run -v` turns every keyboard and game
+controller into an instrument, as on Linux; `hidi.exe devices` lists what it
+found. Windows cannot keep one keyboard from typing and let
 another type: while HIDI is on, no keyboard types. The toggle combination,
 Left Ctrl + Left Shift + Left Alt, turns HIDI off and gives them back. To try
 it without that, run `hidi.exe run -v -no-grab`; the keys then also type.
+
+Game controllers always keep working in other programs on Windows;
+`-grab-gamepads` has no effect there. Xbox controllers, and those that
+imitate one, are read through XInput and are all named "Xbox controller";
+Windows knows four of them at most. Every other controller is read as the
+HID device it is.
 
 ## Development
 
