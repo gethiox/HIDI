@@ -45,3 +45,9 @@ func CheckOutput(w io.Writer, name string) (output.Endpoint, error) {
 func OpenEndpoint(name string) (output.Endpoint, error) {
 	return alsaseq.Open(name)
 }
+
+// OpenDuplexEndpoint creates a virtual MIDI device that other programs
+// can also send to; it is an [output.Receiver].
+func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
+	return alsaseq.OpenDuplex(name)
+}

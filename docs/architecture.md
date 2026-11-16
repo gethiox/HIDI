@@ -56,6 +56,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
+| `light` | exists | What the keys of a keyboard show for the state of its instrument, and a hub that sends it to the keyboard's lights through an OpenRGB server (`light/openrgb` is the client). |
 | `settings` | exists | HIDI's own settings, where HIDI keeps its files, and filling that directory on the first start. |
 | `ipc` | exists | Local control protocol between the running HIDI and its clients. |
 | `ui` | partial | The interfaces of the desktop. `ui/tray` is the icon in the notification area and `ui/gui` the window. The terminal views live in `cmd/hidi`. |
@@ -129,6 +130,27 @@ is connected when it appears.
 
 Network and Bluetooth MIDI outputs are planned after 2.0 and will be further
 implementations of the same interface.
+
+### Lights and MIDI input
+
+`light.Paint` turns the state of an instrument into a colour for every key:
+it is a pure function of what the keys do in the selected layout, the
+instrument's state, the notes that sound and whether HIDI is on. A hub owns
+the connection to OpenRGB, finds for each instrument the keyboard among the
+server's controllers, and sends colours only when they changed, a few dozen
+times a second at most. OpenRGB says where it reaches a keyboard, not which
+input device that is, so the two are matched by model and, on Linux, by the
+port the system reports for both.
+
+HIDI does not talk to keyboards' lights itself. OpenRGB knows hundreds of
+them and is what people who care about their lights run already; it stays a
+separate program, reached over its network protocol.
+
+So that the lights can show notes from elsewhere, an instrument's MIDI
+device can be one that other programs also send to (`output.Receiver`). It
+is only opened that way when the lights are on, because a device that
+accepts MIDI has to keep reading it. What arrives is only looked at for
+which notes are on; it is not passed on anywhere.
 
 ### Taking input away from the operating system
 

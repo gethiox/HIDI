@@ -23,6 +23,8 @@ import (
 	"github.com/gethiox/HIDI/internal/crashlog"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
+	"github.com/gethiox/HIDI/internal/light"
+	"github.com/gethiox/HIDI/internal/light/openrgb"
 	"github.com/gethiox/HIDI/internal/logging"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
@@ -163,6 +165,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	root, profilesDir := placeFlags(fs)
 	var connect listFlag
 	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
+	lightsFlag := fs.String("openrgb", "", "light the keys through the OpenRGB server at this `address`, such as "+settings.DefaultOpenRGBAddress)
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
 	socket := socketFlag(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
@@ -290,13 +293,40 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		log.Info("keyboards do not type while HIDI is on; turn it off to get them back")
 	}
 	openEndpoint := backend.OpenEndpoint
+	// Lighting the keys: a hub that talks to OpenRGB, and MIDI devices
+	// that other programs can send to, so that their notes show too.
+	lightsAddress := ""
+	switch {
+	case given["openrgb"]:
+		lightsAddress = *lightsFlag
+	case pl.settings.Lights.OpenRGB:
+		lightsAddress = pl.settings.Lights.Address
+	}
+	var lights func(control.DeviceInfo) instrument.Light
+	lightsDone := make(chan struct{})
+	if lightsAddress != "" {
+		hub := light.NewHub(light.Options{
+			Connect: func() (light.Server, error) { return openrgb.Connect(lightsAddress, "HIDI") },
+			Logger:  logs.Logger("lights"),
+		})
+		go func() {
+			defer close(lightsDone)
+			hub.Run(ctx)
+		}()
+		lights = func(info control.DeviceInfo) instrument.Light { return hub.Attach(info) }
+		openEndpoint = backend.OpenDuplexEndpoint
+		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
+	} else {
+		close(lightsDone)
+	}
+	plainEndpoint := openEndpoint
 	if len(connect) > 0 {
 		// A port that is not there yet is connected when it appears, so a
 		// MIDI interface can be plugged in later.
 		router := output.NewRouter(backend.Ports, output.MatchPorts(connect), logs.Logger("output"))
 		go router.Run(ctx, time.Second)
 		openEndpoint = func(name string) (output.Endpoint, error) {
-			e, err := backend.OpenEndpoint(name)
+			e, err := plainEndpoint(name)
 			if err != nil {
 				return nil, err
 			}
@@ -312,6 +342,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		Grab:          grab,
 		Toggle:        toggle,
 		StartInactive: *startOff,
+		Lights:        lights,
 		Changed:       changes.Notify,
 	})
 	served := make(chan struct{})
@@ -362,6 +393,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	manager.Run(ctx, source.Devices)
 	<-served
+	<-lightsDone // the lights are left evenly lit
 	log.Info("HIDI stopped")
 	return 0
 }

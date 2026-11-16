@@ -1,0 +1,298 @@
+package light
+
+import (
+	"context"
+	"log/slog"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/light/openrgb"
+)
+
+// Server is an OpenRGB server as the hub uses it; *openrgb.Client is one.
+type Server interface {
+	Controllers() ([]openrgb.Controller, error)
+	SetCustomMode(index int) error
+	SetLEDs(index int, colours []openrgb.RGB) error
+	Close() error
+}
+
+// Options configure a [Hub].
+type Options struct {
+	// Connect reaches the server. It is called again, after a while,
+	// whenever there is no connection.
+	Connect func() (Server, error)
+	// Matches says whether the hardware at an OpenRGB location is a given
+	// input device. Nil means [Matches].
+	Matches func(location string, info control.DeviceInfo) bool
+	// Colours are the colours to use. The zero value means
+	// [DefaultColours].
+	Colours Colours
+	// Logger receives what the hub reports. Nil discards it.
+	Logger *slog.Logger
+	// Interval is how often changed lights are sent. Zero means 25 ms.
+	Interval time.Duration
+	// Retry is how long the hub waits before it looks for the server, or
+	// for a keyboard's lights, again. Zero means three seconds.
+	Retry time.Duration
+}
+
+// Hub lights the keyboards of the instruments through one OpenRGB server.
+// The server may start later than HIDI, or go away and come back.
+type Hub struct {
+	opts Options
+	log  *slog.Logger
+
+	mu    sync.Mutex
+	lamps []*Lamp
+}
+
+// Lamp is the lights of one instrument's keyboard.
+type Lamp struct {
+	hub  *Hub
+	info control.DeviceInfo
+
+	mu     sync.Mutex
+	scene  Scene
+	dirty  bool
+	closed bool
+
+	// The fields below belong to the hub's goroutine.
+	bound  bool
+	index  int
+	name   string
+	keys   []ledKey      // for each light, its key
+	sent   []openrgb.RGB // what the lights were last set to
+	missed bool          // no lights were found for it, and that was said
+}
+
+type ledKey struct {
+	code  control.Code
+	isKey bool
+}
+
+// NewHub returns a hub. [Hub.Run] makes it work.
+func NewHub(opts Options) *Hub {
+	if opts.Matches == nil {
+		opts.Matches = Matches
+	}
+	if opts.Colours == (Colours{}) {
+		opts.Colours = DefaultColours()
+	}
+	if opts.Interval == 0 {
+		opts.Interval = 25 * time.Millisecond
+	}
+	if opts.Retry == 0 {
+		opts.Retry = 3 * time.Second
+	}
+	log := opts.Logger
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	return &Hub{opts: opts, log: log}
+}
+
+// Attach returns the lamp for an instrument's device. It lights up when
+// the server has lights for that device. The caller closes it.
+func (h *Hub) Attach(info control.DeviceInfo) *Lamp {
+	l := &Lamp{hub: h, info: info}
+	h.mu.Lock()
+	h.lamps = append(h.lamps, l)
+	h.mu.Unlock()
+	return l
+}
+
+// Show makes the lamp show a scene. It returns at once; the lights follow
+// within a moment.
+func (l *Lamp) Show(s Scene) {
+	l.mu.Lock()
+	l.scene, l.dirty = s, true
+	l.mu.Unlock()
+}
+
+// Close ends the lamp. Its lights stay as they are until something else
+// sets them.
+func (l *Lamp) Close() {
+	l.mu.Lock()
+	l.closed = true
+	l.mu.Unlock()
+}
+
+// Run keeps the lights in step with the lamps until ctx is cancelled. On
+// the way out it lights every keyboard evenly, as while HIDI is off.
+func (h *Hub) Run(ctx context.Context) {
+	var (
+		server    Server
+		nextTry   time.Time
+		nextBind  time.Time
+		announced bool // that the server cannot be reached
+	)
+	drop := func(err error) {
+		h.log.Warn("the connection to OpenRGB is lost; the lights stay as they are", "error", err)
+		server.Close()
+		server = nil
+		nextTry = time.Now().Add(h.opts.Retry)
+		for _, l := range h.current() {
+			l.bound, l.missed = false, false
+		}
+	}
+	ticker := time.NewTicker(h.opts.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			if server != nil {
+				for _, l := range h.current() {
+					if l.bound {
+						l.mu.Lock()
+						l.scene.Active, l.dirty = false, true
+						l.mu.Unlock()
+						h.send(server, l)
+					}
+				}
+				server.Close()
+			}
+			return
+		case <-ticker.C:
+		}
+		lamps := h.current()
+		if len(lamps) == 0 {
+			continue
+		}
+		now := time.Now()
+		if server == nil {
+			if now.Before(nextTry) {
+				continue
+			}
+			nextTry = now.Add(h.opts.Retry)
+			s, err := h.opts.Connect()
+			if err != nil {
+				if !announced {
+					announced = true
+					h.log.Info("no OpenRGB server yet; the lights follow when one runs", "error", err)
+				}
+				continue
+			}
+			server, announced = s, false
+			h.log.Info("connected to OpenRGB")
+		}
+		// Lamps without lights look for them: at once after connecting,
+		// then every so often, since a keyboard may show up later.
+		fresh := slices.ContainsFunc(lamps, func(l *Lamp) bool { return !l.bound && !l.missed })
+		waiting := slices.ContainsFunc(lamps, func(l *Lamp) bool { return !l.bound })
+		if fresh || waiting && !now.Before(nextBind) {
+			nextBind = now.Add(h.opts.Retry)
+			if err := h.bind(server, lamps); err != nil {
+				drop(err)
+				continue
+			}
+		}
+		for _, l := range lamps {
+			if l.bound {
+				if err := h.send(server, l); err != nil {
+					drop(err)
+					break
+				}
+			}
+		}
+	}
+}
+
+// current returns the lamps that are open, and forgets the closed ones.
+func (h *Hub) current() []*Lamp {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.lamps = slices.DeleteFunc(h.lamps, func(l *Lamp) bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.closed
+	})
+	return slices.Clone(h.lamps)
+}
+
+// bind gives every lamp without lights the keyboard of the server that is
+// its device, if there is one.
+func (h *Hub) bind(server Server, lamps []*Lamp) error {
+	controllers, err := server.Controllers()
+	if err != nil {
+		return err
+	}
+	taken := map[int]bool{}
+	for _, l := range lamps {
+		if l.bound {
+			taken[l.index] = true
+		}
+	}
+	for _, l := range lamps {
+		if l.bound {
+			continue
+		}
+		for _, c := range controllers {
+			if taken[c.Index] || c.Type != openrgb.TypeKeyboard || !h.opts.Matches(c.Location, l.info) {
+				continue
+			}
+			if err := server.SetCustomMode(c.Index); err != nil {
+				return err
+			}
+			l.bound, l.index, l.name, l.sent = true, c.Index, c.Name, nil
+			l.keys = make([]ledKey, len(c.LEDs))
+			keys := 0
+			for i, led := range c.LEDs {
+				if code, ok := KeyOfLED(led); ok {
+					l.keys[i] = ledKey{code, true}
+					keys++
+				}
+			}
+			l.mu.Lock()
+			l.dirty = true
+			l.mu.Unlock()
+			taken[c.Index] = true
+			h.log.Info("lighting the keys", "device", l.info.Name, "openrgb", c.Name, "lights", len(c.LEDs), "keys", keys)
+			break
+		}
+		if !l.bound && !l.missed {
+			l.missed = true
+			h.log.Info("OpenRGB has no lights for this device", "device", l.info.Name)
+		}
+	}
+	return nil
+}
+
+// send sets the lights of a lamp if its scene changed and the colours are
+// not what the lights have already.
+func (h *Hub) send(server Server, l *Lamp) error {
+	l.mu.Lock()
+	scene, dirty := l.scene, l.dirty
+	l.dirty = false
+	l.mu.Unlock()
+	if !dirty {
+		return nil
+	}
+	c := h.opts.Colours
+	painted := Paint(scene, c)
+	rest := c.Unbound
+	if !scene.Active {
+		rest = c.Idle
+	}
+	colours := make([]openrgb.RGB, len(l.keys))
+	for i, key := range l.keys {
+		switch colour, bound := painted[key.code]; {
+		case !key.isKey:
+			// A light that is not under a key stays dark.
+		case bound:
+			colours[i] = openrgb.RGB(colour)
+		default:
+			colours[i] = openrgb.RGB(rest)
+		}
+	}
+	if slices.Equal(colours, l.sent) {
+		return nil
+	}
+	if err := server.SetLEDs(l.index, colours); err != nil {
+		return err
+	}
+	l.sent = colours
+	return nil
+}

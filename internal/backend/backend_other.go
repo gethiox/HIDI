@@ -35,3 +35,9 @@ func CheckOutput(w io.Writer, name string) (output.Endpoint, error) {
 func OpenEndpoint(name string) (output.Endpoint, error) {
 	return nil, errUnsupported
 }
+
+// OpenDuplexEndpoint creates a virtual MIDI device that other programs can
+// also send to. It is not implemented for this platform yet.
+func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
+	return nil, errUnsupported
+}

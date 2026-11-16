@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"strings"
 
@@ -20,8 +21,21 @@ const Schema = 1
 type Settings struct {
 	Input  Input
 	Output Output
+	Lights Lights
 	Window Window
 }
+
+// Lights says whether and how HIDI lights the keys of keyboards.
+type Lights struct {
+	// OpenRGB turns on lighting through an OpenRGB server.
+	OpenRGB bool
+	// Address is where that server listens.
+	Address string
+}
+
+// DefaultOpenRGBAddress is where an OpenRGB server listens unless it is
+// told otherwise.
+const DefaultOpenRGBAddress = "127.0.0.1:6742"
 
 // Input says how HIDI treats input devices.
 type Input struct {
@@ -53,11 +67,14 @@ type Window struct {
 
 // Default returns the settings of a HIDI nobody has changed.
 func Default() Settings {
-	return Settings{Input: Input{
-		Toggle:        []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
-		GrabKeyboards: true,
-		StartOn:       true,
-	}}
+	return Settings{
+		Input: Input{
+			Toggle:        []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
+			GrabKeyboards: true,
+			StartOn:       true,
+		},
+		Lights: Lights{Address: DefaultOpenRGBAddress},
+	}
 }
 
 // file is the settings as they are written. Pointers tell a setting that
@@ -73,6 +90,10 @@ type file struct {
 	Output struct {
 		Connect *[]string `toml:"connect"`
 	} `toml:"output"`
+	Lights struct {
+		OpenRGB *bool   `toml:"openrgb"`
+		Address *string `toml:"address"`
+	} `toml:"lights"`
 	Window struct {
 		BackgroundFPS *int `toml:"background_fps"`
 		LogHeight     *int `toml:"log_height"`
@@ -118,6 +139,11 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.GrabGamepads, f.Input.GrabGamepads)
 	set(&s.Input.StartOn, f.Input.StartOn)
 	set(&s.Output.Connect, f.Output.Connect)
+	set(&s.Lights.OpenRGB, f.Lights.OpenRGB)
+	set(&s.Lights.Address, f.Lights.Address)
+	if _, _, err := net.SplitHostPort(s.Lights.Address); err != nil {
+		problems = append(problems, fmt.Sprintf("lights.address: %q is not a host and a port, such as %q", s.Lights.Address, DefaultOpenRGBAddress))
+	}
 	set(&s.Window.BackgroundFPS, f.Window.BackgroundFPS)
 	set(&s.Window.LogHeight, f.Window.LogHeight)
 	if s.Window.BackgroundFPS < 0 || s.Window.LogHeight < 0 {
@@ -209,6 +235,14 @@ start_on = %t
 # their name or by their ID as "hidi ports" lists them.
 connect = %s
 
+[lights]
+# Light the keys of keyboards to show what they play, through an OpenRGB
+# server, which is a program of its own that has to be running.
+openrgb = %t
+
+# Where the OpenRGB server listens.
+address = %q
+
 [window]
 # Draw the window at most this many times a second while another window is
 # in front. 0 keeps to the monitor's refresh rate.
@@ -218,7 +252,7 @@ background_fps = %d
 # last line.
 log_height = %d
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn,
-		list(s.Output.Connect), s.Window.BackgroundFPS, s.Window.LogHeight)
+		list(s.Output.Connect), s.Lights.OpenRGB, s.Lights.Address, s.Window.BackgroundFPS, s.Window.LogHeight)
 	return []byte(b.String())
 }
 

@@ -38,8 +38,8 @@ defaults.
 
 A running HIDI notices within about two seconds when the file changes, and
 takes over the toggle combination and what is grabbed: a keyboard that
-should type again does so at once. `start_on` and `connect` matter when HIDI
-starts. A changed file with a mistake is reported and changes nothing.
+should type again does so at once. `start_on`, `connect` and `[lights]`
+matter when HIDI starts. A changed file with a mistake is reported and changes nothing.
 
 ```toml
 schema = 1
@@ -53,6 +53,10 @@ start_on = true
 [output]
 connect = []
 
+[lights]
+openrgb = false
+address = "127.0.0.1:6742"
+
 [window]
 background_fps = 0
 log_height = 0
@@ -65,6 +69,8 @@ log_height = 0
 | `input.grab_gamepads` | Also keep game controllers from other programs. | `-grab-gamepads` |
 | `input.start_on` | Whether HIDI is on when it starts. | `-off` |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `-connect` |
+| `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `-openrgb` |
+| `lights.address` | Where that server listens. | `-openrgb ADDRESS` |
 | `window.background_fps` | The most the window is drawn per second while not in front; 0 keeps to the monitor. | `-background-fps` |
 | `window.log_height` | The height of the log when the window opens. | `-log-height` |
 

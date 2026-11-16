@@ -4,7 +4,9 @@ package alsaseq
 
 import (
 	"errors"
+	"fmt"
 	"sync"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 
@@ -18,6 +20,14 @@ type Endpoint struct {
 	client *client // nil once closed
 	port   addr
 	buf    []event
+
+	// For an endpoint that also receives: wake is a pipe that Close
+	// writes to, to end a Receive that waits; receiving holds the lock on
+	// what Receive uses.
+	duplex    bool
+	wake      [2]int
+	receiving sync.Mutex
+	inbuf     []byte
 }
 
 // Open creates a virtual MIDI device with the given name. The device is
@@ -25,7 +35,8 @@ type Endpoint struct {
 // exits.
 //
 // The endpoint only sends. It does not offer a port to write to, because a
-// client that accepts events must also read them.
+// client that accepts events must also read them; [OpenDuplex] makes one
+// that does.
 func Open(name string) (*Endpoint, error) {
 	c, err := openClient(name, unix.O_WRONLY)
 	if err != nil {
@@ -39,6 +50,84 @@ func Open(name string) (*Endpoint, error) {
 		return nil, err
 	}
 	return &Endpoint{client: c, port: port}, nil
+}
+
+// OpenDuplex creates a virtual MIDI device that other programs can read
+// from and also send to. What they send is read with [Endpoint.Receive],
+// and has to be: the sequencer keeps what is not read, up to a limit.
+func OpenDuplex(name string) (*Endpoint, error) {
+	c, err := openClient(name, unix.O_RDWR)
+	if err != nil {
+		return nil, err
+	}
+	port, err := c.createPort(name,
+		portCapRead|portCapSubsRead|portCapWrite|portCapSubsWrite,
+		portTypeMIDIGeneric|portTypeSoftware|portTypeApplication)
+	if err != nil {
+		c.close()
+		return nil, err
+	}
+	e := &Endpoint{client: c, port: port, duplex: true, inbuf: make([]byte, 64*eventSize)}
+	if err := unix.Pipe2(e.wake[:], unix.O_CLOEXEC|unix.O_NONBLOCK); err != nil {
+		c.close()
+		return nil, fmt.Errorf("making the pipe that ends a waiting read: %w", err)
+	}
+	return e, nil
+}
+
+// ErrSendOnly is returned by [Endpoint.Receive] for an endpoint that was
+// not opened with [OpenDuplex].
+var ErrSendOnly = errors.New("MIDI endpoint does not receive")
+
+// Receive waits for MIDI that another program sends to the device and
+// appends the messages to out. It may return without any, when what
+// arrived was not a MIDI message HIDI knows. After [Endpoint.Close] it
+// returns [ErrClosed]. Receive must not be called from several goroutines
+// at once.
+func (e *Endpoint) Receive(out []midi.Message) ([]midi.Message, error) {
+	if !e.duplex {
+		return out, ErrSendOnly
+	}
+	e.receiving.Lock()
+	defer e.receiving.Unlock()
+	e.mu.Lock()
+	c := e.client
+	e.mu.Unlock()
+	if c == nil {
+		return out, ErrClosed
+	}
+	fds := []unix.PollFd{{Fd: int32(c.fd), Events: unix.POLLIN}, {Fd: int32(e.wake[0]), Events: unix.POLLIN}}
+	for {
+		if _, err := unix.Poll(fds, -1); err != nil {
+			if errors.Is(err, unix.EINTR) {
+				continue
+			}
+			return out, fmt.Errorf("waiting for the ALSA sequencer: %w", err)
+		}
+		if fds[1].Revents != 0 {
+			return out, ErrClosed
+		}
+		if fds[0].Revents&unix.POLLIN == 0 {
+			if fds[0].Revents != 0 {
+				return out, ErrClosed // the sequencer hung up
+			}
+			continue
+		}
+		n, err := unix.Read(c.fd, e.inbuf)
+		if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
+			continue
+		}
+		if err != nil {
+			return out, fmt.Errorf("reading from the ALSA sequencer: %w", err)
+		}
+		for off := 0; off+eventSize <= n; off += eventSize {
+			ev := (*event)(unsafe.Pointer(&e.inbuf[off]))
+			if m, ok := decode(*ev); ok {
+				out = append(out, m)
+			}
+		}
+		return out, nil
+	}
 }
 
 // ErrClosed is returned by [Endpoint.Send] after the endpoint was closed.
@@ -64,13 +153,22 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 // Close removes the device. Closing an endpoint twice is not an error.
 func (e *Endpoint) Close() error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.client == nil {
+	c := e.client
+	e.client = nil
+	e.mu.Unlock()
+	if c == nil {
 		return nil
 	}
-	err := e.client.close()
-	e.client = nil
-	return err
+	if e.duplex {
+		// End a Receive that waits, and let it leave before what it
+		// uses is closed.
+		unix.Write(e.wake[1], []byte{0})
+		e.receiving.Lock()
+		unix.Close(e.wake[0])
+		unix.Close(e.wake[1])
+		e.receiving.Unlock()
+	}
+	return c.close()
 }
 
 // encode converts a message to a sequencer event sent from the given port to
