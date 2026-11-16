@@ -19,6 +19,13 @@ func TestStructSizes(t *testing.T) {
 		{"RAWKEYBOARD", unsafe.Sizeof(rawKeyboard{}), 16},
 		{"RAWINPUTDEVICELIST", unsafe.Sizeof(rawInputDeviceList{}), 16},
 		{"KBDLLHOOKSTRUCT", unsafe.Sizeof(kbdLLHook{}), 24},
+		{"RAWHID", unsafe.Sizeof(rawHID{}), 8},
+		{"RID_DEVICE_INFO", unsafe.Sizeof(ridDeviceInfo{}), 32},
+		{"HIDP_CAPS", unsafe.Sizeof(hidpCaps{}), 64},
+		{"HIDP_VALUE_CAPS", unsafe.Sizeof(hidpValueCaps{}), 72},
+		{"HIDP_VALUE_CAPS.logicalMin", unsafe.Offsetof(hidpValueCaps{}.logicalMin), 40},
+		{"HIDP_VALUE_CAPS.usageMin", unsafe.Offsetof(hidpValueCaps{}.usageMin), 56},
+		{"HIDP_CAPS.inputValueCaps", unsafe.Offsetof(hidpCaps{}.inputValueCaps), 48},
 	} {
 		if s.got != s.want {
 			t.Errorf("sizeof(%s) = %d, want %d", s.name, s.got, s.want)
@@ -29,11 +36,11 @@ func TestStructSizes(t *testing.T) {
 // The watcher must start and stop cleanly, also on a machine without a
 // keyboard, and only one may run at a time.
 func TestWatchAndClose(t *testing.T) {
-	w, err := Watch()
+	w, err := Watch(Options{})
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}
-	if _, err := Watch(); err == nil {
+	if _, err := Watch(Options{}); err == nil {
 		t.Error("a second watcher started")
 	}
 
@@ -44,14 +51,14 @@ collect:
 	for {
 		select {
 		case d := <-w.Devices():
-			t.Logf("keyboard: %+v", d.Info())
+			t.Logf("device: %+v", d.Info())
 			if d.Info().Name == "" {
-				t.Error("a keyboard without a name")
+				t.Error("a device without a name")
 			}
 			if err := d.Grab(); err != nil {
 				t.Errorf("Grab: %v", err)
 			}
-			if w.gate.grabs.Load() != 1 {
+			if want := int32(1); !d.controller && w.gate.grabs.Load() != want {
 				t.Errorf("%d grabs counted after one", w.gate.grabs.Load())
 			}
 			d.Release()
@@ -87,7 +94,7 @@ collect:
 		}
 	}
 	// A new watcher can start once the old one is gone.
-	again, err := Watch()
+	again, err := Watch(Options{})
 	if err != nil {
 		t.Fatalf("Watch after Close: %v", err)
 	}

@@ -1,4 +1,4 @@
-// Package rawinput reads keyboards on Windows.
+// Package rawinput reads keyboards and game controllers on Windows.
 //
 // Windows has no single interface that both tells keyboards apart and can
 // keep their input from other programs, so the package uses two:
@@ -11,6 +11,12 @@
 //
 // Keys are reported by their position, as scan codes, and translated to
 // the Linux key codes HIDI uses everywhere; scancode.go has the table.
+//
+// Game controllers come through Raw Input as well, as the HID reports the
+// controller sends. Windows cannot keep them from other programs. pad.go
+// has the translation of their buttons and axes. Xbox controllers are
+// better read through XInput, which package xinput does: as HID devices
+// they report their two triggers as one axis.
 //
 // The files without a build constraint hold the parts that do not call
 // Windows, so that their tests run on every system.

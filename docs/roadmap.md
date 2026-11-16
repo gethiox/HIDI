@@ -46,28 +46,31 @@ completes or changes an item.
 
 ## Current focus
 
-Windows MIDI output, tried on the maintainer's machine with `hidi doctor`
-(Windows 11 build 26300, `Windows.Devices.Midi2.dll` from Microsoft's
-Preview 11 NuGet package beside `hidi.exe`). What the next runs have to
-answer, in this order:
+Windows, tried on the maintainer's machine (Windows 11 build 26300,
+`Windows.Devices.Midi2.dll` from Microsoft's Preview 11 NuGet package
+beside `hidi.exe`).
 
-1. Does another program (a DAW, a MIDI monitor) list "HIDI test device"
-   and receive the notes while `hidi doctor` plays?
-2. Which stage under "Removing the MIDI device:" does not return? The
-   first run hung there, before any time limit existed. The order used is
-   the one in Microsoft's sample: disconnect the connection, release it
-   and the device, close the session.
-3. After a HIDI that was killed, can the next one create its device, or
+MIDI output works: `hidi doctor` creates its device, and Bitwig lists it
+and plays the notes. What is left there:
+
+1. Removing the device does not return: `DisconnectEndpointConnection`
+   never answers. The time limit catches it and the device goes away with
+   the process, so it does no harm, but it has to be fixed: to try next is
+   closing the session without disconnecting first. The maintainer asked
+   to collect such small fixes rather than open a pull request for each.
+2. After a HIDI that was killed, can the next one create its device, or
    does the service keep the old one? If it does, the declared identifier
    has to differ between runs, at the cost of a DAW no longer recognising
-   the device.
+   the device. The run after a restart of Windows created it without
+   trouble.
 
-The MIDI service on that machine got stuck after the first hang: creating
-a device no longer answered, and the service could not be stopped. A
-restart of Windows was the remedy.
+The MIDI service on that machine got stuck once, after a removal that hung
+without a time limit and a killed process: creating a device no longer
+answered, and the service could not be stopped. A restart of Windows was
+the remedy.
 
-Not started on Windows: trying keyboard input (`hidi run -v -no-grab`,
-then `hidi run -v`), and game controllers.
+Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
+`hidi run -v`) and game controllers (`hidi devices`, then `hidi run -v`).
 
 ## Done
 
@@ -111,14 +114,24 @@ In planned order. Each item is roughly one pull request.
    build 26300 with the DLL of Microsoft's Preview 11 package,
    `hidi doctor` created a virtual device and sent to it. Every method
    position that creating and sending uses is thereby confirmed for that
-   version. Still open: that another program sees the device and receives
-   the notes, and removing the device, which did not return on the first
-   run and is now traced and limited in time.
+   version, and a DAW received the notes. Still open: removing the
+   device, where disconnecting does not return and runs into its time
+   limit.
 2. **Input**: Raw Input for keyboards and the low-level hook that
    suppresses keyboard input while HIDI is on are written
    (`internal/input/rawinput`) and have to be tried on a real machine.
-   Game controllers are still to do.
-3. **Platform glue**, and testing on a real machine.
+   Game controllers are read too, with their controls translated to the
+   codes Linux gives them: Xbox controllers through XInput
+   (`internal/input/xinput`), every other one through Raw Input. Also
+   untried.
+3. **Steam Controller** (the first one, the new one, and the controls of
+   a Steam Deck) on Windows. These speak a protocol of Valve's own
+   instead of describing themselves as game controllers, so neither
+   reader sees them unless Steam is running and presents them as an Xbox
+   controller. Reading them directly means a third reader for that
+   protocol, as the Linux kernel has in `hid-steam`; on Linux that driver
+   already makes them ordinary controllers.
+4. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
@@ -174,6 +187,10 @@ rest on assumptions about real devices and should be checked first:
   the built-in profiles guess.
 - That `hidi run -connect` reaches a real USB MIDI interface, and
   reconnects after it was unplugged.
+- Windows: that Raw Input still delivers the keys the hook swallows; that
+  XInput reports the guide button and the model of a controller through
+  its two functions without a name; that a DualShock 4 or DualSense numbers its controls
+  as the table in `rawinput/pad.go` says, also over Bluetooth.
 - That the toggle combination suits a keyboard with one Ctrl and no
   right-hand modifiers, and does not collide with a desktop shortcut.
 
