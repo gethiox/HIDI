@@ -195,6 +195,7 @@ var (
 // Watcher finds the keyboards and game controllers of the system, those
 // present when it starts and those plugged in afterwards, and reads them.
 type Watcher struct {
+	opts    Options
 	devices chan *Device
 	hwnd    uintptr
 	done    chan struct{}
@@ -215,9 +216,17 @@ type Watcher struct {
 // without an argument to tell watchers apart, and there is only ever one.
 var current atomic.Pointer[Watcher]
 
-// Watch starts watching for keyboards.
-func Watch() (*Watcher, error) {
+// Options change what a [Watcher] takes in.
+type Options struct {
+	// SkipXInput leaves alone the controllers Windows also offers through
+	// XInput, for a caller that reads them there.
+	SkipXInput bool
+}
+
+// Watch starts watching for keyboards and game controllers.
+func Watch(opts Options) (*Watcher, error) {
 	w := &Watcher{
+		opts:     opts,
 		devices:  make(chan *Device, 16),
 		done:     make(chan struct{}),
 		byHandle: map[uintptr]*Device{},
@@ -461,6 +470,9 @@ func (w *Watcher) add(handle uintptr) {
 	id := parsePath(path)
 	kind, typ, group := "Keyboard", control.DeviceKeyboard, id.group
 	if controller {
+		if id.xinput && w.opts.SkipXInput {
+			return
+		}
 		if id.vendor == 0 {
 			// The path of a Bluetooth controller is written differently.
 			id.vendor, id.product = uint16(info.vendor), uint16(info.product)
@@ -468,7 +480,7 @@ func (w *Watcher) add(handle uintptr) {
 		// A keyboard that also presents a game controller is two devices,
 		// as it is on Linux.
 		kind, typ, group = "Game controller", control.DeviceGamepad, "PAD:"+id.group
-		reader, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xbox), info.usage == usageJoystick)
+		reader, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
 		if err != nil {
 			return
 		}

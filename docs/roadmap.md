@@ -120,10 +120,10 @@ In planned order. Each item is roughly one pull request.
 2. **Input**: Raw Input for keyboards and the low-level hook that
    suppresses keyboard input while HIDI is on are written
    (`internal/input/rawinput`) and have to be tried on a real machine.
-   Game controllers are read through Raw Input too, with their controls
-   translated to the codes Linux gives them; also untried. To decide
-   after a try: reading Xbox controllers through XInput instead, which
-   reports the two triggers separately.
+   Game controllers are read too, with their controls translated to the
+   codes Linux gives them: Xbox controllers through XInput
+   (`internal/input/xinput`), every other one through Raw Input. Also
+   untried.
 3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
@@ -181,8 +181,8 @@ rest on assumptions about real devices and should be checked first:
 - That `hidi run -connect` reaches a real USB MIDI interface, and
   reconnects after it was unplugged.
 - Windows: that Raw Input still delivers the keys the hook swallows; that
-  an Xbox controller reports its triggers as assumed (one value, higher
-  for the left one); that a DualShock 4 or DualSense numbers its controls
+  XInput reports the guide button and the model of a controller through
+  its two functions without a name; that a DualShock 4 or DualSense numbers its controls
   as the table in `rawinput/pad.go` says, also over Bluetooth.
 - That the toggle combination suits a keyboard with one Ctrl and no
   right-hand modifiers, and does not collide with a desktop shortcut.

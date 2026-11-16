@@ -51,7 +51,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `control` | exists | Platform-neutral input model: device identity, control codes, events. |
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | exists | Configuration schema, versioning, migration, validation. |
-| `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. The Windows backend (`rawinput`) reads keyboards and awaits its first run on a real machine. |
+| `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. The Windows backends (`rawinput` for keyboards and most game controllers, `xinput` for Xbox controllers) await their first run on a real machine. |
 | `output` | partial | MIDI output backend interface and the router that connects endpoints to existing ports, with one subpackage per transport. The ALSA sequencer backend exists; the Windows MIDI Services backend is written and awaits its first run on a real machine. |
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
@@ -136,18 +136,33 @@ While an instrument is active its device does not type or click.
 - Linux: the device is grabbed exclusively through evdev.
 - Windows: there is no per-device grab. While HIDI is active, all keyboard
   input is suppressed with a low-level hook and read per device through
-  Raw Input. Game controllers are read through Raw Input as well, which
-  hands over their HID reports; `hid.dll` takes the buttons and axes out of
-  a report. Windows has no way to keep a controller from other programs, so
-  `-grab-gamepads` has no effect there.
+  Raw Input. Windows has no way to keep a game controller from other
+  programs, so `-grab-gamepads` has no effect there.
 
-A controller names its controls in the terms of the HID standard. They are
-translated to the codes the Linux kernel gives the same controller, so that
-one profile fits both systems: by the kernel's generic rules for most, and
-by a table for Xbox and PlayStation controllers, which have drivers of
-their own on Linux. Through HID, Windows reports both triggers of an Xbox
-controller as one value; HIDI splits it into two axes, which cannot tell
-both triggers pressed at once from neither.
+Game controllers on Windows are read in two ways, because no single
+interface serves all of them well:
+
+- Xbox controllers, and the many that imitate one, through XInput
+  (`input/xinput`). Windows also presents them as HID devices, for older
+  programs, but deliberately incomplete there: both triggers share one
+  axis. XInput has no notifications, so HIDI asks it for the state of each
+  connected controller every few milliseconds, and once a second whether
+  another appeared. It knows four controllers at most.
+- Every other controller, old ones included, through Raw Input
+  (`input/rawinput`), which hands over the HID reports exactly as the
+  controller sends them; `hid.dll` takes the buttons and axes out of a
+  report. Raw Input also reads Xbox controllers, with the shared trigger
+  axis split in two, should XInput be missing.
+
+The newer interfaces of Windows for controllers were not chosen: they
+deliver input only to the program whose window is in front, and an
+instrument must keep playing while the DAW is.
+
+A controller names its controls in the terms of the HID standard, or XInput
+names them. Both are translated to the codes the Linux kernel gives the same
+controller, so that one profile fits both systems: by the kernel's generic
+rules for most, and by a table for Xbox and PlayStation controllers, which
+have drivers of their own on Linux.
 
 A global key combination, handled inside HIDI's own input path, toggles this
 state so that a user with a single keyboard can always get it back. HIDI

@@ -4,28 +4,62 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/gethiox/HIDI/internal/input"
 	"github.com/gethiox/HIDI/internal/input/rawinput"
+	"github.com/gethiox/HIDI/internal/input/xinput"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/output/winmidi"
 )
 
 // Devices starts watching for input devices: keyboards and game
-// controllers.
+// controllers. Xbox controllers, and those that imitate one, are read
+// through XInput; keyboards and every other controller through Raw Input.
+// Should XInput not be there, Raw Input reads all of them.
 func Devices(problem func(what string, err error)) (*Source, error) {
-	w, err := rawinput.Watch()
+	pads, err := xinput.Watch()
+	if err != nil && problem != nil {
+		problem("Xbox controllers are read the plain way, on which both triggers share one axis", err)
+	}
 	if err != nil {
+		pads = nil
+	}
+	w, err := rawinput.Watch(rawinput.Options{SkipXInput: pads != nil})
+	if err != nil {
+		if pads != nil {
+			pads.Close()
+		}
 		return nil, err
 	}
 	devices := make(chan input.Device)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		defer close(devices)
+		defer wg.Done()
 		for d := range w.Devices() {
 			devices <- d
 		}
 	}()
-	return &Source{Devices: devices, close: w.Close}, nil
+	if pads != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for d := range pads.Devices() {
+				devices <- d
+			}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(devices)
+	}()
+	return &Source{Devices: devices, close: func() error {
+		if pads != nil {
+			pads.Close()
+		}
+		return w.Close()
+	}}, nil
 }
 
 // Ports lists the existing MIDI ports an instrument can be connected to. It

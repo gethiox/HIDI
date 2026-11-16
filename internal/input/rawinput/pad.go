@@ -91,7 +91,8 @@ type layout uint8
 const (
 	layoutGeneric layout = iota
 	// layoutXbox is an Xbox controller, or one that imitates it, as
-	// Windows presents it through HID.
+	// Windows presents it through HID. HIDI reads these through XInput
+	// and comes here only when that is not to be had.
 	layoutXbox
 	// layoutSony is a DualShock 4 or DualSense.
 	layoutSony

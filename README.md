@@ -172,9 +172,10 @@ Left Ctrl + Left Shift + Left Alt, turns HIDI off and gives them back. To try
 it without that, run `hidi.exe run -v -no-grab`; the keys then also type.
 
 Game controllers always keep working in other programs on Windows;
-`-grab-gamepads` has no effect there. An Xbox controller reports its two
-triggers as one value to programs that read it the way HIDI does, so pressing
-both at once reads as neither.
+`-grab-gamepads` has no effect there. Xbox controllers, and those that
+imitate one, are read through XInput and are all named "Xbox controller";
+Windows knows four of them at most. Every other controller is read as the
+HID device it is.
 
 ## Development
 

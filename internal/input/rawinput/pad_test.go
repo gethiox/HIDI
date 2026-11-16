@@ -67,10 +67,10 @@ func TestLayoutOf(t *testing.T) {
 
 func TestParsePathXbox(t *testing.T) {
 	id := parsePath(`\\?\HID#VID_045E&PID_028E&IG_00#7&1a2b3c4d&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}`)
-	if !id.xbox || id.vendor != 0x045e || id.product != 0x028e {
+	if !id.xinput || id.vendor != 0x045e || id.product != 0x028e {
 		t.Errorf("parsePath = %+v", id)
 	}
-	if id := parsePath(`\\?\HID#VID_046D&PID_C216#7&1a2b3c4d&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}`); id.xbox {
+	if id := parsePath(`\\?\HID#VID_046D&PID_C216#7&1a2b3c4d&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}`); id.xinput {
 		t.Error("a plain gamepad was taken for an Xbox controller")
 	}
 }

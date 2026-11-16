@@ -36,11 +36,11 @@ func TestStructSizes(t *testing.T) {
 // The watcher must start and stop cleanly, also on a machine without a
 // keyboard, and only one may run at a time.
 func TestWatchAndClose(t *testing.T) {
-	w, err := Watch()
+	w, err := Watch(Options{})
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}
-	if _, err := Watch(); err == nil {
+	if _, err := Watch(Options{}); err == nil {
 		t.Error("a second watcher started")
 	}
 
@@ -94,7 +94,7 @@ collect:
 		}
 	}
 	// A new watcher can start once the old one is gone.
-	again, err := Watch()
+	again, err := Watch(Options{})
 	if err != nil {
 		t.Fatalf("Watch after Close: %v", err)
 	}

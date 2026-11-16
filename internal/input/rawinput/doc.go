@@ -14,7 +14,9 @@
 //
 // Game controllers come through Raw Input as well, as the HID reports the
 // controller sends. Windows cannot keep them from other programs. pad.go
-// has the translation of their buttons and axes.
+// has the translation of their buttons and axes. Xbox controllers are
+// better read through XInput, which package xinput does: as HID devices
+// they report their two triggers as one axis.
 //
 // The files without a build constraint hold the parts that do not call
 // Windows, so that their tests run on every system.
