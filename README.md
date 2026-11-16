@@ -118,7 +118,13 @@ with. To get it back, turn HIDI off with the toggle combination:
 
 **Left Ctrl + Left Shift + Left Alt**, pressed together.
 
-Pressing it again turns HIDI back on. While HIDI is off the instruments are
+Pressing it again turns HIDI back on. One key can do the same with a tap,
+Caps Lock for instance: `-toggle KEY_CAPSLOCK -toggle-tap`. What the rest
+of the system then sees of that key differs between Windows and Linux; see
+"One key that turns HIDI off and on" in the
+[configuration reference](docs/configuration.md).
+
+ While HIDI is off the instruments are
 silent, and the MIDI devices stay in place. To stop HIDI, turn it off and
 press Ctrl+C. Game controllers are not taken away, so they keep working in
 other programs.
@@ -126,6 +132,8 @@ other programs.
 | Option | Effect |
 |---|---|
 | `-toggle KEYS` | Use another combination, such as `-toggle KEY_SCROLLLOCK` or `-toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. |
+| `-toggle-tap` | The toggle is one key and works by a tap. |
+| `-always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
 | `-no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `-grab-gamepads` | Also take game controllers away from other programs. |
 | `-off` | Start turned off. |
@@ -331,9 +339,28 @@ on the first, removes them, and creates one more to see that removing left
 the MIDI service working. `-devices N` changes how many. `-removal
 disconnect` and `-removal release` try other ways of giving a device up, and
 `-removal none` gives up nothing and leaves it to Windows to clear up when
-the program ends. Before a device is removed it is left alone for half a
-second, because removing one straight after using it has been seen to hang
-the MIDI service; `-wait 0` or `-wait 2s` changes that time.
+the program ends. `-wait 2s` leaves a device alone for that long before it
+is removed.
+
+**If Windows stops answering.** The MIDI service of Windows has a fault,
+known to Microsoft ([microsoft/MIDI#1047](https://github.com/microsoft/MIDI/issues/1047),
+[#1236](https://github.com/microsoft/MIDI/issues/1236)): after a program's
+MIDI devices are removed, or the program ends, the service can hang. Then
+removing a device never finishes, the next start of HIDI cannot create one,
+and no other program gets MIDI either. Microsoft has announced the repair
+for the Windows update at the end of November 2026. Until a machine has it,
+this can happen whenever HIDI stops, and no way has been found for HIDI to
+prevent it.
+
+Restarting Windows clears it, but is not needed. `Restart-Service midisrv`
+does not help, because the hung service does not stop. Ending its process
+does; in a terminal opened as administrator:
+
+```
+taskkill /F /IM midisrv.exe
+```
+
+Windows starts the service again when a program asks for MIDI.
 
 It prints the Windows build, where it found Windows MIDI Services, and each
 stage of creating a MIDI device. If all stages pass, a device named

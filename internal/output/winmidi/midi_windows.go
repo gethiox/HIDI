@@ -120,8 +120,19 @@ var (
 )
 
 // errStuck is what a call that did not return in time is reported as.
-var errStuck = errors.New("Windows did not answer in time. The MIDI service may be stuck: " +
-	"restart the service named midisrv (as administrator: Restart-Service midisrv), or restart Windows")
+//
+// The cause known so far is a fault of the MIDI service of Windows itself,
+// reported to Microsoft as microsoft/MIDI issues 1047 and 1236: after a
+// program's virtual devices are removed, or the program ends, the service
+// can stop answering every program. Microsoft has announced the repair
+// for the Windows update at the end of November 2026. Asking the service
+// to restart does not help, because it does not stop either; ending its
+// process does.
+var errStuck = errors.New("Windows did not answer in time. The MIDI service of Windows is stuck, " +
+	"which is a known fault of the service in Windows builds before December 2026. " +
+	"To get it going again without restarting Windows, close HIDI and end the service's process " +
+	"from a terminal opened as administrator: taskkill /F /IM midisrv.exe " +
+	"(Windows starts it again when it is needed)")
 
 // within runs fn and waits for it at most d. It reports false if fn has
 // not returned by then; fn keeps running, since a call into Windows cannot
@@ -296,13 +307,10 @@ const (
 // HowToRemove is the way devices are given up.
 var HowToRemove = RemoveBySession
 
-// Settle is how long a device is left alone before it is removed. On the
-// machine this was first tried on, removing a device never returned, and
-// left the MIDI service answering nobody, when it came right after
-// something else was asked of the device: 22 ms after it was created, or
-// straight after a message was sent. Devices that had been idle for
-// seconds were removed in a millisecond each.
-var Settle = 500 * time.Millisecond
+// Settle is how long a device is left alone before it is removed. It is
+// zero: waiting half a second was tried against removals that never
+// returned, and made no difference. The diagnostic command can set it.
+var Settle time.Duration
 
 func open(name string, t *tracer) (_ *Endpoint, err error) {
 	service.Lock()

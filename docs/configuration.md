@@ -49,6 +49,8 @@ toggle = ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT"]
 grab_keyboards = true
 grab_gamepads = false
 start_on = true
+toggle_tap = false
+always_grab = false
 
 [output]
 connect = []
@@ -68,11 +70,48 @@ log_height = 0
 | `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. Needs a toggle combination. | `-no-grab` |
 | `input.grab_gamepads` | Also keep game controllers from other programs. | `-grab-gamepads` |
 | `input.start_on` | Whether HIDI is on when it starts. | `-off` |
+| `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `-toggle-tap` |
+| `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `-always-grab` |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `-connect` |
 | `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `-openrgb` |
 | `lights.address` | Where that server listens. | `-openrgb ADDRESS` |
 | `window.background_fps` | The most the window is drawn per second while not in front; 0 keeps to the monitor. | `-background-fps` |
 | `window.log_height` | The height of the log when the window opens. | `-log-height` |
+
+#### One key that turns HIDI off and on
+
+Three keys pressed together are safe, and a handful. One key is nicer:
+
+```toml
+toggle = ["KEY_CAPSLOCK"]
+toggle_tap = true
+```
+
+Tap the key, pressed and let go within half a second, and HIDI turns off or
+on. The key plays nothing any more. Hold it longer and it does not toggle.
+
+What the rest of the system sees of that key differs:
+
+| | The tap | Held longer |
+|---|---|---|
+| Windows | hidden | the key does what it normally does |
+| Linux with `always_grab = true` | hidden | the key does what it normally does |
+| Linux otherwise | hidden while HIDI is on; the tap that turns HIDI **on** also reaches the system, so Caps Lock would switch | reaches the system only while HIDI is off |
+
+On Windows a key is hidden whichever keyboard it is pressed on.
+
+`always_grab` is how Linux gets the behaviour of Windows, at a price. Linux
+cannot keep one key of a keyboard from the system: a keyboard is grabbed
+whole or not at all. So with `always_grab` HIDI keeps keyboards grabbed while
+it is off as well, and types every key but the hidden one again on a keyboard
+of its own, named after yours with "(through HIDI)". Everything you type then
+passes through HIDI for as long as it runs. If HIDI were ever to hang, the
+keyboard would do nothing until HIDI is ended from elsewhere; when HIDI ends
+or is killed, the keyboard is yours again at once. It needs write access to
+`/dev/uinput`. A part of a keyboard that has a wheel or a pointer stays with
+the system and is not held.
+
+Without `toggle_tap`, `always_grab` does nothing.
 
 # Profile files
 

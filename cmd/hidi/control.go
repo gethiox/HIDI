@@ -80,9 +80,12 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 		})
 	}
 	// Two devices of the same model have the same name; where they are
-	// plugged in keeps their order steady.
+	// plugged in keeps their order steady. One piece of hardware can be
+	// two devices in one place, a joystick that is also a keyboard; their
+	// kind tells those apart.
 	slices.SortFunc(s.Instruments, func(a, b ipc.Instrument) int {
-		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Location, b.Location))
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Location, b.Location),
+			cmp.Compare(a.Type, b.Type), cmp.Compare(a.Hardware, b.Hardware))
 	})
 	return s
 }

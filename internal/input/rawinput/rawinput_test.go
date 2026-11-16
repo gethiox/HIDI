@@ -190,3 +190,55 @@ func TestInstanceID(t *testing.T) {
 		}
 	}
 }
+
+// A hidden key is swallowed without any grab; other keys pass.
+func TestGateHidesKeys(t *testing.T) {
+	var g gate
+	hidden := map[uint16]bool{58: true} // KEY_CAPSLOCK
+	g.hidden.Store(&hidden)
+	g.hides.Add(1)
+
+	const vkCaps, vkA = 0x14, 0x41
+	if !g.swallowKey(vkCaps, 58, true, false) || !g.swallowKey(vkCaps, 58, true, true) {
+		t.Error("the hidden key got through")
+	}
+	if g.swallowKey(vkA, 30, true, false) || g.swallowKey(vkA, 30, true, true) {
+		t.Error("another key was swallowed")
+	}
+	// A key whose code is not known is not hidden.
+	if g.swallowKey(vkCaps, 0, false, false) {
+		t.Error("a key without a code was swallowed")
+	}
+	g.swallowKey(vkCaps, 0, false, true)
+
+	// Pressed while hidden, it stays swallowed to its release.
+	g.swallowKey(vkCaps, 58, true, false)
+	g.hides.Add(-1)
+	if !g.swallowKey(vkCaps, 58, true, true) {
+		t.Error("the release of a swallowed press got through")
+	}
+	if g.swallowKey(vkCaps, 58, true, false) {
+		t.Error("still hidden after hiding ended")
+	}
+}
+
+// Every key a scan code is known for comes back from it.
+func TestScanCodeRoundTrip(t *testing.T) {
+	for _, code := range []uint16{1, 30, 58, 88, 97, 100, 103, 111, 125, 183} {
+		scan, e0, ok := scanCode(code)
+		if !ok {
+			t.Errorf("no scan code for key %d", code)
+			continue
+		}
+		var flags uint16
+		if e0 {
+			flags = flagE0
+		}
+		if back, ok := keyCode(scan, flags); !ok || back != code {
+			t.Errorf("key %d -> scan %#x (E0 %v) -> key %d", code, scan, e0, back)
+		}
+	}
+	if _, _, ok := scanCode(119); ok {
+		t.Error("Pause has no single scan code")
+	}
+}

@@ -15,6 +15,11 @@ type gate struct {
 	// grabs counts the grabbed keyboards. It is the only field other
 	// threads touch.
 	grabs atomic.Int32
+	// hides counts the keyboards that are passed on except for some keys,
+	// and hidden holds those keys by their Linux code. A hidden key is
+	// swallowed like any key of a grabbed keyboard.
+	hides  atomic.Int32
+	hidden atomic.Pointer[map[uint16]bool]
 	// passed holds the keys, by virtual key code, whose press was let
 	// through and whose release is still to come.
 	passed map[uint32]bool
@@ -22,10 +27,30 @@ type gate struct {
 	held map[uint32]bool
 }
 
-// swallow reports whether a key event is kept from other programs.
-func (g *gate) swallow(vk uint32, up bool) bool {
+// swallow reports whether a key event is kept from other programs. It
+// decides by grabs alone, for a key whose code is not known.
+func (g *gate) swallow(vk uint32, up bool) bool { return g.swallowKey(vk, 0, false, up) }
+
+// kept reports whether a key that goes down now is to be swallowed. known
+// says that code is the key's Linux code.
+func (g *gate) kept(code uint16, known bool) bool {
+	if g.grabs.Load() > 0 {
+		return true
+	}
+	if !known || g.hides.Load() == 0 {
+		return false
+	}
+	hidden := g.hidden.Load()
+	return hidden != nil && (*hidden)[code]
+}
+
+// swallowKey is swallow for a key whose Linux code may be known.
+func (g *gate) swallowKey(vk uint32, code uint16, known, up bool) bool {
 	if g.held == nil {
 		g.held = map[uint32]bool{}
+	}
+	if g.passed == nil {
+		g.passed = map[uint32]bool{}
 	}
 	if up {
 		switch {
@@ -37,14 +62,14 @@ func (g *gate) swallow(vk uint32, up bool) bool {
 			return true
 		}
 		// A release without a known press: decide by the present state.
-		return g.grabs.Load() > 0
+		return g.kept(code, known)
 	}
 	switch {
 	case g.passed[vk]:
 		return false // a repeat of a key the programs know is down
 	case g.held[vk]:
 		return true // a repeat of a swallowed key
-	case g.grabs.Load() > 0:
+	case g.kept(code, known):
 		g.held[vk] = true
 		return true
 	}

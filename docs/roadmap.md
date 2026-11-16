@@ -76,19 +76,20 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
 
 ### What was done about the rest, and waits to be tried there
 
-1. **Removing a MIDI device sometimes never returned**, and then the MIDI
-   service answered nobody until Windows was restarted. It was seen right
-   after a message was sent to the device (`hidi doctor`) and 22 ms after
-   the device was created (a second `hidi run`), and not for devices that
-   had been idle for seconds. So a device is now left alone for half a
-   second before it is removed; devices closed together wait together.
-   Whether that is the cause is not known until it is tried:
-   `hidi doctor` should pass, twice in a row, and so should starting and
-   stopping `hidi run` quickly. `hidi doctor -wait 0` should hang as
-   before if the guess is right. If it still hangs with the wait:
-   `-wait 2s`, `-removal release`, and `-removal none`, which removes
-   nothing and shows what Windows does with the devices of a program that
-   ended.
+1. **Removing a MIDI device sometimes never returns**, and then the MIDI
+   service answers nobody. This is a fault of the service in Windows,
+   not of HIDI: microsoft/MIDI issues 1047 and 1236 describe it exactly
+   (teardown of a virtual device hangs in `MidiSession::Close` or
+   `DisconnectEndpointConnection`, and every later client hangs when it
+   creates a session or device). Microsoft announced the repair for the
+   Windows update at the end of November 2026; a related deadlock, when a
+   virtual device is opened while another shuts down, was repaired in
+   their source on 27 October 2026. Waiting half a second before a
+   removal was tried (pull request 47) and made no difference, so HIDI
+   does not wait any more. What helps without restarting Windows is
+   ending the service's process, `taskkill /F /IM midisrv.exe` as
+   administrator; `Restart-Service` hangs. HIDI says so when it happens.
+   To try again once the maintainer's Windows has the repair.
 2. **The second device of a model could not be created**: status 808 for
    the name "HIDI VKBsim Gladiator EVO R #2" with the identifier
    "HIDI-HIDI-VKBsim-Gladiator-EVO-R--2". The devices of `hidi doctor`,
@@ -104,6 +105,19 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
    `-log-midi`; `hidi run` keeps lines about its state at the bottom of
    the terminal; every interface shows input events and MIDI messages a
    second.
+
+5. **One key to turn HIDI off and on** (asked for after the third
+   round): `toggle_tap` makes a toggle of one key work by a tap, with a
+   longer hold passed on as the key itself. Windows hides the tap from
+   the system through its keyboard hook. Linux does only with
+   `always_grab`, which keeps keyboards grabbed while HIDI is off and
+   types their keys again through uinput; the maintainer chose to leave
+   that off by default, and the default toggle stays the three keys.
+   Untried on Windows and on a real Linux desktop. The udev rule of the
+   release (pull request 48) still has to give access to `/dev/uinput`
+   for it.
+6. The buttons of a joystick play notes in the default profile, and two
+   instruments of one name in one place keep their order.
 
 Still open there:
 

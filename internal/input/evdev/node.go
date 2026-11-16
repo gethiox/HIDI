@@ -281,6 +281,14 @@ func (n *Node) grabIfIdle() error {
 	return nil
 }
 
+// Grabbed reports whether a grab is in place, which a wanted grab is not
+// while a key is down.
+func (n *Node) Grabbed() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.grabbed
+}
+
 // Release ends a grab, or cancels one that has not taken effect yet.
 func (n *Node) Release() error {
 	n.mu.Lock()

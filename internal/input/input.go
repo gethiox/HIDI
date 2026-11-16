@@ -37,3 +37,18 @@ type Device interface {
 	// twice is not an error.
 	Close() error
 }
+
+// Passer is a [Device] that can also be shared with the rest of the
+// system in part: its input goes on to the system, except for some keys
+// that are kept back. HIDI uses it for a key that turns it off and on with
+// a tap, which the system should not see.
+//
+// Pass, Grab and Release each end what the others began.
+type Passer interface {
+	// Pass gives the device's input to the rest of the system except for
+	// the hidden keys, which reach only HIDI.
+	Pass(hidden []control.Code) error
+	// Type presses or releases a key for the rest of the system, as if on
+	// this device.
+	Type(key control.Code, down bool) error
+}

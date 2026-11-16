@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -162,6 +163,8 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	noStatus := fs.Bool("no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
 	toggleFlag := fs.String("toggle", defaultToggle,
 		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
+	toggleTap := fs.Bool("toggle-tap", false, "the toggle is one key and works by a tap; held for longer than half a second,\nthe key does what it normally does")
+	alwaysGrab := fs.Bool("always-grab", false, "on Linux, keep keyboards grabbed while HIDI is off too and pass their keys on,\nso that the tapped toggle key is hidden from the system")
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
 	noColour := fs.Bool("no-color", false, "write the log without colours")
@@ -197,6 +200,16 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	if !given["off"] {
 		*startOff = !pl.settings.Input.StartOn
+	}
+	if !given["toggle-tap"] {
+		*toggleTap = pl.settings.Input.ToggleTap
+	}
+	if !given["always-grab"] {
+		*alwaysGrab = pl.settings.Input.AlwaysGrab
+	}
+	if *toggleTap && len(toggle) != 1 {
+		fmt.Fprintln(stderr, "hidi run: -toggle-tap needs a toggle of exactly one key, such as -toggle KEY_CAPSLOCK")
+		return 2
 	}
 	if !given["connect"] {
 		connect = pl.settings.Output.Connect
@@ -353,6 +366,8 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		Logger:        logs.Logger("instrument"),
 		Grab:          grab,
 		Toggle:        toggle,
+		ToggleTap:     *toggleTap,
+		HideToggle:    hidesToggle(*alwaysGrab),
 		StartInactive: *startOff,
 		Lights:        lights,
 		LogMIDI:       *logMIDI,
@@ -433,6 +448,18 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 				configLog.Error("the changed settings are not used: grabbing keyboards needs a toggle combination", "file", settingsFile)
 				return
 			}
+			tap, always := *toggleTap, *alwaysGrab
+			if !given["toggle-tap"] {
+				tap = s.Input.ToggleTap
+			}
+			if !given["always-grab"] {
+				always = s.Input.AlwaysGrab
+			}
+			if tap && len(newToggle) != 1 {
+				configLog.Error("the changed settings are not used: toggle_tap needs a toggle of exactly one key", "file", settingsFile)
+				return
+			}
+			manager.SetToggleTap(tap, hidesToggle(always))
 			manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
 			showToggle(newToggle)
 			configLog.Info("settings changed",
@@ -446,6 +473,14 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	<-lightsDone // the lights are left evenly lit
 	log.Info("HIDI stopped")
 	return 0
+}
+
+// hidesToggle reports whether a tapped toggle key is kept from the system.
+// Windows can do that for single keys. Linux can only by holding the whole
+// keyboard and typing everything else again, which the user has to ask
+// for.
+func hidesToggle(alwaysGrab bool) bool {
+	return runtime.GOOS == "windows" || alwaysGrab
 }
 
 // footerPause is the least time between two drawings of the lines at the
