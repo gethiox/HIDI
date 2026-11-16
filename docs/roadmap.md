@@ -33,6 +33,8 @@ completes or changes an item.
 | Interfaces | A terminal interface for headless use, a tray icon, and a graphical interface built with raylib. They are clients of the running engine. |
 | Graphical interface | Draws at the monitor's refresh rate (vertical sync), including high refresh rates, with an optional, configurable lower limit while its window is not focused. It never keeps the system or the display awake: it must not reset the operating system's idle timer. |
 | Axes on a channel or layout change | Both behaviours are needed, chosen by a setting: an axis either keeps the value of the controller it left, or that controller returns to rest. |
+| Fonts | DejaVu Sans, and DejaVu Sans Mono for the log and for every text that changes while it is watched, padded to a fixed width so that nothing around it moves. The files and their licence are in `internal/assets/fonts`. |
+| Reviewing interfaces | A pull request that changes what an interface looks like includes screenshots, rendered in software where there is no display. |
 | Releases | Release artifacts are immutable, and builds are reproducible: the same commit gives the same binaries. |
 | Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. Output without colours is always available. HIDI logs little, since the interfaces show its state; what it logs has a fitting level and its context as fields. |
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
