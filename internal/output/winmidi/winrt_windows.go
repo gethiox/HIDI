@@ -3,6 +3,8 @@ package winmidi
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -186,15 +188,48 @@ var (
 // dllName is the DLL that implements Windows.Devices.Midi2.
 const dllName = "Windows.Devices.Midi2.dll"
 
-// loadLocal loads the API's DLL from the system directory or from beside
-// the program, for a Windows whose own copy has not arrived yet.
+// DLLVariable names the environment variable that can hold the full path
+// of the API's DLL, for when it is neither part of Windows nor beside the
+// program. A program started with "go run" lives in a temporary folder,
+// which is where that is needed.
+const DLLVariable = "HIDI_MIDI_DLL"
+
+// programDir returns the folder of the running program.
+func programDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "the program's folder"
+	}
+	return filepath.Dir(exe)
+}
+
+// loadLocal loads the API's DLL for a Windows whose own copy has not
+// arrived yet: from the path in the environment variable if it is set, and
+// otherwise from the system directory or from beside the program.
 func loadLocal() (*library, error) {
 	localOnce.Do(func() {
-		module, err := windows.LoadLibraryEx(dllName, 0,
-			windows.LOAD_LIBRARY_SEARCH_SYSTEM32|windows.LOAD_LIBRARY_SEARCH_APPLICATION_DIR)
-		if err != nil {
-			localErr = fmt.Errorf("%s was not found in Windows or beside the program: %w", dllName, err)
-			return
+		var module windows.Handle
+		var err error
+		if path := os.Getenv(DLLVariable); path != "" {
+			// Only a full path is taken, so that the variable cannot make
+			// Windows search for the name somewhere unexpected.
+			if !filepath.IsAbs(path) {
+				localErr = fmt.Errorf("%s must hold a full path, not %q", DLLVariable, path)
+				return
+			}
+			module, err = windows.LoadLibraryEx(path, 0, windows.LOAD_WITH_ALTERED_SEARCH_PATH)
+			if err != nil {
+				localErr = fmt.Errorf("%s names %s, which cannot be loaded: %w", DLLVariable, path, err)
+				return
+			}
+		} else {
+			module, err = windows.LoadLibraryEx(dllName, 0,
+				windows.LOAD_LIBRARY_SEARCH_SYSTEM32|windows.LOAD_LIBRARY_SEARCH_APPLICATION_DIR)
+			if err != nil {
+				localErr = fmt.Errorf("%s was not found in Windows or in %s (%w); put Microsoft's preview copy of the file there, or set %s to its full path",
+					dllName, programDir(), err, DLLVariable)
+				return
+			}
 		}
 		proc, err := windows.GetProcAddress(module, "DllGetActivationFactory")
 		if err != nil {
@@ -220,7 +255,10 @@ func (s source) String() string {
 	case sourceSystem:
 		return "Windows"
 	case sourceLocal:
-		return "the " + dllName + " beside the program"
+		if path := os.Getenv(DLLVariable); path != "" {
+			return path
+		}
+		return filepath.Join(programDir(), dllName)
 	}
 	return "nowhere"
 }

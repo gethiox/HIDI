@@ -184,6 +184,24 @@ The names devices report end up in the log, so everything that is not
 printable text is escaped: a device cannot forge a log line or send escape
 sequences to the terminal.
 
+### When HIDI dies
+
+A crash needs no cleaning up. A grabbed keyboard returns to the system when
+the process that grabbed it ends, on Linux with its file handle and on
+Windows with its hook. The MIDI devices belong to the process as well and are
+removed with it.
+
+What a crash leaves is its reason. The Go runtime prints it to the terminal,
+and `crashlog` has it written to a file in the user's cache directory too; the
+next `hidi run` says that the last one did not end properly and names the
+file. A crash cannot be turned into a friendlier message while it happens: a
+failure in a goroutine other than the command's own, or inside a call into
+the operating system, ends the process without running any more of its code.
+
+Calls that leave the process are limited in time instead. A MIDI service that
+does not answer is reported and the endpoint abandoned, so that HIDI itself
+stays usable and can be stopped.
+
 ### Processes
 
 `hidi run` runs the instruments in the foreground. The terminal views

@@ -14,6 +14,10 @@ completes or changes an item.
   message.
 - One pull request is open at a time. The next stage starts when the
   previous one is merged.
+- A pull request holds one topic. A fix for something else, found while
+  it is open, goes into a pull request of its own, also when that means
+  two are open at once. Whatever a pull request contains is described in
+  its text.
 - `dev` does not have to be usable at every commit, but CI must pass.
 
 ## Decisions
@@ -39,6 +43,31 @@ completes or changes an item.
 | Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. Output without colours is always available. HIDI logs little, since the interfaces show its state; what it logs has a fitting level and its context as fields. |
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
+
+## Current focus
+
+Windows MIDI output, tried on the maintainer's machine with `hidi doctor`
+(Windows 11 build 26300, `Windows.Devices.Midi2.dll` from Microsoft's
+Preview 11 NuGet package beside `hidi.exe`). What the next runs have to
+answer, in this order:
+
+1. Does another program (a DAW, a MIDI monitor) list "HIDI test device"
+   and receive the notes while `hidi doctor` plays?
+2. Which stage under "Removing the MIDI device:" does not return? The
+   first run hung there, before any time limit existed. The order used is
+   the one in Microsoft's sample: disconnect the connection, release it
+   and the device, close the session.
+3. After a HIDI that was killed, can the next one create its device, or
+   does the service keep the old one? If it does, the declared identifier
+   has to differ between runs, at the cost of a DAW no longer recognising
+   the device.
+
+The MIDI service on that machine got stuck after the first hang: creating
+a device no longer answered, and the service could not be stopped. A
+restart of Windows was the remedy.
+
+Not started on Windows: trying keyboard input (`hidi run -v -no-grab`,
+then `hidi run -v`), and game controllers.
 
 ## Done
 
@@ -78,11 +107,13 @@ In planned order. Each item is roughly one pull request.
 
 ### Windows
 
-1. **MIDI output** through Windows MIDI Services. The code is written
-   (`internal/output/winmidi`) and `hidi doctor` exercises it stage by
-   stage; it has to be run on a real Windows machine and corrected from
-   what that shows. Most positions in the interface tables are derived
-   from Microsoft's interface definitions and not yet confirmed.
+1. **MIDI output** through Windows MIDI Services works: on Windows 11
+   build 26300 with the DLL of Microsoft's Preview 11 package,
+   `hidi doctor` created a virtual device and sent to it. Every method
+   position that creating and sending uses is thereby confirmed for that
+   version. Still open: that another program sees the device and receives
+   the notes, and removing the device, which did not return on the first
+   run and is now traced and limited in time.
 2. **Input**: Raw Input for keyboards and the low-level hook that
    suppresses keyboard input while HIDI is on are written
    (`internal/input/rawinput`) and have to be tried on a real machine.
@@ -155,6 +186,22 @@ rest on assumptions about real devices and should be checked first:
   once Raw Input has said which device they came from. To be tried in the
   Windows input stage; the known costs are that injected keys do not reach
   elevated windows and that some games reject them.
+- How HIDI for Windows is distributed until the MIDI API is part of
+  Windows. The API's DLL to build and test against is the one in
+  Microsoft's NuGet package `Windows.Devices.Midi2`, version
+  0.99.92-preview.11 at the time of writing, from the releases of
+  github.com/microsoft/MIDI; the copy their Tools installer puts next to
+  its own programs must not be used. Shipping the DLL with HIDI means
+  accepting Microsoft's "go-live" terms from those release notes: telling
+  users that a preview API is in use, keeping up with new previews,
+  removing the DLL once Windows has it, and not shipping to Windows below
+  11 25H2. Whether a GPL program may carry that DLL in its download is a
+  licence question to settle before the first release; the alternative is
+  to have users fetch the DLL themselves.
+- The identifier a virtual device declares on Windows: with spaces in it
+  the MIDI service refused to create the device, without a reason; made
+  of letters, digits and dashes it worked. That the spaces were the
+  cause is likely but was not isolated.
 - Two input devices of the same model get MIDI devices of the same name.
   They need to be told apart, in the name and, on Windows, in the
   identifier the device declares.

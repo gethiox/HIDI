@@ -136,8 +136,9 @@ and switches layout with F11 and F12. Escape silences everything.
 
 ## Trying it on Windows
 
-The Windows side is written but has not run on a real machine yet, so expect
-it to need corrections. Keyboards are read; game controllers are not yet.
+The Windows side is new, so expect it to need corrections. MIDI output has
+created a device and sent to it on one machine. Reading keyboards has not run
+on a real machine yet; game controllers are not read at all.
 
 Start with `hidi doctor`, which checks MIDI output on its own:
 
@@ -147,14 +148,21 @@ hidi.exe doctor
 
 It prints the Windows build, where it found Windows MIDI Services, and each
 stage of creating a MIDI device. If all stages pass, a device named
-"HIDI test device" appears in other programs and plays a C major chord for
-thirty seconds. If a stage fails, or the program stops without a message,
+"HIDI test device" appears in other programs and plays a C major chord until
+you press Ctrl+C. If a stage fails, or the program stops without a message,
 the output up to that point says where.
 
 Windows MIDI Services needs Windows 11 25H2 or later. Until Windows itself
-ships the API, `Windows.Devices.Midi2.dll` from Microsoft's preview has to be
+ships the API, `Windows.Devices.Midi2.dll` has to be supplied. Take it, with
+the `.pri` file next to it, from the NuGet package
+`Windows.Devices.Midi2.<version>.nupkg` on the releases page of
+[microsoft/MIDI](https://github.com/microsoft/MIDI/releases); the package is
+a zip archive. Do not use the copy that Microsoft's Tools installer places
+next to its own programs. The DLL has to be
 in the same folder as `hidi.exe`, unless `hidi doctor` reports that it found
-the API in Windows.
+the API in Windows. A program started with `go run` lives in a temporary
+folder, so either build it first (`go build -o hidi.exe ./cmd/hidi`) or set
+the environment variable `HIDI_MIDI_DLL` to the full path of the DLL.
 
 Once `hidi doctor` passes, `hidi.exe run -v` turns every keyboard into an
 instrument, as on Linux. Windows cannot keep one keyboard from typing and let

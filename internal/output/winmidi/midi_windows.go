@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -43,7 +45,11 @@ var (
 	iidProcessingPlugin     = guid("8087b303-0519-c0de-31d1-cc001000F040")
 	iidConnectionSource     = guid("8087b303-0519-c0de-31d1-cc001000F030")
 	iidConnectionRaw        = guid("8087b303-0519-31d1-31d1-000000000020")
+	iidConfigManager        = guid("8087b303-0519-c0de-31d1-ee0060001000")
+	iidPluginConfig         = guid("8087b303-0519-c0de-31d1-cc0060006000")
 )
+
+const classConfigManager = "Windows.Devices.Midi2.ServiceConfig.MidiServiceTransportPluginConfigManager"
 
 // Slots of the methods used, in each interface's table. The first six of a
 // WinRT interface are inherited.
@@ -71,8 +77,17 @@ const (
 	slotBlockPutFirstGroup = 20
 	slotBlockPutGroupCount = 22
 
-	slotManagerCreateVirtualDevice = 8
-	slotDeviceGetEndpointDeviceID  = 6
+	slotManagerIsTransportAvailable = 6
+	slotManagerCreateVirtualDevice  = 8
+
+	slotEndpointInfoGetName       = 7
+	slotEndpointInfoGetInstanceID = 9
+
+	slotConfigManagerSendUpdate   = 6
+	slotResponseGetStatus         = 6
+	slotResponseGetErrorCode      = 7
+	slotResponseGetErrorMessage   = 8
+	slotDeviceGetEndpointDeviceID = 6
 
 	slotConnectionOpen           = 8
 	slotConnectionAddPlugin      = 10
@@ -85,13 +100,58 @@ const (
 // it still shows where it happened.
 type tracer struct {
 	w io.Writer
+	// stuck is set when a stage did not return in time. Its call into
+	// Windows is then still running, and nothing it may be using can be
+	// released or reused.
+	stuck atomic.Bool
 }
 
-func (t tracer) step(what string, do func() error) error {
+// Limits on the calls into Windows. They go to the MIDI service, another
+// process, and have been seen never to return. HIDI must not hang with
+// them: a hung HIDI can neither be used nor stopped.
+var (
+	checkTimeout = 15 * time.Second // may have to start the service
+	stepTimeout  = 10 * time.Second
+	sendTimeout  = 2 * time.Second
+	closeTimeout = 3 * time.Second
+)
+
+// errStuck is what a call that did not return in time is reported as.
+var errStuck = errors.New("Windows did not answer in time. The MIDI service may be stuck: " +
+	"restart the service named midisrv (as administrator: Restart-Service midisrv), or restart Windows")
+
+// within runs fn and waits for it at most d. It reports false if fn has
+// not returned by then; fn keeps running, since a call into Windows cannot
+// be interrupted.
+func within(d time.Duration, fn func()) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func (t *tracer) step(what string, do func() error) error {
+	if t.stuck.Load() {
+		return errStuck
+	}
 	if t.w != nil {
 		fmt.Fprintf(t.w, "  %s ... ", what)
 	}
-	err := do()
+	var err error
+	if !within(stepTimeout, func() { err = do() }) {
+		t.stuck.Store(true)
+		if t.w != nil {
+			fmt.Fprintf(t.w, "NO ANSWER after %v\n", stepTimeout)
+		}
+		return fmt.Errorf("%s: %w", what, errStuck)
+	}
 	if t.w != nil {
 		if err != nil {
 			fmt.Fprintf(t.w, "FAILED: %v\n", err)
@@ -122,6 +182,19 @@ type Status struct {
 // Check finds out whether virtual MIDI devices can be created. It returns
 // what it learned together with an error that says what is missing.
 func Check() (Status, error) {
+	var st Status
+	var err error
+	if !within(checkTimeout, func() { st, err = check1() }) {
+		var build Status
+		_, _, build.Build = windows.RtlGetNtVersionNumbers()
+		build.Build &= 0xFFFF
+		build.Found = "unknown"
+		return build, errStuck
+	}
+	return st, err
+}
+
+func check1() (Status, error) {
 	var st Status
 	_, _, st.Build = windows.RtlGetNtVersionNumbers()
 	st.Build &= 0xFFFF
@@ -164,23 +237,24 @@ type Endpoint struct {
 	device       object // IMidiVirtualDevice
 	connectionID windows.GUID
 	words        []uint32
+	trace        *tracer
 }
 
 // ErrClosed is returned by [Endpoint.Send] after the endpoint was closed.
 var ErrClosed = errors.New("MIDI endpoint is closed")
 
 // Open creates a virtual MIDI device with the given name.
-func Open(name string) (*Endpoint, error) { return open(name, tracer{}) }
+func Open(name string) (*Endpoint, error) { return open(name, &tracer{}) }
 
 // OpenTraced is Open, reporting every stage to w. It is for the diagnostic
 // command, which exists to find the stage that fails on a given machine.
-func OpenTraced(name string, w io.Writer) (*Endpoint, error) { return open(name, tracer{w}) }
+func OpenTraced(name string, w io.Writer) (*Endpoint, error) { return open(name, &tracer{w: w}) }
 
-func open(name string, t tracer) (_ *Endpoint, err error) {
+func open(name string, t *tracer) (_ *Endpoint, err error) {
 	if _, err := Check(); err != nil {
 		return nil, err
 	}
-	e := &Endpoint{}
+	e := &Endpoint{trace: t}
 	defer func() {
 		if err != nil {
 			e.Close()
@@ -191,22 +265,24 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer hName.free()
 	// The identifier should differ between devices. Two input devices of
 	// the same model have the same name, and so far get the same
 	// identifier; what Windows does then is not known yet.
-	hInstance, err := newHString("HIDI-" + name)
+	hInstance, err := newHString(instanceID(name))
 	if err != nil {
 		return nil, err
 	}
-	defer hInstance.free()
 	hDescription, _ := newHString("An instrument made from an input device by HIDI")
-	defer hDescription.free()
 	hManufacturer, _ := newHString("HIDI")
-	defer hManufacturer.free()
 
 	var info, config, blocks, block, group object
 	defer func() {
+		if t.stuck.Load() {
+			return // a call that never returned may still be using them
+		}
+		for _, h := range []hstring{hName, hInstance, hDescription, hManufacturer} {
+			h.free()
+		}
 		for _, o := range []object{info, config, blocks, block, group} {
 			o.release()
 		}
@@ -293,8 +369,20 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 			return err
 		}
 		defer manager.release()
+		var available uint8
+		if hr := manager.call(slotManagerIsTransportAvailable, uintptr(unsafe.Pointer(&available))); hr.failed() {
+			return fmt.Errorf("asking for the virtual device transport: %w", hr)
+		}
+		if available == 0 {
+			return errors.New("the MIDI service on this machine has no virtual device transport")
+		}
 		hr := manager.call(slotManagerCreateVirtualDevice, uintptr(config.ptr), uintptr(unsafe.Pointer(&e.device.ptr)))
-		return check(hr, e.device)
+		if err := check(hr, e.device); err != nil {
+			// The API does not say why. Asking the service the same thing
+			// directly returns its answer.
+			return fmt.Errorf("%w; %s; the device was described as %s", err, serviceAnswer(config), describeInfo(info))
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -378,6 +466,86 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 	return e, nil
 }
 
+// instanceID makes the identifier a device declares from its name. It
+// keeps to letters, digits and dashes, as the identifiers in Microsoft's
+// samples do.
+func instanceID(name string) string {
+	id := []byte("HIDI-")
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			id = append(id, byte(r))
+		default:
+			id = append(id, '-')
+		}
+	}
+	return string(id)
+}
+
+// describeInfo reads back the name and identifier of a device description,
+// which shows whether they arrived as they were given.
+func describeInfo(info object) string {
+	var name, id hstring
+	hr1 := info.call(slotEndpointInfoGetName, uintptr(unsafe.Pointer(&name)))
+	hr2 := info.call(slotEndpointInfoGetInstanceID, uintptr(unsafe.Pointer(&id)))
+	defer name.free()
+	defer id.free()
+	if hr1.failed() || hr2.failed() {
+		return fmt.Sprintf("unreadable (%v, %v)", hr1, hr2)
+	}
+	return fmt.Sprintf("name %q, identifier %q", name.String(), id.String())
+}
+
+// serviceAnswer sends the device's settings to the MIDI service the way
+// creating a device does, and returns what the service says about them.
+func serviceAnswer(config object) string {
+	manager, _, err := factory(classConfigManager, iidConfigManager)
+	if err != nil {
+		return "the service could not be asked why: " + err.Error()
+	}
+	defer manager.release()
+	plugin, err := config.query(iidPluginConfig)
+	if err != nil {
+		return "the service could not be asked why: " + err.Error()
+	}
+	defer plugin.release()
+	var response object
+	if err := check(manager.call(slotConfigManagerSendUpdate, uintptr(plugin.ptr), uintptr(unsafe.Pointer(&response.ptr))), response); err != nil {
+		return "the service gave no answer: " + err.Error()
+	}
+	defer response.release()
+	var status int32
+	var code uint32
+	var text hstring
+	response.call(slotResponseGetStatus, uintptr(unsafe.Pointer(&status)))
+	response.call(slotResponseGetErrorCode, uintptr(unsafe.Pointer(&code)))
+	response.call(slotResponseGetErrorMessage, uintptr(unsafe.Pointer(&text)))
+	defer text.free()
+	return fmt.Sprintf("the MIDI service answered with status %d (%s), error code 0x%08X, message %q",
+		status, responseStatus(status), code, text.String())
+}
+
+// responseStatus names a MidiServiceConfigResponseStatus.
+func responseStatus(status int32) string {
+	switch status {
+	case 0:
+		return "success"
+	case 404:
+		return "target not found"
+	case 600:
+		return "configuration empty"
+	case 601:
+		return "error processing the configuration"
+	case 605:
+		return "error processing the response"
+	case 808:
+		return "error from the service"
+	case 2600:
+		return "not implemented"
+	}
+	return "unknown"
+}
+
 // check turns the result of a call that returns an object into an error.
 // The API reports most failures by returning nothing.
 func check(hr hresult, out object) error {
@@ -408,34 +576,82 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 	if len(e.words) == 0 {
 		return nil
 	}
+	if e.trace.stuck.Load() {
+		return errStuck
+	}
 	// A timestamp of zero means now.
-	hr := e.raw.call(slotConnectionRawSendMessage, 0, uintptr(len(e.words)), uintptr(unsafe.Pointer(&e.words[0])))
+	var hr hresult
+	words := e.words
+	if !within(sendTimeout, func() {
+		hr = e.raw.call(slotConnectionRawSendMessage, 0, uintptr(len(words)), uintptr(unsafe.Pointer(&words[0])))
+	}) {
+		e.trace.stuck.Store(true)
+		e.words = nil // the call that did not return still reads the old ones
+		return fmt.Errorf("sending to Windows MIDI Services: %w", errStuck)
+	}
 	if hr.failed() {
 		return fmt.Errorf("sending to Windows MIDI Services: %w", hr)
 	}
 	return nil
 }
 
-// Close removes the device. Closing an endpoint twice is not an error.
+// Close removes the device. Closing an endpoint twice is not an error. If
+// Windows does not finish within a few seconds, Close returns an error and
+// leaves the rest to the end of the program.
 func (e *Endpoint) Close() error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.closed {
+		e.mu.Unlock()
 		return nil
 	}
 	e.closed = true
-	e.raw.release()
-	if !e.session.isNil() && !e.connection.isNil() && e.connectionID != (windows.GUID{}) {
-		e.session.call(slotSessionDisconnectEndpointConnection, guidArgs(&e.connectionID)...)
+	e.mu.Unlock()
+
+	if e.trace.stuck.Load() {
+		// An earlier call never returned; another one would not either.
+		return errors.New("the MIDI device was not removed, because Windows stopped answering; it goes away when the program ends")
 	}
-	e.connection.release()
-	e.device.release()
-	if !e.session.isNil() {
-		if closable, err := e.session.query(iidIClosable); err == nil {
-			closable.call(slotClosableClose)
-			closable.release()
-		}
-		e.session.release()
+	if !within(closeTimeout, e.teardown) {
+		e.trace.stuck.Store(true)
+		return errors.New("Windows did not finish removing the MIDI device; it goes away when the program ends")
 	}
 	return nil
+}
+
+// teardown gives the device up in the order Microsoft's sample does:
+// disconnect, release what belongs to the connection, close the session.
+// Each stage is announced before it runs, like the stages of opening.
+func (e *Endpoint) teardown() {
+	e.trace.step("releasing the fast way to send", func() error {
+		e.raw.release()
+		return nil
+	})
+	if !e.session.isNil() && !e.connection.isNil() && e.connectionID != (windows.GUID{}) {
+		e.trace.step("disconnecting from the device", func() error {
+			if hr := e.session.call(slotSessionDisconnectEndpointConnection, guidArgs(&e.connectionID)...); hr.failed() {
+				return hr
+			}
+			return nil
+		})
+	}
+	e.trace.step("releasing the connection and the device", func() error {
+		e.connection.release()
+		e.device.release()
+		return nil
+	})
+	if !e.session.isNil() {
+		e.trace.step("closing the MIDI session", func() error {
+			closable, err := e.session.query(iidIClosable)
+			if err != nil {
+				return err
+			}
+			hr := closable.call(slotClosableClose)
+			closable.release()
+			e.session.release()
+			if hr.failed() {
+				return hr
+			}
+			return nil
+		})
+	}
 }
