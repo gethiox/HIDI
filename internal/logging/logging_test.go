@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -408,5 +409,49 @@ func BenchmarkLog(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		log.Info("instrument changed", "octave", 1, "channel", 3, "layout", "piano")
+	}
+}
+
+func TestFooter(t *testing.T) {
+	var out bytes.Buffer
+	f := NewFooter(&out)
+
+	// Without lines it only passes on what is written.
+	io.WriteString(f, "first\n")
+	if got := out.String(); got != "first\n" {
+		t.Fatalf("wrote %q", got)
+	}
+
+	out.Reset()
+	f.Set([]string{"state", "device"})
+	if got, want := out.String(), "\x1b[?7lstate\x1b[0m\ndevice\x1b[0m\x1b[?7h"; got != want {
+		t.Errorf("drawing wrote %q, want %q", got, want)
+	}
+
+	// A line of the log takes the footer away, and puts it back below.
+	out.Reset()
+	io.WriteString(f, "second\n")
+	if got, want := out.String(), "\r\x1b[1A\x1b[Jsecond\n\x1b[?7lstate\x1b[0m\ndevice\x1b[0m\x1b[?7h"; got != want {
+		t.Errorf("a log line wrote %q, want %q", got, want)
+	}
+
+	// The same lines again write nothing.
+	out.Reset()
+	f.Set([]string{"state", "device"})
+	if out.Len() != 0 {
+		t.Errorf("setting the same lines wrote %q", out.String())
+	}
+
+	// A footer of one line needs no way up, and closing leaves nothing.
+	f.Set([]string{"only"})
+	out.Reset()
+	f.Close()
+	if got, want := out.String(), "\r\x1b[J"; got != want {
+		t.Errorf("closing wrote %q, want %q", got, want)
+	}
+	out.Reset()
+	io.WriteString(f, "last\n")
+	if got := out.String(); got != "last\n" {
+		t.Errorf("after closing wrote %q", got)
 	}
 }

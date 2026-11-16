@@ -195,6 +195,7 @@ func TestParseErrors(t *testing.T) {
 		{"collision", "schema = 1\n[defaults]\ncollision = \"explode\"\n[[layout]]\nname = \"L\"", "explode"},
 		{"axis mode", "schema = 1\n[defaults]\naxis_on_change = \"drop\"\n[[layout]]\nname = \"L\"", "use keep or rest"},
 		{"axis rate", "schema = 1\n[defaults]\naxis_rate = 5000\n[[layout]]\nname = \"L\"", "axis_rate"},
+		{"axis threshold", "schema = 1\n[defaults]\naxis_threshold = 0.9\n[[layout]]\nname = \"L\"", "axis_threshold"},
 		{"default layout", "schema = 1\n[defaults]\nlayout = \"Nope\"\n[[layout]]\nname = \"L\"", `default layout "Nope"`},
 		{"unknown control", layout(`KEY_NOPE = "C1"`), `layout "L", KEY_NOPE: unknown control`},
 		{"bad note", layout(`KEY_A = "H9"`), "neither a command nor a note"},
@@ -421,6 +422,15 @@ func TestAxisSettings(t *testing.T) {
 	}
 	if p := parse("axis_on_change = \"rest\"\naxis_rate = 0"); !p.Engine.RestAxes || p.AxisRate != 0 {
 		t.Errorf("rest and unlimited: RestAxes %v, AxisRate %d", p.Engine.RestAxes, p.AxisRate)
+	}
+	if p := parse(""); p.AxisThreshold != DefaultAxisThreshold {
+		t.Errorf("axis threshold without a setting is %v", p.AxisThreshold)
+	}
+	if p := parse("axis_threshold = 0"); p.AxisThreshold != 0 {
+		t.Errorf("axis_threshold = 0 gave %v", p.AxisThreshold)
+	}
+	if p := parse("axis_threshold = 0.05"); p.AxisThreshold != 0.05 {
+		t.Errorf("axis_threshold = 0.05 gave %v", p.AxisThreshold)
 	}
 	if p := parse("axis_on_change = \"keep\"\naxis_rate = 1000"); p.Engine.RestAxes || p.AxisRate != 1000 {
 		t.Errorf("keep and 1000: RestAxes %v, AxisRate %d", p.Engine.RestAxes, p.AxisRate)

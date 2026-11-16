@@ -16,7 +16,7 @@ var twoInstruments = ipc.Snapshot{
 	Version: "hidi test",
 	Active:  true,
 	Instruments: []ipc.Instrument{
-		{Name: "Keychron K2", Type: "keyboard", Profile: "Default keyboard", Layout: "Piano", Octave: 1, Transpose: -2, Channel: 3, Velocity: 100, Sounding: 2},
+		{Name: "Keychron K2", Type: "keyboard", Profile: "Default keyboard", Layout: "Piano", Octave: 1, Transpose: -2, Channel: 3, Velocity: 100, Sounding: 2, InputRate: 12, MIDIRate: 340},
 		{Name: "Pad", Type: "gamepad", Profile: "Default gamepad", Layout: "Default", Channel: 1, Velocity: 64, Sounding: 1},
 	},
 }
@@ -28,9 +28,11 @@ func TestDescribe(t *testing.T) {
 
 Keychron K2  (keyboard, profile "Default keyboard")
   octave  +1  transpose   -2  channel  3  velocity 100  notes  2  layout Piano
+  input   12/s  MIDI  340/s
 
 Pad  (gamepad, profile "Default gamepad")
   octave  +0  transpose   +0  channel  1  velocity  64  notes  1  layout Default
+  input    0/s  MIDI    0/s
 `
 	if b.String() != want {
 		t.Errorf("describe wrote:\n%s\nwant:\n%s", b.String(), want)

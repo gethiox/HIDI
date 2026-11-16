@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -156,7 +157,9 @@ func parseFlags(fs *flag.FlagSet, args []string, stderr io.Writer) (ok bool, cod
 
 func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	verbose := fs.Bool("v", false, "also log every MIDI message and every ignored device")
+	verbose := fs.Bool("v", false, "also log details, such as every ignored device")
+	logMIDI := fs.Bool("log-midi", false, "also log every MIDI message sent, for finding faults; implies -v")
+	noStatus := fs.Bool("no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
 	toggleFlag := fs.String("toggle", defaultToggle,
 		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
@@ -211,13 +214,22 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 
 	level := slog.LevelInfo
-	if *verbose {
+	if *verbose || *logMIDI {
 		level = slog.LevelDebug
 	}
 	file, isFile := stderr.(*os.File)
+	colour := !*noColour && isFile && logging.TerminalColour(file)
+	// On a terminal the last lines show the state of HIDI, and the log
+	// runs above them.
+	var footer *logging.Footer
+	logOutput := stderr
+	if !*noStatus && isFile && logging.IsTerminal(file) {
+		footer = logging.NewFooter(stderr)
+		logOutput = footer
+	}
 	logs := logging.New(logging.Options{
-		Output:    stderr,
-		Colour:    !*noColour && isFile && logging.TerminalColour(file),
+		Output:    logOutput,
+		Colour:    colour,
 		Level:     level,
 		KeepLevel: level,
 	})
@@ -343,8 +355,43 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		Toggle:        toggle,
 		StartInactive: *startOff,
 		Lights:        lights,
+		LogMIDI:       *logMIDI,
 		Changed:       changes.Notify,
 	})
+	var shownToggle atomic.Pointer[string]
+	showToggle := func(keys []control.Code) {
+		text := formatToggle(keys)
+		shownToggle.Store(&text)
+		changes.Notify()
+	}
+	showToggle(toggle)
+	footerDone := make(chan struct{})
+	stopFooter := func() {}
+	if footer != nil {
+		changed, stop := changes.Listen()
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stopFooter = cancel
+		go func() {
+			defer close(footerDone)
+			defer stop()
+			for {
+				footer.Set(footerLines(snapshot(manager), *shownToggle.Load(), colour))
+				select {
+				case <-ctx.Done():
+					// What is logged while stopping stays on the screen.
+					footer.Close()
+					return
+				case <-changed:
+				}
+				// A played instrument changes with every key; the eye
+				// does not need more than this.
+				time.Sleep(footerPause)
+			}
+		}()
+	} else {
+		close(footerDone)
+	}
 	served := make(chan struct{})
 	if server != nil {
 		go func() {
@@ -387,16 +434,23 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 				return
 			}
 			manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
+			showToggle(newToggle)
 			configLog.Info("settings changed",
 				"toggle", formatToggle(newToggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
 		})
 	}
 	manager.Run(ctx, source.Devices)
+	stopFooter() // also when the manager ended by itself
+	<-footerDone
 	<-served
 	<-lightsDone // the lights are left evenly lit
 	log.Info("HIDI stopped")
 	return 0
 }
+
+// footerPause is the least time between two drawings of the lines at the
+// bottom of the terminal.
+const footerPause = 100 * time.Millisecond
 
 // defaultToggle is the combination that turns HIDI off and on. It consists
 // of modifier keys only, so that pressing it while HIDI is off, when the
@@ -572,7 +626,13 @@ collect:
 			if p := config.Select(profiles, info); p != nil {
 				profile = p.Name
 			}
-			lines = append(lines, fmt.Sprintf("%-10s %s  %-40q profile: %s", info.Type, info.Hardware, info.Name, profile))
+			line := fmt.Sprintf("%-10s %s  %-40q profile: %s", info.Type, info.Hardware, info.Name, profile)
+			if info.Location != "" {
+				// Where it is plugged in tells two devices of one
+				// model apart, and shows what HIDI took for one device.
+				line += "  at " + info.Location
+			}
+			lines = append(lines, line)
 			quiet.Reset(500 * time.Millisecond)
 		case <-quiet.C:
 			break collect

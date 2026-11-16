@@ -5,6 +5,7 @@ package backend
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/input"
 	"github.com/gethiox/HIDI/internal/input/evdev"
@@ -54,7 +55,7 @@ func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
 
 // SetRemoval chooses how MIDI devices are given up, where there is a
 // choice; here there is none.
-func SetRemoval(how string) error { return nil }
+func SetRemoval(how string, wait time.Duration) error { return nil }
 
 // OpenTraced creates a virtual MIDI device and says so on w.
 func OpenTraced(w io.Writer, name string) (output.Endpoint, error) {

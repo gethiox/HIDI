@@ -3,6 +3,7 @@ package instrument
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1064,11 +1065,11 @@ func TestDistinctEndpointNames(t *testing.T) {
 	eventually(t, "the first instrument", func() bool { return r.endpoint(EndpointPrefix+"Twin Keyboard") != nil })
 	r.devices <- second
 	eventually(t, "the second instrument under a name of its own", func() bool {
-		return r.endpoint(EndpointPrefix+"Twin Keyboard #2") != nil
+		return r.endpoint(EndpointPrefix+"Twin Keyboard 2") != nil
 	})
 
 	second.set(keyZ, 1)
-	r.expectSent(r.endpoint(EndpointPrefix+"Twin Keyboard #2"), noteOn)
+	r.expectSent(r.endpoint(EndpointPrefix+"Twin Keyboard 2"), noteOn)
 	if sent, _ := r.endpoint(EndpointPrefix + "Twin Keyboard").state(); sent != "" {
 		t.Errorf("the first twin played what the second was asked to: %s", sent)
 	}
@@ -1085,4 +1086,86 @@ func TestDistinctEndpointNames(t *testing.T) {
 		defer m.mu.Unlock()
 		return !m.names[EndpointPrefix+"Twin Keyboard"]
 	})
+}
+
+// A lever that wavers at rest sends once; moved clearly, it sends again.
+func TestRestingAxisIsQuiet(t *testing.T) {
+	lever, err := config.Parse([]byte(`
+schema = 1
+name = "Lever"
+[match]
+type = "gamepad"
+[defaults]
+axis_rate = 0
+[[layout]]
+name = "Main"
+[layout.bindings]
+ABS_Z = { cc = 7 }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, lever)
+	pad := newFakeDevice("Throttle", control.DeviceGamepad)
+	e := r.plug(pad)
+
+	for i := range 200 {
+		pad.set(control.Axis(2), 0.5+float64(i%2)*0.004)
+	}
+	pad.set(control.Axis(2), 0.75)
+	var sent string
+	eventually(t, "the clear movement", func() bool {
+		sent, _ = e.state()
+		return strings.HasSuffix(sent, "value=95")
+	})
+	if n := strings.Count(sent, "ControlChange"); n != 2 {
+		t.Errorf("%d controller messages were sent, want the first position and the movement:\n%s", n, sent)
+	}
+}
+
+// The status says how much an instrument did in the last period, and
+// single MIDI messages reach the log only when asked for.
+func TestRatesAndMIDILog(t *testing.T) {
+	old := ratePeriod
+	ratePeriod = 20 * time.Millisecond
+	t.Cleanup(func() { ratePeriod = old })
+
+	for _, logMIDI := range []bool{false, true} {
+		var buf syncBuffer
+		log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		r := newRigWith(t, Options{Logger: log, LogMIDI: logMIDI})
+		kbd := newFakeDevice("Board", control.DeviceKeyboard)
+		e := r.plug(kbd)
+		kbd.set(keyZ, 1)
+		r.expectSent(e, noteOn)
+		eventually(t, "a rate in the status", func() bool {
+			st := r.manager.Status()
+			return len(st) == 1 && st[0].InputRate > 0 && st[0].MIDIRate > 0
+		})
+		eventually(t, "the rate to fall back to nothing", func() bool {
+			st := r.manager.Status()
+			return len(st) == 1 && st[0].InputRate == 0 && st[0].MIDIRate == 0
+		})
+		r.stop()
+		if got := strings.Contains(buf.String(), "NoteOn"); got != logMIDI {
+			t.Errorf("LogMIDI = %v: MIDI message in the log = %v\n%s", logMIDI, got, buf.String())
+		}
+	}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/input"
 	"github.com/gethiox/HIDI/internal/input/rawinput"
@@ -81,14 +82,20 @@ func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
 }
 
 // SetRemoval chooses how MIDI devices are given up: "session",
-// "disconnect" or "release". It is for the diagnostic command.
-func SetRemoval(how string) error {
+// "disconnect", "release" or "none", and how long a device is left alone
+// before that; a negative time keeps the usual one. It is for the
+// diagnostic command.
+func SetRemoval(how string, wait time.Duration) error {
 	switch r := winmidi.Removal(how); r {
-	case winmidi.RemoveBySession, winmidi.RemoveByDisconnect, winmidi.RemoveByRelease:
+	case winmidi.RemoveBySession, winmidi.RemoveByDisconnect, winmidi.RemoveByRelease, winmidi.RemoveNot:
 		winmidi.HowToRemove = r
-		return nil
+	default:
+		return fmt.Errorf("unknown way to remove a device %q; it is session, disconnect, release or none", how)
 	}
-	return fmt.Errorf("unknown way to remove a device %q; it is session, disconnect or release", how)
+	if wait >= 0 {
+		winmidi.Settle = wait
+	}
+	return nil
 }
 
 // OpenTraced creates a virtual MIDI device and reports every stage to w.
