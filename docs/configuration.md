@@ -115,6 +115,22 @@ These are also the values the reset combinations return to.
 | `velocity` | `100` | Note velocity, from 1 to 127. |
 | `layout` | the first layout | Name of the layout selected at start. |
 | `collision` | `"interrupt"` | What happens when a note that is already sounding is played again, which is possible when two controls are bound to the same note. See below. |
+| `axis_on_change` | `"keep"` | What happens to a controller when a change of channel or layout takes its axis away. See below. |
+| `axis_rate` | `120` | How many positions a second an axis passes on, from 1 to 1000; `0` passes every one. |
+
+Axes when the channel or layout changes: pitch bend, and a controller driven
+by an axis marked `centered`, always return to rest, so that nothing stays
+bent on the channel you left. For an axis that stays where you put it, such as
+a throttle lever driving volume, you choose:
+
+| `axis_on_change` | The controller on the old channel |
+|---|---|
+| `keep` | keeps its value, so a volume does not jump to zero |
+| `rest` | returns to zero, so nothing is left behind |
+
+`axis_rate` thins out the positions of sticks, triggers and levers, which can
+report a thousand times a second. The last position always arrives. Keys are
+never delayed.
 
 Collision modes:
 

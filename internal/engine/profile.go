@@ -299,6 +299,13 @@ type Profile struct {
 	Defaults Defaults
 	// Collision decides how a repeated note is handled.
 	Collision CollisionMode
+	// RestAxes decides what happens to a controller when a change of
+	// channel or layout takes its control away. Pitch bend, and a
+	// controller driven by a control that centres itself, always return to
+	// rest. A controller driven by a control that stays where it is put,
+	// such as a throttle lever, keeps its value, so that a volume does not
+	// jump to zero; with RestAxes it returns to rest as well.
+	RestAxes bool
 }
 
 // Validate checks the profile and returns an error describing every problem

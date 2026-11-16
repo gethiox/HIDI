@@ -421,6 +421,20 @@ func TestRedirectReturnsSelfCenteringControlsToRest(t *testing.T) {
 	r.set(trigger, 0.5, "ControlChange ch=2 controller=7 value=64")
 }
 
+// With RestAxes a control that stays where it is put is returned to rest as
+// well, for players who want nothing left behind on the old channel.
+func TestRedirectWithRestAxes(t *testing.T) {
+	p := baseProfile(
+		Binding{Source: Source{Code: trigger}, Action: ControlChange{Controller: 7}},
+		key(keyUp, CommandChannelUp),
+	)
+	p.RestAxes = true
+	r := newRig(t, p)
+	r.set(trigger, 1, "ControlChange ch=1 controller=7 value=127")
+	r.press(keyUp, "ControlChange ch=1 controller=7 value=0")
+	r.set(trigger, 0.5, "ControlChange ch=2 controller=7 value=64")
+}
+
 func TestLayoutChangeRedirects(t *testing.T) {
 	p := baseProfile(Binding{Source: Source{Code: stickX, Centered: true}, Action: PitchBend{}})
 	p.Layouts = append(p.Layouts, Layout{Name: "second", Bindings: []Binding{

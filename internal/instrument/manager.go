@@ -354,6 +354,12 @@ func (r *runner) run() {
 		out      []midi.Message
 		active   = false // the instrument is on, and grabbed if it should be
 		failed   = false // the endpoint broke; waiting for the device to stop
+
+		// limit thins out axis input; due collects what it releases, and
+		// release fires when it next has something.
+		limit   = newLimiter(0)
+		due     []control.Event
+		release <-chan time.Time
 	)
 	// held tracks which keys of the toggle combination are down.
 	held := map[control.Code]bool{}
@@ -364,7 +370,7 @@ func (r *runner) run() {
 		failed = true
 		go r.device.Close()
 	}
-	release := func() {
+	ungrab := func() {
 		if !r.grab {
 			return
 		}
@@ -389,9 +395,10 @@ func (r *runner) run() {
 				return
 			}
 			if active {
-				release()
+				ungrab()
 				active = false
 			}
+			limit.drop()
 			if err := endpoint.Close(); err != nil {
 				r.log.Warn("closing the MIDI device failed", "error", err)
 			}
@@ -415,6 +422,7 @@ func (r *runner) run() {
 			r.log.Info("profile changed", "profile", a.profile.Name, "source", a.profile.Source, "was", profile.Name)
 		}
 		eng, profile = a.engine, a.profile
+		limit = newLimiter(profile.AxisRate)
 		state = eng.State()
 		r.setStatus(Status{Device: r.info, Profile: profile.Name, State: state}, true)
 	}
@@ -437,11 +445,38 @@ func (r *runner) run() {
 		}
 		// Turning off: nothing may keep sounding, and the device goes
 		// back to the system.
+		limit.drop() // a position from before must not arrive after
 		if !r.send(endpoint, eng.Reset(out[:0])) {
 			fail()
 		}
-		release()
+		ungrab()
 		r.publish(eng, &state)
+	}
+
+	// play passes one event through the engine to the endpoint.
+	play := func(ev control.Event) {
+		out = eng.Handle(ev, out[:0])
+		if !r.send(endpoint, out) {
+			fail()
+			return
+		}
+		r.publish(eng, &state)
+	}
+	// flush plays the axis events the limiter held back long enough, and
+	// arranges to be called again for those it still holds.
+	flush := func() {
+		var wait time.Duration
+		due, wait = limit.due(time.Now(), due[:0])
+		for _, ev := range due {
+			if failed {
+				break
+			}
+			play(ev)
+		}
+		release = nil
+		if wait > 0 {
+			release = time.After(wait)
+		}
 	}
 
 	apply()
@@ -487,12 +522,19 @@ loop:
 			if !active {
 				continue
 			}
-			out = eng.Handle(ev, out[:0])
-			if !r.send(endpoint, out) {
-				fail()
+			if !limit.admit(ev, time.Now()) {
+				if release == nil {
+					flush()
+				}
 				continue
 			}
-			r.publish(eng, &state)
+			play(ev)
+		case <-release:
+			release = nil
+			apply()
+			if eng != nil && active && !failed {
+				flush()
+			}
 		}
 	}
 

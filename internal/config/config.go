@@ -27,6 +27,9 @@ type Profile struct {
 	// WrittenFor is the schema version the file declared. It is lower than
 	// [Schema] if the file was upgraded while reading.
 	WrittenFor int
+	// AxisRate is how many updates a second an absolute axis may pass on
+	// to the engine. Zero means every one.
+	AxisRate int
 	// Source says where the profile comes from: the path of its file, or
 	// "built-in/" and a file name. [Parse] leaves it empty.
 	Source string
@@ -134,7 +137,9 @@ func Parse(data []byte) (*Profile, error) {
 	top := r.table("", doc, "schema", "name", "match", "defaults", "global", "layout")
 	p.Name = top.str("name", "")
 	p.Match = r.match(top.sub("match"))
-	p.Engine.Defaults, p.Engine.Collision = r.defaults(top.sub("defaults"))
+	var s settings
+	p.Engine.Defaults, s = r.defaults(top.sub("defaults"))
+	p.Engine.Collision, p.Engine.RestAxes, p.AxisRate = s.collision, s.restAxes, s.axisRate
 	p.Engine.Global = r.bindings("global", top.sub("global").values)
 
 	layouts, _ := top.values["layout"].([]any)
@@ -193,7 +198,22 @@ func (r *reader) match(t *table) Match {
 	return m
 }
 
-func (r *reader) defaults(t *table) (engine.Defaults, engine.CollisionMode) {
+// AxisRate limits, and the default rate at which an absolute axis is passed
+// on, in updates a second.
+const (
+	DefaultAxisRate = 120
+	MaxAxisRate     = 1000
+)
+
+// settings are the values of a [defaults] table that are not part of the
+// instrument's starting state.
+type settings struct {
+	collision engine.CollisionMode
+	restAxes  bool
+	axisRate  int
+}
+
+func (r *reader) defaults(t *table) (engine.Defaults, settings) {
 	d := engine.Defaults{
 		Octave:    int(t.integer("octave", 0, -engine.MaxOctave, engine.MaxOctave)),
 		Transpose: int(t.integer("transpose", 0, -engine.MaxTranspose, engine.MaxTranspose)),
@@ -206,8 +226,17 @@ func (r *reader) defaults(t *table) (engine.Defaults, engine.CollisionMode) {
 	if err != nil {
 		r.failf(t.where, "collision: %v; use interrupt, no_repeat, retrigger or off", err)
 	}
-	t.done("octave", "transpose", "channel", "velocity", "layout", "collision")
-	return d, collision
+	s := settings{collision: collision}
+	switch mode := t.str("axis_on_change", "keep"); mode {
+	case "keep":
+	case "rest":
+		s.restAxes = true
+	default:
+		r.failf(t.where, "axis_on_change: unknown mode %q; use keep or rest", mode)
+	}
+	s.axisRate = int(t.integer("axis_rate", DefaultAxisRate, 0, MaxAxisRate))
+	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate")
+	return d, s
 }
 
 // reader collects the problems found while reading a file, so that all of

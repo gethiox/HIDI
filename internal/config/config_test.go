@@ -193,6 +193,8 @@ func TestParseErrors(t *testing.T) {
 		{"channel range", "schema = 1\n[defaults]\nchannel = 0\n[[layout]]\nname = \"L\"", "channel is 0; it must be from 1 to 16"},
 		{"velocity type", "schema = 1\n[defaults]\nvelocity = \"loud\"\n[[layout]]\nname = \"L\"", "velocity must be a whole number"},
 		{"collision", "schema = 1\n[defaults]\ncollision = \"explode\"\n[[layout]]\nname = \"L\"", "explode"},
+		{"axis mode", "schema = 1\n[defaults]\naxis_on_change = \"drop\"\n[[layout]]\nname = \"L\"", "use keep or rest"},
+		{"axis rate", "schema = 1\n[defaults]\naxis_rate = 5000\n[[layout]]\nname = \"L\"", "axis_rate"},
 		{"default layout", "schema = 1\n[defaults]\nlayout = \"Nope\"\n[[layout]]\nname = \"L\"", `default layout "Nope"`},
 		{"unknown control", layout(`KEY_NOPE = "C1"`), `layout "L", KEY_NOPE: unknown control`},
 		{"bad note", layout(`KEY_A = "H9"`), "neither a command nor a note"},
@@ -402,5 +404,25 @@ func TestSelect(t *testing.T) {
 		if got := Select(tt.profiles, tt.device); got != tt.want {
 			t.Errorf("%s: Select = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestAxisSettings(t *testing.T) {
+	parse := func(defaults string) *Profile {
+		t.Helper()
+		p, err := Parse([]byte("schema = 1\n[defaults]\n" + defaults + "\n[[layout]]\nname = \"L\"\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if p := parse(""); p.Engine.RestAxes || p.AxisRate != DefaultAxisRate {
+		t.Errorf("defaults: RestAxes %v, AxisRate %d", p.Engine.RestAxes, p.AxisRate)
+	}
+	if p := parse("axis_on_change = \"rest\"\naxis_rate = 0"); !p.Engine.RestAxes || p.AxisRate != 0 {
+		t.Errorf("rest and unlimited: RestAxes %v, AxisRate %d", p.Engine.RestAxes, p.AxisRate)
+	}
+	if p := parse("axis_on_change = \"keep\"\naxis_rate = 1000"); p.Engine.RestAxes || p.AxisRate != 1000 {
+		t.Errorf("keep and 1000: RestAxes %v, AxisRate %d", p.Engine.RestAxes, p.AxisRate)
 	}
 }
