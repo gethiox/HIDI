@@ -25,6 +25,7 @@ import (
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
 	"github.com/gethiox/HIDI/internal/output"
+	"github.com/gethiox/HIDI/internal/settings"
 )
 
 const usage = `HIDI turns keyboards and game controllers into MIDI instruments.
@@ -268,15 +269,18 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	defer source.Close()
 
-	grab := func(d control.DeviceInfo) bool {
-		switch d.Type {
-		case control.DeviceGamepad:
-			return *grabGamepads
-		case control.DeviceMouse:
-			return false // taking the pointer away is never wanted
+	grabPolicy := func(keyboards, gamepads bool) func(control.DeviceInfo) bool {
+		return func(d control.DeviceInfo) bool {
+			switch d.Type {
+			case control.DeviceGamepad:
+				return gamepads
+			case control.DeviceMouse:
+				return false // taking the pointer away is never wanted
+			}
+			return keyboards
 		}
-		return !*noGrab
 	}
+	grab := grabPolicy(!*noGrab, *grabGamepads)
 
 	log.Info("HIDI started; press Ctrl+C to stop", "version", buildinfo.Get().String())
 	if len(toggle) > 0 {
@@ -324,6 +328,36 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
 			manager.SetProfiles(profiles)
+		})
+	}
+	if pl.managed {
+		// Settings changed in the file, by hand or from the window, are
+		// taken over while HIDI runs, as far as they can be: the toggle
+		// combination and what is grabbed. What the command line set
+		// stays as it was set there.
+		settingsFile := pl.paths.Settings
+		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
+			if err != nil {
+				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
+				return
+			}
+			newToggle, keyboards, gamepads := toggle, !*noGrab, *grabGamepads
+			if !given["toggle"] {
+				newToggle = s.Input.Toggle
+			}
+			if !given["no-grab"] {
+				keyboards = s.Input.GrabKeyboards
+			}
+			if !given["grab-gamepads"] {
+				gamepads = s.Input.GrabGamepads
+			}
+			if len(newToggle) == 0 && keyboards {
+				configLog.Error("the changed settings are not used: grabbing keyboards needs a toggle combination", "file", settingsFile)
+				return
+			}
+			manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
+			configLog.Info("settings changed",
+				"toggle", formatToggle(newToggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
 		})
 	}
 	manager.Run(ctx, source.Devices)

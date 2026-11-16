@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/control"
 )
@@ -245,5 +246,50 @@ func TestPaths(t *testing.T) {
 	p := PathsIn(root)
 	if filepath.Dir(p.Settings) != root || filepath.Dir(p.Profiles) != root || filepath.Base(p.Profiles) != "profiles" {
 		t.Errorf("paths: %+v", p)
+	}
+}
+
+func TestWatch(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.toml")
+	os.WriteFile(file, Default().Text(), 0o644)
+	type result struct {
+		s   Settings
+		err error
+	}
+	got := make(chan result, 8)
+	go Watch(t.Context(), file, 10*time.Millisecond, func(s Settings, err error) { got <- result{s, err} })
+
+	next := func(what string) result {
+		t.Helper()
+		select {
+		case r := <-got:
+			return r
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no report of %s", what)
+			return result{}
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case r := <-got:
+		t.Fatalf("a report without a change: %+v", r)
+	default:
+	}
+
+	changed := Default()
+	changed.Input.GrabGamepads = true
+	if err := Save(file, changed); err != nil {
+		t.Fatal(err)
+	}
+	if r := next("a change"); r.err != nil || !r.s.Input.GrabGamepads {
+		t.Errorf("after a change: %+v", r)
+	}
+	os.WriteFile(file, []byte("schema = 1\n[input]\nvolume = 1\n"), 0o644)
+	if r := next("a mistake"); r.err == nil {
+		t.Errorf("a file with a mistake was reported as fine: %+v", r.s)
+	}
+	os.Remove(file)
+	if r := next("the removal"); r.err != nil || !r.s.Input.GrabKeyboards {
+		t.Errorf("after the removal: %+v", r)
 	}
 }

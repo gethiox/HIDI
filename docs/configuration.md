@@ -36,6 +36,11 @@ its default, and an option given on the command line comes before the file.
 A file with a mistake is not used: HIDI says what is wrong and runs with the
 defaults.
 
+A running HIDI notices within about two seconds when the file changes, and
+takes over the toggle combination and what is grabbed: a keyboard that
+should type again does so at once. `start_on` and `connect` matter when HIDI
+starts. A changed file with a mistake is reported and changes nothing.
+
 ```toml
 schema = 1
 

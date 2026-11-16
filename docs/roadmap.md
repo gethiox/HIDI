@@ -114,6 +114,8 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
   the page is open and keeps its angle; the settings, with the switches and
   the frame limit changeable; where things are kept, with buttons to open
   the places in the file manager; and the list of all profiles.
+- A running HIDI follows its settings file: a changed toggle combination
+  and changed grabbing apply within seconds, from the window or by hand.
 - HIDI's directory with the settings file and the profiles, filled on the
   first start, and `hidi config` to show where it is.
 - The window (`hidi gui`): the instruments with their state, a keyboard
@@ -156,12 +158,10 @@ In planned order. Each item is roughly one pull request.
 ### Interfaces
 
 6. **Configuring in the graphical interface**, in steps:
-    1. *Settings that apply while HIDI runs.* The running HIDI reads its
-       settings at start only; changing them from the window needs it to
-       take them over, through the control protocol or by watching the
-       file. With that, the toggle combination and the MIDI ports to
-       connect to can be changed in the window too; for now the page shows
-       them and points to the file.
+    1. *The rest of the settings in the window.* The toggle combination,
+       by pressing the keys, and the MIDI ports to connect to, from the
+       list of those that exist. The page shows them and points to the
+       file. Changed ports need the router to drop connections too.
     2. *Profiles.* An icon on each instrument opens its profile; the
        settings page lists all profiles, so that those of devices that are
        not connected can be reached too, and for now opens their files in

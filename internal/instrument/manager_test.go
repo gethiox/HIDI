@@ -880,3 +880,46 @@ KEY_Z = "C3"
 		t.Errorf("a held position arrived after HIDI was turned off:\n%s", after)
 	}
 }
+
+// Changed settings reach running instruments: the grab follows at once,
+// and the new combination is the one that toggles.
+func TestSetInput(t *testing.T) {
+	r := newRigWith(t, Options{Toggle: toggleKeys})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	e := r.plug(kbd)
+	r.plug(pad)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, noteOn)
+	if kbd.isGrabbed() {
+		t.Fatal("grabbed without a grab policy")
+	}
+
+	// Grabbing is turned on while HIDI is on.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	if pad.isGrabbed() {
+		t.Error("the game controller was grabbed")
+	}
+	// A device plugged in afterwards follows the new rules too.
+	late := newFakeDevice("Late Keyboard", control.DeviceKeyboard)
+	r.plug(late)
+	eventually(t, "the late keyboard to be grabbed", late.isGrabbed)
+
+	// And off again.
+	r.manager.SetInput(toggleKeys, nil)
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() && !late.isGrabbed() })
+
+	// Another combination: the old one does nothing any more, also when
+	// one of its keys was down during the change.
+	kbd.set(keyCtrl, 1)
+	r.manager.SetInput([]control.Code{{Kind: control.KindKey, Num: keyZ.Num + 1}, keyAlt}, nil)
+	kbd.drain(t)
+	kbd.set(keyAlt, 1)
+	kbd.drain(t)
+	if !r.manager.Active() {
+		t.Fatal("the old combination still turned HIDI off")
+	}
+	kbd.set(control.Code{Kind: control.KindKey, Num: keyZ.Num + 1}, 1)
+	eventually(t, "the new combination to turn HIDI off", func() bool { return !r.manager.Active() })
+}

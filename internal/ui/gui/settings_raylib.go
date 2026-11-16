@@ -136,7 +136,11 @@ func (w *window) save(s settings.Settings, note string) {
 	w.settings.refresh(w.opts.Paths, time.Now(), true)
 }
 
-const restartNote = "Saved. A running HIDI takes this over when it is started again."
+// What the page says after a change, by when a running HIDI follows it.
+const (
+	soonNote    = "Saved. A running HIDI takes this over within a few seconds."
+	restartNote = "Saved. A running HIDI takes this over when it is started again."
+)
 
 // drawSettings draws the settings page in place of the instruments.
 func (w *window) drawSettings(area rl.Rectangle) {
@@ -196,7 +200,7 @@ func (w *window) drawSettings(area rl.Rectangle) {
 	for i, c := range s.Input.Toggle {
 		toggleNames[i] = strings.TrimPrefix(c.String(), "KEY_")
 	}
-	vx := row("Toggle combination", "turns HIDI off and on; change it in settings.toml")
+	vx := row("Toggle combination", "turns HIDI off and on; change it in settings.toml, HIDI follows")
 	combination := strings.Join(toggleNames, " + ")
 	if combination == "" {
 		combination = "none"
@@ -215,7 +219,11 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		vx := row(item.name, item.about)
 		if w.pill(*item.value, vx, y) && editable {
 			*item.value = !*item.value
-			w.save(s, restartNote)
+			note := soonNote
+			if item.value == &s.Input.StartOn {
+				note = restartNote
+			}
+			w.save(s, note)
 		}
 		y += 46
 		if item.about == "" {
@@ -223,7 +231,7 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		}
 	}
 
-	vx = row("Also send to MIDI ports", "change it in settings.toml")
+	vx = row("Also send to MIDI ports", "change it in settings.toml and start HIDI again")
 	ports := strings.Join(s.Output.Connect, ", ")
 	if ports == "" {
 		ports = "none"
