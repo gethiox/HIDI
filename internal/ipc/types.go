@@ -28,6 +28,9 @@ type Instrument struct {
 	Location string `json:"location,omitempty"`
 	// Profile is the name of the profile in use.
 	Profile string `json:"profile"`
+	// ProfileFile is the file the profile is read from; empty for a
+	// profile that is inside HIDI.
+	ProfileFile string `json:"profile_file,omitempty"`
 
 	Octave    int `json:"octave"`
 	Transpose int `json:"transpose"`

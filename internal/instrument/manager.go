@@ -275,6 +275,9 @@ type Status struct {
 	Device control.DeviceInfo
 	// Profile is the name of the profile in use.
 	Profile string
+	// ProfileSource is where that profile comes from: its file, or a name
+	// that begins with "built-in/".
+	ProfileSource string
 	// State is the current state of the instrument.
 	State engine.State
 	// Input is what the device itself reports, before any profile is
@@ -527,7 +530,7 @@ func (r *runner) run() {
 		eng, profile = a.engine, a.profile
 		limit = newLimiter(profile.AxisRate)
 		state = eng.State()
-		r.setStatus(Status{Device: r.info, Profile: profile.Name, State: state}, true)
+		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, State: state}, true)
 	}
 
 	// apply brings the device to the state the manager wants.

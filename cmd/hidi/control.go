@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/gethiox/HIDI/internal/buildinfo"
+	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
@@ -57,22 +58,23 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			axes[i] = ipc.Axis{Name: a.Code.String(), Part: a.Part, Value: a.Value}
 		}
 		s.Instruments = append(s.Instruments, ipc.Instrument{
-			Buttons:   buttons,
-			Axes:      axes,
-			Name:      st.Device.Name,
-			Type:      st.Device.Type.String(),
-			Hardware:  st.Device.Hardware.String(),
-			Location:  st.Device.Location,
-			Profile:   st.Profile,
-			Octave:    st.State.Octave,
-			Transpose: st.State.Transpose,
-			Channel:   int(st.State.Channel) + 1,
-			Velocity:  int(st.State.Velocity),
-			Layout:    st.State.Layout,
-			Chord:     st.State.Chord,
-			Learning:  st.State.Learning,
-			Sounding:  st.State.Sounding,
-			Notes:     st.State.NoteNumbers(),
+			Buttons:     buttons,
+			Axes:        axes,
+			Name:        st.Device.Name,
+			Type:        st.Device.Type.String(),
+			Hardware:    st.Device.Hardware.String(),
+			Location:    st.Device.Location,
+			Profile:     st.Profile,
+			ProfileFile: profileFile(st.ProfileSource),
+			Octave:      st.State.Octave,
+			Transpose:   st.State.Transpose,
+			Channel:     int(st.State.Channel) + 1,
+			Velocity:    int(st.State.Velocity),
+			Layout:      st.State.Layout,
+			Chord:       st.State.Chord,
+			Learning:    st.State.Learning,
+			Sounding:    st.State.Sounding,
+			Notes:       st.State.NoteNumbers(),
 		})
 	}
 	// Two devices of the same model have the same name; where they are
@@ -233,4 +235,13 @@ func (v *monitorView) draw() {
 	}
 	b.WriteString("\nCtrl+C closes this view; HIDI keeps running.\n")
 	io.WriteString(v.out, b.String())
+}
+
+// profileFile returns the file a profile comes from, or nothing for a
+// profile that is inside HIDI.
+func profileFile(source string) string {
+	if strings.HasPrefix(source, config.BuiltinSource) {
+		return ""
+	}
+	return source
 }
