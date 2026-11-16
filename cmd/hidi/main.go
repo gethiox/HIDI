@@ -20,6 +20,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/instrument"
+	"github.com/gethiox/HIDI/internal/logging"
 )
 
 const usage = `HIDI turns keyboards and game controllers into MIDI instruments.
@@ -88,6 +89,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
+	noColour := fs.Bool("no-color", false, "write the log without colours")
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
@@ -113,7 +115,15 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	if *verbose {
 		level = slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
+	file, isFile := stderr.(*os.File)
+	logs := logging.New(logging.Options{
+		Output:    stderr,
+		Colour:    !*noColour && isFile && logging.TerminalColour(file),
+		Level:     level,
+		KeepLevel: level,
+	})
+	log := logs.Logger("hidi")
+	inputLog := logs.Logger("input")
 
 	profiles, err := config.Builtin()
 	if err != nil {
@@ -121,7 +131,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		return 1
 	}
 	source, err := backend.Devices(func(what string, err error) {
-		log.Warn("input device cannot be used", "device", what, "error", err)
+		inputLog.Warn("device cannot be used", "device", what, "error", err)
 	})
 	if err != nil {
 		log.Error("watching for input devices failed", "error", err)
@@ -149,7 +159,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	manager := instrument.NewManager(instrument.Options{
 		Profiles:      profiles,
 		OpenEndpoint:  backend.OpenEndpoint,
-		Logger:        log,
+		Logger:        logs.Logger("instrument"),
 		Grab:          grab,
 		Toggle:        toggle,
 		StartInactive: *startOff,

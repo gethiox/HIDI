@@ -85,6 +85,12 @@ other programs.
 | `-grab-gamepads` | Also take game controllers away from other programs. |
 | `-off` | Start turned off. |
 | `-v` | Also log every MIDI message and every ignored device. |
+| `-no-color` | Write the log without colours. |
+
+The log is coloured when it goes to a terminal, and plain when it goes to a
+file or a pipe. Besides `-no-color`, setting the `NO_COLOR` environment
+variable turns the colours off; `FORCE_COLOR` keeps them when the output is
+piped.
 
 The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,

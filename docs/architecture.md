@@ -55,7 +55,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `output` | partial | MIDI output backend interface, with one subpackage per transport. The ALSA sequencer backend exists. |
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
-| `logging` | planned | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
+| `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
 | `ipc` | planned | Local control protocol between the engine and its clients. |
 | `ui` | planned | Terminal views, tray icon and graphical UI. |
 
@@ -67,7 +67,9 @@ All packages live under `internal/`; HIDI does not offer a Go API.
   covered by unit tests.
 - Platform-specific code is confined to subpackages of `input`, `output` and
   `ui`. `backend` chooses among them with build constraints and is the only
-  other package that may use `//go:build` or import a platform package.
+  other package that may use `//go:build` or import a platform package. The
+  one exception is `logging`, which has to switch on colour support in the
+  Windows console.
 - `instrument` is the only package that wires devices to engines and
   outputs. It sees them through the interfaces of `input` and `output`.
 
@@ -137,6 +139,21 @@ it as held, which would otherwise happen to the Enter key that starts HIDI.
 Configuration files are TOML and carry a schema version. A file written for an
 older schema is migrated on load. HIDI 1.x configuration files are not
 supported.
+
+### Logging
+
+Every component logs through `log/slog` to one `logging.Log`, which writes
+lines to the terminal and keeps the newest in memory, so that an interface
+can show the log without reading a file. The output and the memory have
+separate levels: an interface can keep debug lines while the terminal stays
+quiet.
+
+A line is `date time LEVEL [component] message key='value' ...`, coloured
+when the output is a terminal. `-no-color`, `NO_COLOR` and `FORCE_COLOR`
+override that; plain output is always available.
+The names devices report end up in the log, so everything that is not
+printable text is escaped: a device cannot forge a log line or send escape
+sequences to the terminal.
 
 ### Processes
 

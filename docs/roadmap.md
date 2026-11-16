@@ -29,8 +29,12 @@ completes or changes an item.
 | Windows input | While HIDI is on, all keyboard input is suppressed, and devices are told apart through Raw Input. Suppressing one keyboard and not another would need a driver and is left for later. |
 | Grabbing | Recognised devices do not reach the rest of the system while HIDI is on. Game controllers are the exception unless the user asks otherwise. |
 | Configuration | TOML, with a schema version and migrations from 2.0 onwards. HIDI 1.x files are not read. |
+| Configuring | The graphical interface is the first-class way to configure everything; nobody should have to edit a file. Files can still be edited by hand, and every mistake in one is reported clearly. |
 | Interfaces | A terminal interface for headless use, a tray icon, and a graphical interface built with raylib. They are clients of the running engine. |
-| Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. |
+| Graphical interface | Draws at the monitor's refresh rate (vertical sync), including high refresh rates, with an optional, configurable lower limit while its window is not focused. It never keeps the system or the display awake: it must not reset the operating system's idle timer. |
+| Axes on a channel or layout change | Both behaviours are needed, chosen by a setting: an axis either keeps the value of the controller it left, or that controller returns to rest. |
+| Releases | Release artifacts are immutable, and builds are reproducible: the same commit gives the same binaries. |
+| Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. Output without colours is always available. HIDI logs little, since the interfaces show its state; what it logs has a fitting level and its context as fields. |
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
@@ -48,6 +52,8 @@ completes or changes an item.
   merging the nodes of a device, and grabbing.
 - `instrument`: running instruments, turning HIDI on and off with a key
   combination, and grabbing keyboards.
+- `logging`: the coloured, structured log format, and the newest lines
+  kept in memory for the interfaces.
 - `hidi run` and `hidi devices`.
 - CI runs the tests that need kernel interfaces in a virtual machine.
 
@@ -57,49 +63,57 @@ In planned order. Each item is roughly one pull request.
 
 ### Linux
 
-1. **Logging.** The coloured structured format, and an in-memory buffer of
-   recent lines for the interfaces to show.
-2. **User profiles.** Loading profiles from the user's configuration
+1. **User profiles.** Loading profiles from the user's configuration
    directory, reloading them when they change without restarting the
    instruments that are not affected, and a way to write the built-in
-   profiles out as a starting point.
-3. **Sending to an existing MIDI port.** Listing ALSA ports and connecting
+   profiles out as a starting point. A broken file is reported with what
+   is wrong and where, and never stops the other profiles from loading.
+2. **Sending to an existing MIDI port.** Listing ALSA ports and connecting
    an instrument to one, for hardware MIDI interfaces and USB gadget mode.
-4. **Control interface.** A local protocol to a running HIDI, with
+3. **Control interface.** A local protocol to a running HIDI, with
    `hidi status`, `hidi on`, `hidi off` and a live `hidi monitor` view.
-5. **Rate limiting of axis input**, which 1.x had at 120 updates a second.
-6. **An end-to-end test** from a virtual input device to a received MIDI
+4. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
+   and the setting for what an axis does on a channel or layout change.
+5. **An end-to-end test** from a virtual input device to a received MIDI
    message, in the CI virtual machine.
 
 ### Windows
 
-7. **MIDI output** through Windows MIDI Services. This starts with a small
+6. **MIDI output** through Windows MIDI Services. This starts with a small
    test program to prove that a virtual device can be created from Go.
-8. **Input**: Raw Input for keyboards and game controllers, and the
+7. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
-9. **Platform glue**, and testing on a real machine.
+8. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
-10. **Tray icon** with the on/off switch.
-11. **Graphical interface**: status of the instruments, a live view of what
-    is played, and the log.
-12. **Editing profiles** in the graphical interface, including learning a
-    binding by pressing the control.
+9. **Tray icon** with the on/off switch.
+10. **Graphical interface**: status of the instruments, a live view of what
+    is played, and the log. Frame pacing as decided above. The log lives
+    in a status bar at the bottom: it shows the last line, coloured but
+    faint, and dragging it up reveals the whole log, with a choice of the
+    least level to show.
+11. **Configuring in the graphical interface**: every setting and every
+    part of a profile, including learning a binding by pressing the
+    control. This needs the configuration to be written back to its file
+    without losing what the user wrote there by hand.
 
 ### Features
 
-13. **Chord memory** (the 1.x "multinote" action, which computed its
+12. **Chord memory** (the 1.x "multinote" action, which computed its
     intervals but never applied them) and **CC learning**.
-14. **MIDI input and OpenRGB**: lighting the keys that are played here or
+13. **MIDI input and OpenRGB**: lighting the keys that are played here or
     by another MIDI source.
-15. **Velocity from how a control is pressed**, for controls that report
+14. **Velocity from how a control is pressed**, for controls that report
     pressure or travel.
 
 ### Release
 
-16. Packaging, a udev rule so that HIDI needs neither root nor group
+15. Packaging, a udev rule so that HIDI needs neither root nor group
     changes, and updating the dependencies of the CI workflow.
+16. The release workflow: reproducible builds (`-trimpath`, a pinned
+    toolchain, no build time in the binary), checksums, build provenance
+    attestation, and immutable releases.
 17. Rewriting the README and the user documentation.
 18. Merging `dev` into `main`.
 
@@ -128,10 +142,8 @@ rest on assumptions about real devices and should be checked first:
 
 ## Open questions
 
-- An axis that is not marked as centred keeps its controller value when the
-  channel or the layout changes, so that a throttle does not snap a volume
-  to zero. A trigger held during such a change therefore leaves its old
-  controller where it was. Whether everything should return to rest instead
-  is undecided.
-- How much profile editing belongs in the graphical interface, as opposed
-  to the files.
+- Where the setting for axes on a channel or layout change belongs: one
+  value for a profile, or one for each binding. Today an axis that is not
+  marked as centred always keeps its controller value.
+- Whether the settings of HIDI itself (the toggle combination, grabbing,
+  the frame rate limit) live in one file next to the profiles.
