@@ -39,6 +39,7 @@ completes or changes an item.
 | Grabbing | Recognised devices do not reach the rest of the system while HIDI is on. Game controllers are the exception unless the user asks otherwise. |
 | Configuration | TOML, with a schema version and migrations from 2.0 onwards. HIDI 1.x files are not read. |
 | Where things are kept | One directory named HIDI in the system's place for configuration (`~/.config/HIDI`, `%AppData%\HIDI`): `settings.toml` for HIDI's own settings, apart from the profiles in `profiles/`. HIDI carries its defaults inside and writes them there on the first start, and only into a directory that is new or its own. |
+| Writing files | A file HIDI changes is changed in the text, one key at a time, never written anew from what HIDI understood of it. The new text goes to a file beside the old one, is brought to the disk, and takes its place in one step, so that a power failure leaves the old file or the new one. |
 | Configuring | The graphical interface is the first-class way to configure everything; nobody should have to edit a file. Files can still be edited by hand, and every mistake in one is reported clearly. |
 | Interfaces | A terminal interface for headless use, a tray icon, and a graphical interface built with raylib. They are clients of the running engine. |
 | Graphical interface | Draws at the monitor's refresh rate (vertical sync), including high refresh rates, with an optional, configurable lower limit while its window is not focused. It never keeps the system or the display awake: it must not reset the operating system's idle timer. |
@@ -123,6 +124,10 @@ while no instrument started.
 - Chord memory (the `chord` command; the 1.x "multinote", which computed
   its intervals but never applied them) and the `learn` command, which
   holds back axes that are not moved far (the 1.x "cc_learning").
+- Changing a profile in the window: its starting numbers, and what each
+  key or button does (a note, a command, nothing), chosen by a click or
+  by pressing it on the device. Every change is one line of the file;
+  what was written there by hand stays.
 - The settings page of the window: a gear in the corner that turns while
   the page is open and keeps its angle; the settings, with the switches and
   the frame limit changeable; where things are kept, with buttons to open
@@ -168,18 +173,14 @@ In planned order. Each item is roughly one pull request.
 
 ### Interfaces
 
-6. **Configuring in the graphical interface**, in steps:
-    1. *The rest of the settings in the window.* The toggle combination,
-       by pressing the keys, and the MIDI ports to connect to, from the
-       list of those that exist. The page shows them and points to the
-       file. Changed ports need the router to drop connections too.
-    2. *Profiles.* An icon on each instrument opens its profile; the
-       settings page lists all profiles, so that those of devices that are
-       not connected can be reached too, and for now opens their files in
-       the system's editor. Every part of a profile can be
-       changed, including learning a binding by pressing the control. This
-       needs a profile to be written back to its file without losing what
-       the user wrote there by hand.
+6. **The rest of configuring in the graphical interface**:
+    - The toggle combination, by pressing the keys, and the MIDI ports to
+      connect to, from the list of those that exist. The settings page
+      shows them and points to the file. Changed ports need the router to
+      drop connections too.
+    - In a profile: axes, controllers, program changes, pitch bend, keys
+      with modifiers, and the options of a note; adding and removing
+      layouts; making a new profile and saying which devices it is for.
 
 ### Features
 

@@ -316,5 +316,14 @@ buttons and axes the device has reported so far and where each stands;
 control appears once the device has reported it, since not every input
 backend can say beforehand which controls a device has.
 
+A profile is changed from the window in its text. `config.Set` and
+`config.Remove` find the line of one key in one section and change that
+line; everything else in the file stays byte for byte, the notes a person
+wrote there among it. They know the shapes a profile has, not all of TOML:
+text written in a way they do not follow is left alone and the window says
+so. The result is parsed as a profile before it is written, so the window
+cannot write a file HIDI would refuse. The running HIDI learns of the
+change like of any other, by watching the directory.
+
 The socket also makes HIDI a single instance. A second `hidi run` finds the
 first one answering and stops before it opens any device.

@@ -187,9 +187,25 @@ seconds; the others matter when it starts.
 
 ![The settings page](docs/images/gui-settings.png)
 
+A profile is changed in the window too. "Edit profile" on an instrument, or
+"Edit" beside a profile in the settings, opens it: the numbers an instrument
+starts with, the layouts, and what every control does. A keyboard's profile
+is drawn as a keyboard, coloured by what the keys do; other profiles list
+their buttons. Click a control, or press it on the device, and make it play
+a note, run a command, or do nothing. Every change is written to the file at
+once, as a change of that one line: notes you wrote into the file by hand
+stay. A running HIDI follows within a few seconds.
+
+![Changing a keyboard's profile](docs/images/gui-profile.png)
+
+What a control sends besides notes and commands, a controller for one, and
+keys that need a modifier, are shown where they apply and changed in the
+file.
+
 | Option | Meaning |
 | --- | --- |
 | `-settings` | Open with the settings showing. |
+| `-edit FILE` | Open with this profile, ready to be changed. |
 | `-background-fps N` | Draw at most N times a second while another window has the focus. Without it the window keeps to the monitor's refresh rate. |
 | `-log-height N` | Open with the log pulled up N pixels. |
 
