@@ -291,8 +291,16 @@ func TestEndpointConnect(t *testing.T) {
 	}
 	// The sequencer first tells a port that something connected to it; the
 	// note follows that announcement.
+	// One read may return both, so nothing read is thrown away.
 	var got event
-	for got = rx.read(1)[0]; got.Source.Client == systemClient; got = rx.read(1)[0] {
+	for pending := rx.read(1); ; pending = append(pending, rx.read(1)...) {
+		for len(pending) > 0 && pending[0].Source.Client == systemClient {
+			pending = pending[1:]
+		}
+		if len(pending) > 0 {
+			got = pending[0]
+			break
+		}
 	}
 	if got.Type != eventNoteOn || got.Source != ep.port || got.Dest != in {
 		t.Errorf("received %+v", got)
