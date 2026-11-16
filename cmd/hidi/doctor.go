@@ -35,6 +35,7 @@ func cmdDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return 2
 	}
 	fmt.Fprintln(stdout, buildinfo.Get())
+	backend.CheckInput(stdout)
 	endpoint, err := backend.CheckOutput(stdout, doctorDevice)
 	if err != nil {
 		fmt.Fprintf(stdout, "\nMIDI output does not work: %v\n", err)

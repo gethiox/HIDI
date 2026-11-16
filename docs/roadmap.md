@@ -220,11 +220,19 @@ In planned order. Each item is roughly one pull request.
 
 ### Release
 
-10. Packaging, a udev rule so that HIDI needs neither root nor group
-    changes, and updating the dependencies of the CI workflow.
-11. The release workflow: reproducible builds (`-trimpath`, a pinned
-    toolchain, no build time in the binary), checksums, build provenance
-    attestation, and immutable releases.
+10. Done except packages for distributions: release archives, a udev
+    rule so that HIDI needs neither root nor group changes, `hidi doctor`
+    saying whether input devices can be read, and the CI workflow's
+    actions updated and pinned to commits. A `.deb`, an AUR package or
+    the like can follow when someone asks.
+11. Done, untried until the first tag: `scripts/release.sh` builds
+    reproducibly (`-trimpath`, the toolchain of `go.mod`, no build time
+    or build ID, archives with the commit's time in a fixed order); the
+    release workflow runs it twice and compares, attests build
+    provenance and makes a draft release. Left to the maintainer: turn
+    on immutable releases in the repository settings, and decide how
+    `Windows.Devices.Midi2.dll` reaches Windows users (it is not in the
+    archive).
 12. Rewriting the README and the user documentation.
 13. Merging `dev` into `main`.
 
@@ -341,3 +349,10 @@ rest on assumptions about real devices and should be checked first:
   icon of its own; the maintainer will supply the art.
 - `-connect` applies to every instrument. Choosing ports for each
   instrument separately needs those settings, and belongs with them.
+- The udev rule tags every input device with `uaccess`, so the person at
+  the machine can read all of them. Narrowing it to keyboards and game
+  controllers is possible, but would leave out the unusual devices a
+  profile may name; it is left wide.
+- A release has no file for `Windows.Devices.Midi2.dll`. Whether HIDI may
+  ship Microsoft's file, or has to send users to Microsoft's package, is
+  to be decided before a Windows preview is offered.

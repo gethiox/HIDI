@@ -39,17 +39,62 @@ Cross-compiling works with the usual Go variables, for example:
 GOOS=windows GOARCH=amd64 go build ./cmd/hidi
 ```
 
+### Releases
+
+A release is an archive for each system, built by `scripts/release.sh`. The
+result depends only on the source and the Go toolchain named in `go.mod`, so
+building the same commit again gives the same files, byte for byte:
+
+```bash
+scripts/release.sh 2.0.0 dist
+```
+
+Compare `dist/SHA256SUMS` with the one of the release. The files of a
+release also carry a build provenance attestation, a signed statement that
+the release workflow built them from that commit:
+
+```bash
+gh attestation verify hidi-2.0.0-linux-amd64.tar.gz --repo gethiox/HIDI
+```
+
+Pushing a tag such as `v2.0.0` or `v2.0.0-beta.1` runs the release workflow.
+It tests, builds twice and compares, attests the files and puts them into a
+draft release, which a maintainer publishes.
+
 ## Trying it on Linux
 
 HIDI reads input devices from `/dev/input` and creates MIDI devices through
-the ALSA sequencer. Your user needs access to both, which on most
-distributions means being a member of the `input` and `audio` groups:
+the ALSA sequencer. It does not need root. It needs your user to have access
+to both, and most distributions give the person logged in at the machine
+access to sound already. For the input devices there are two ways.
+
+The udev rule that comes with HIDI, `70-hidi.rules` (in the release archive,
+and in `packaging/linux` of the source), gives them to whoever is logged in
+at the machine's own screen and keyboard, for as long as they are:
+
+```bash
+sudo cp 70-hidi.rules /etc/udev/rules.d/
+```
+
+```bash
+sudo udevadm control --reload
+```
+
+```bash
+sudo udevadm trigger --subsystem-match=input
+```
+
+Or make your user a member of the `input` group, and of `audio` where sound
+is not handed out by login, then log out and back in:
 
 ```bash
 sudo usermod -aG input,audio "$USER"
 ```
 
-Log out and back in for the change to take effect.
+Either way, every program you run can then read every key pressed on the
+machine, which programs under X11 can do anyway. `./hidi doctor` says
+whether the input devices can be read and whether a MIDI device can be
+created.
 
 List the input devices HIDI sees and the profile each would use:
 

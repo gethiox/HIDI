@@ -1,0 +1,22 @@
+# HIDI: let the person sitting at this machine read its input devices.
+#
+# HIDI turns keyboards and game controllers into MIDI instruments, and for
+# that it reads them directly. Without this rule only root can, or members
+# of the "input" group. With it, whoever is logged in at the machine's own
+# screen and keyboard can, for as long as they are, and nobody else: that
+# is what "uaccess" means. It is how sound cards and game controllers are
+# already handed out.
+#
+# Be aware of what it allows: any program you run can then read every key
+# pressed on this machine, as programs can under X11 anyway. Membership of
+# the "input" group allows the same, without ending when you log out.
+#
+# Install:
+#   sudo cp 70-hidi.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload
+#   sudo udevadm trigger --subsystem-match=input
+#
+# The number matters: the rule has to come before 73-seat-late.rules,
+# which is where the access is granted.
+
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"

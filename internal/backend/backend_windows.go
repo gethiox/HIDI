@@ -81,6 +81,10 @@ func OpenDuplexEndpoint(name string) (output.Endpoint, error) {
 	return winmidi.Open(name)
 }
 
+// CheckInput reports to w whether the input devices can be read. Here
+// there is nothing that could keep HIDI from them.
+func CheckInput(w io.Writer) bool { return true }
+
 // SetRemoval chooses how MIDI devices are given up: "session",
 // "disconnect", "release" or "none", and how long a device is left alone
 // before that; a negative time keeps the usual one. It is for the

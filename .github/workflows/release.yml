@@ -1,0 +1,84 @@
+name: Release
+
+# Pushing a tag such as v2.0.0 or v2.0.0-beta.1 builds the files of that
+# release and puts them into a draft release. Nothing is public until a
+# maintainer looks at the draft and publishes it.
+#
+# The files are built by scripts/release.sh, which anyone can run on the
+# same commit to get the same files, byte for byte. Each file also gets a
+# build provenance attestation: a signed statement, kept by GitHub, that
+# this workflow built it from this commit. It is checked with
+#   gh attestation verify FILE --repo gethiox/HIDI
+on:
+  push:
+    tags: ["v2.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Actions are pinned to a commit, with the version it belongs to beside it.
+jobs:
+  build:
+    name: Build the release files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          # A release is built from the source alone, not from what an
+          # earlier run left in a cache.
+          cache: false
+      - name: Test
+        run: go test ./...
+      - name: Build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/release.sh "${TAG#v}" dist
+      - name: Build again and compare
+        # The promise that anyone can rebuild the same files is checked
+        # on every release.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          scripts/release.sh "${TAG#v}" "$RUNNER_TEMP/again" >/dev/null
+          diff dist/SHA256SUMS "$RUNNER_TEMP/again/SHA256SUMS"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Attest and draft the release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only this job may write, and it runs nothing from the repository.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A version with a suffix, such as -beta.1, is a pre-release.
+          kind=()
+          case "$TAG" in *-*) kind=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* --draft --verify-tag --generate-notes \
+            --title "HIDI ${TAG#v}" "${kind[@]}"
