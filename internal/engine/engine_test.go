@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/midi"
@@ -719,5 +720,74 @@ func TestKeys(t *testing.T) {
 	want = []KeyRole{{keyA, CommandPanic}, {keyUp, CommandLayoutNext}}
 	if layout != 1 || !slices.Equal(keys, want) {
 		t.Errorf("after the switch: layout %d, keys %+v", layout, keys)
+	}
+}
+
+// A note with touch is louder the faster its control is pressed.
+func TestTouchVelocity(t *testing.T) {
+	p := baseProfile(
+		Binding{Source: Source{Code: trigger}, Action: Note{Note: 60, Touch: true}},
+		key(keyA, Note{Note: 62, Touch: true}),
+		Binding{Source: Source{Code: stickX}, Action: Note{Note: 64}}, // without touch
+	)
+	p.Defaults.Velocity = 80
+	r := newRig(t, p)
+	start := time.Unix(1000, 0)
+	at := func(ms int) time.Time { return start.Add(time.Duration(ms) * time.Millisecond) }
+	set := func(code control.Code, value float64, when time.Time, want string) {
+		t.Helper()
+		got := render(r.e.Handle(control.Event{Code: code, Value: value, Time: when}, nil))
+		if got != want {
+			t.Errorf("%v = %v\n got: %s\nwant: %s", code, value, got, want)
+		}
+	}
+
+	// Slowly: a second from rest to halfway.
+	set(trigger, 0.1, at(0), "")
+	set(trigger, 0.3, at(500), "")
+	set(trigger, 0.6, at(1000), "NoteOn ch=1 note=C3 velocity=1")
+	set(trigger, 0, at(1100), "NoteOff ch=1 note=C3 velocity=0")
+
+	// Fast: two milliseconds.
+	set(trigger, 0.2, at(2000), "")
+	set(trigger, 0.9, at(2002), "NoteOn ch=1 note=C3 velocity=127")
+	set(trigger, 0, at(2100), "NoteOff ch=1 note=C3 velocity=0")
+
+	// In between: 25 ms is half way from 4 to 160 by doublings.
+	set(trigger, 0.2, at(3000), "")
+	set(trigger, 0.9, at(3025), "NoteOn ch=1 note=C3 velocity=64")
+	set(trigger, 0, at(3100), "NoteOff ch=1 note=C3 velocity=0")
+
+	// Lingering near rest does not count: the time runs from leaving it.
+	set(trigger, 0.03, at(4000), "")
+	set(trigger, 0.2, at(9000), "")
+	set(trigger, 0.04, at(9500), "") // back to rest
+	set(trigger, 0.2, at(9990), "")
+	set(trigger, 0.7, at(9993), "NoteOn ch=1 note=C3 velocity=127")
+	set(trigger, 0, at(10000), "NoteOff ch=1 note=C3 velocity=0")
+
+	// From rest past the trigger point between two reports: as fast as
+	// can be told.
+	set(trigger, 1, at(11000), "NoteOn ch=1 note=C3 velocity=127")
+	set(trigger, 0, at(11100), "NoteOff ch=1 note=C3 velocity=0")
+
+	// A key is only on or off, and a note without touch does not care.
+	set(keyA, 1, at(12000), "NoteOn ch=1 note=D3 velocity=80")
+	set(keyA, 0, at(12100), "NoteOff ch=1 note=D3 velocity=0")
+	set(stickX, 0.2, at(13000), "")
+	set(stickX, 0.9, at(13001), "NoteOn ch=1 note=E3 velocity=80")
+}
+
+func TestTouchVelocityScale(t *testing.T) {
+	last := uint8(128)
+	for ms := 1; ms <= 400; ms++ {
+		v := touchVelocity(time.Duration(ms) * time.Millisecond)
+		if v < 1 || v > 127 || v > last {
+			t.Fatalf("%d ms gives velocity %d after %d", ms, v, last)
+		}
+		last = v
+	}
+	if touchVelocity(4*time.Millisecond) != 127 || touchVelocity(160*time.Millisecond) != 1 {
+		t.Error("the ends of the scale are off")
 	}
 }

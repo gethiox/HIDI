@@ -118,6 +118,8 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
   the page is open and keeps its angle; the settings, with the switches and
   the frame limit changeable; where things are kept, with buttons to open
   the places in the file manager; and the list of all profiles.
+- Velocity from how fast a control is pressed (`touch = true` on a note),
+  for triggers, analog keys and pads.
 - Lighting the keys through OpenRGB: what every key plays, the state of
   the command keys, the notes that sound, and notes sent to the instrument
   by another program, for which its MIDI device accepts MIDI on Linux.
@@ -178,9 +180,6 @@ In planned order. Each item is roughly one pull request.
        the user wrote there by hand.
 
 ### Features
-
-9. **Velocity from how a control is pressed**, for controls that report
-    pressure or travel.
 
 ### Release
 

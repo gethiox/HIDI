@@ -426,3 +426,20 @@ func TestAxisSettings(t *testing.T) {
 		t.Errorf("keep and 1000: RestAxes %v, AxisRate %d", p.Engine.RestAxes, p.AxisRate)
 	}
 }
+
+func TestTouchOption(t *testing.T) {
+	p, err := Parse([]byte("schema = 1\nname = \"T\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nABS_RZ = { note = \"C1\", touch = true }\nABS_Z = { note = \"D1\" }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	touch := map[bool]int{}
+	for _, b := range p.Engine.Layouts[0].Bindings {
+		touch[b.Action.(engine.Note).Touch]++
+	}
+	if touch[true] != 1 || touch[false] != 1 {
+		t.Errorf("touch was read as %v", touch)
+	}
+	if _, err := Parse([]byte("schema = 1\nname = \"T\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nABS_RZ = { cc = 1, touch = true }\n")); err == nil {
+		t.Error("touch on a controller was accepted")
+	}
+}
