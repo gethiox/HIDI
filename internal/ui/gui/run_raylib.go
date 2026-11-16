@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,14 +19,18 @@ import (
 
 // Measures of the window, in pixels before scaling for a dense display.
 const (
-	windowW, windowH = 920, 620
+	windowW, windowH = 920, 780
 	minW, minH       = 600, 380
 	margin           = 16
 	headerH          = 64
 	barH             = 30 // the status bar with the last log line
 	filterH          = 34 // the strip with the level filter, when the log is open
-	cardH            = 148
+	cardTop          = 70 // name and numbers of an instrument
+	pianoH           = 44
 	cardGap          = 12
+	keyUnit          = 24 // the most an ordinary key of the drawn keyboard measures
+	chipH            = 20
+	axisRowH         = 20
 	lineH            = 18 // of the log
 
 	sizeTitle = 24
@@ -330,7 +335,13 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 		text(w.sans, "No instruments. Connect a keyboard or a game controller.", margin, area.Y+8, sizeText, col(colFaint))
 		return
 	}
-	total := float32(len(state.Instruments))*(cardH+cardGap) - cardGap + margin
+	cardW := area.Width - 2*margin
+	heights := make([]float32, len(state.Instruments))
+	total := float32(margin) - cardGap
+	for i, in := range state.Instruments {
+		heights[i] = cardTop + w.inputHeight(in, cardW-2*cardPad) + 10 + pianoH + 12
+		total += heights[i] + cardGap
+	}
 	if hovered(area) {
 		w.cardScroll -= rl.GetMouseWheelMove() * 40
 	}
@@ -339,19 +350,20 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
 	defer rl.EndScissorMode()
 	y := area.Y - w.cardScroll
-	for _, in := range state.Instruments {
-		if y+cardH >= area.Y && y <= area.Y+area.Height {
-			w.drawCard(in, rl.NewRectangle(margin, y, area.Width-2*margin, cardH))
+	for i, in := range state.Instruments {
+		if y+heights[i] >= area.Y && y <= area.Y+area.Height {
+			w.drawCard(in, rl.NewRectangle(margin, y, cardW, heights[i]))
 		}
-		y += cardH + cardGap
+		y += heights[i] + cardGap
 	}
 }
 
+const cardPad = 14
+
 func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
-	rl.DrawRectangleRounded(r, 0.08, 8, col(colPanel))
-	rl.DrawRectangleRoundedLinesEx(r, 0.08, 8, 1, col(colPanelEdge))
-	pad := float32(14)
-	x, y := r.X+pad, r.Y+12
+	rl.DrawRectangleRounded(r, 16/r.Height, 8, col(colPanel))
+	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, 1, col(colPanelEdge))
+	x, y := r.X+cardPad, r.Y+12
 
 	text(w.bold, in.Name, x, y, sizeName, col(colText))
 	about := in.Type + " · profile " + in.Profile
@@ -379,14 +391,20 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		x += width(w.mono, field.value, sizeMono) + 20
 	}
 
-	// The keyboard, with the notes that are on lit.
+	// What the device itself reports, then what is played because of it.
+	inner := r.Width - 2*cardPad
+	inputH := w.inputHeight(in, inner)
+	w.drawInput(in, r.X+cardPad, r.Y+cardTop, inner)
+	w.drawPiano(in, rl.NewRectangle(r.X+cardPad, r.Y+cardTop+inputH+10, inner, pianoH))
+}
+
+// drawPiano draws the keyboard of notes, with those that are on lit.
+func (w *window) drawPiano(in ipc.Instrument, r rl.Rectangle) {
 	on := map[int]bool{}
 	for _, n := range in.Notes {
 		on[n] = true
 	}
-	y += 28
-	keys := Piano(firstNote, lastNote, r.X+pad, y, r.Width-2*pad, r.Y+r.Height-12-y)
-	for _, k := range keys {
+	for _, k := range Piano(firstNote, lastNote, r.X, r.Y, r.Width, r.Height) {
 		rect := rl.NewRectangle(k.X, k.Y, k.W, k.H)
 		switch {
 		case on[k.Note]:
@@ -404,6 +422,158 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 				text(w.mono, label, k.X+(k.W-width(w.mono, label, 9))/2, k.Y+k.H-11, 9, col(colOff))
 			}
 		}
+	}
+}
+
+// A keyboard is drawn as one; every other device as the list of what it
+// reported.
+func isKeyboard(in ipc.Instrument) bool { return in.Type == "keyboard" }
+
+// controlName is the name of a control with the part it belongs to.
+func controlName(part, name string) string {
+	if part != "" {
+		return part + ":" + name
+	}
+	return name
+}
+
+func (w *window) chipWidth(label string) float32 { return width(w.mono, label, sizeMono) + 14 }
+
+// chipRows counts the rows the buttons take when they are set one after
+// another across the width.
+func (w *window) chipRows(in ipc.Instrument, inner float32) int {
+	if len(in.Buttons) == 0 {
+		return 0
+	}
+	rows, x := 1, float32(0)
+	for _, b := range in.Buttons {
+		cw := w.chipWidth(controlName(b.Part, b.Name))
+		if x > 0 && x+cw > inner {
+			rows, x = rows+1, 0
+		}
+		x += cw + 6
+	}
+	return rows
+}
+
+// axisColumns is how many axes fit beside each other.
+func axisColumns(inner float32) int { return max(int(inner/380), 1) }
+
+// inputHeight is the height the raw input of a device takes.
+func (w *window) inputHeight(in ipc.Instrument, inner float32) float32 {
+	if isKeyboard(in) {
+		unit := min(inner/KeyboardUnitsW, keyUnit)
+		return unit*KeyboardUnitsH + 24 // and the line of other keys
+	}
+	if len(in.Buttons) == 0 && len(in.Axes) == 0 {
+		return 22
+	}
+	h := float32(w.chipRows(in, inner)) * (chipH + 6)
+	if n := len(in.Axes); n > 0 {
+		cols := axisColumns(inner)
+		h += float32((n+cols-1)/cols) * axisRowH
+	}
+	return h
+}
+
+func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
+	if isKeyboard(in) {
+		w.drawKeyboard(in, x, y, inner)
+		return
+	}
+	if len(in.Buttons) == 0 && len(in.Axes) == 0 {
+		text(w.sans, "Press a button or move a stick to see it here.", x, y+2, sizeText, col(colFaint))
+		return
+	}
+	// The buttons, one after another.
+	cx, cy := x, y
+	for _, b := range in.Buttons {
+		label := controlName(b.Part, b.Name)
+		cw := w.chipWidth(label)
+		if cx > x && cx+cw > x+inner {
+			cx, cy = x, cy+chipH+6
+		}
+		chip := rl.NewRectangle(cx, cy, cw, chipH)
+		if b.Down {
+			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
+			text(w.mono, label, cx+7, cy+3, sizeMono, col(colBar))
+		} else {
+			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
+			text(w.mono, label, cx+7, cy+3, sizeMono, col(colFaint))
+		}
+		cx += cw + 6
+	}
+	if len(in.Buttons) > 0 {
+		cy += chipH + 6
+	}
+	// The axes: name, a bar for the position, and the number.
+	cols := axisColumns(inner)
+	colW := inner / float32(cols)
+	nameW := float32(0)
+	for _, a := range in.Axes {
+		nameW = max(nameW, width(w.mono, controlName(a.Part, a.Name), sizeMono))
+	}
+	valueW := width(w.mono, "0.000", sizeMono)
+	for i, a := range in.Axes {
+		ax := x + float32(i%cols)*colW
+		ay := cy + float32(i/cols)*axisRowH
+		text(w.mono, controlName(a.Part, a.Name), ax, ay+2, sizeMono, col(colFaint))
+		bar := rl.NewRectangle(ax+nameW+10, ay+6, colW-nameW-valueW-44, 8)
+		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
+		value := float32(min(max(a.Value, 0), 1))
+		rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, bar.Width*value, bar.Height), 1, 4, col(colAccent))
+		// A mark in the middle, where a stick rests.
+		rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
+		text(w.mono, fmt.Sprintf("%.3f", a.Value), bar.X+bar.Width+10, ay+2, sizeMono, col(colText))
+	}
+}
+
+// drawKeyboard draws a full-size keyboard with the keys that are down lit.
+// Keys that are down and not on the drawing are named in a line below it.
+func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
+	down := map[string]bool{}
+	for _, b := range in.Buttons {
+		if b.Down {
+			down[controlName(b.Part, b.Name)] = true
+		}
+	}
+	unit := min(inner/KeyboardUnitsW, keyUnit)
+	labelSize := min(float32(10), unit*0.42)
+	for _, key := range Keyboard() {
+		rect := rl.NewRectangle(x+key.X*unit+1, y+key.Y*unit+1, key.W*unit-2, key.H*unit-2)
+		lit := down[key.Name]
+		delete(down, key.Name)
+		ink := colFaint
+		if lit {
+			rl.DrawRectangleRounded(rect, 0.25, 4, col(colAccent))
+			ink = colBar
+		} else {
+			rl.DrawRectangleRounded(rect, 0.25, 4, col(colBar))
+		}
+		if key.Label != "" && unit >= 16 {
+			text(w.mono, key.Label, rect.X+(rect.Width-width(w.mono, key.Label, labelSize))/2, rect.Y+(rect.Height-labelSize)/2, labelSize, col(ink))
+		}
+	}
+	// What is left is down and has no key on the drawing.
+	if len(down) == 0 {
+		return
+	}
+	others := make([]string, 0, len(down))
+	for name := range down {
+		others = append(others, name)
+	}
+	slices.Sort(others)
+	oy := y + unit*KeyboardUnitsH + 5
+	text(w.sans, "other keys", x, oy, sizeText, col(colFaint))
+	ox := x + width(w.sans, "other keys", sizeText) + 10
+	for _, name := range others {
+		cw := w.chipWidth(name)
+		if ox+cw > x+inner {
+			break
+		}
+		rl.DrawRectangleRounded(rl.NewRectangle(ox, oy-2, cw, chipH), 0.4, 6, col(colAccent))
+		text(w.mono, name, ox+7, oy+1, sizeMono, col(colBar))
+		ox += cw + 6
 	}
 }
 

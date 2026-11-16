@@ -272,8 +272,12 @@ The window follows the decisions on the roadmap:
   terminal but faint, and the whole log when the bar is pulled up, with a
   choice of the least severe level to show.
 
-To show what is played, the state HIDI reports for an instrument now names
-the notes that are on, not only their number.
+To show what is played, the state HIDI reports for an instrument names the
+notes that are on. To show what the device itself does, it also lists the
+buttons and axes the device has reported so far and where each stands;
+`instrument` keeps that list from the events it passes to the engine. A
+control appears once the device has reported it, since not every input
+backend can say beforehand which controls a device has.
 
 The socket also makes HIDI a single instance. A second `hidi run` finds the
 first one answering and stops before it opens any device.

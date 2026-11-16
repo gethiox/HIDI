@@ -249,6 +249,9 @@ type Status struct {
 	Profile string
 	// State is the current state of the instrument.
 	State engine.State
+	// Input is what the device itself reports, before any profile is
+	// applied to it.
+	Input Input
 }
 
 // Status returns the running instruments, in no particular order.
@@ -305,13 +308,28 @@ type runner struct {
 	mu         sync.Mutex
 	status     Status
 	instrument bool // whether status describes a running instrument
+	input      inputTracker
 }
 
 // snapshot returns the status of the instrument, if the device is one.
 func (r *runner) snapshot() (Status, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.status, r.instrument
+	status := r.status
+	if r.instrument {
+		status.Input = r.input.snapshot()
+	}
+	return status, r.instrument
+}
+
+// saw records an event of the device for the view of its raw input.
+func (r *runner) saw(ev control.Event) {
+	r.mu.Lock()
+	changed := r.input.record(ev)
+	r.mu.Unlock()
+	if changed {
+		r.changed()
+	}
 }
 
 func (r *runner) setStatus(status Status, instrument bool) {
@@ -514,6 +532,7 @@ loop:
 			if failed || eng == nil {
 				continue // draining, or parked a moment ago
 			}
+			r.saw(ev)
 			if r.toggled(held, ev) {
 				r.onToggle()
 				apply()
