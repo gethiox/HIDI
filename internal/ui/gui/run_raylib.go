@@ -78,6 +78,7 @@ type window struct {
 
 	gear     gear
 	settings settingsView
+	edit     *editor // the profile being changed, if any
 	pace     *pacer
 }
 
@@ -122,6 +123,9 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	w.pace = pace
 	if opts.ShowSettings {
 		w.gear.set(true, time.Now())
+	}
+	if opts.EditProfile != "" {
+		w.editProfile(opts.EditProfile)
 	}
 	started := time.Now()
 	var seen uint64
@@ -219,7 +223,7 @@ func glyphs() []rune {
 		}
 		out = append(out, r)
 	}
-	return append(out, []rune("–—‘’“”…·•←→↑↓▲▼♯♭")...)
+	return append(out, []rune("–—−‘’“”…·•←→↑↓▲▼♯♭")...)
 }
 
 // loadFonts prepares the fonts at the sizes used, in the pixels of the
@@ -278,7 +282,9 @@ func (w *window) draw() {
 
 	w.drawHeader(state, sw)
 	w.drawGear(sw)
-	if body := rl.NewRectangle(0, headerH, sw, logTop-headerH); w.gear.open {
+	if body := rl.NewRectangle(0, headerH, sw, logTop-headerH); w.edit != nil {
+		w.drawEditor(state, body)
+	} else if w.gear.open {
 		w.drawSettings(body)
 	} else {
 		w.drawInstruments(state, body)
@@ -386,6 +392,13 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	text(w.bold, in.Name, x, y, sizeName, col(colText))
 	about := in.Type + " · profile " + in.Profile
 	text(w.sans, about, x+width(w.bold, in.Name, sizeName)+12, y+3, sizeText, col(colFaint))
+	// The way to the instrument's profile, in the corner of its card.
+	if in.ProfileFile != "" {
+		label := "Edit profile"
+		if hit, _ := w.button(label, r.X+r.Width-cardPad-width(w.sans, label, sizeText)-20, r.Y+9); hit {
+			w.editProfile(in.ProfileFile)
+		}
+	}
 
 	// The numbers are set in the fixed-width font with a fixed number of
 	// places, so that nothing moves sideways when one of them changes.

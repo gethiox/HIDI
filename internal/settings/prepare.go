@@ -176,6 +176,12 @@ func writeFile(path string, data []byte) error {
 		tmp.Close()
 		return err
 	}
+	// On the disk before it takes the place of the old file, so that a
+	// power failure leaves the old file or the new one, never half of one.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}

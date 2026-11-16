@@ -303,7 +303,11 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		y += 26
 	}
 	for _, profile := range v.profiles {
-		hit, end := w.button("Open file", x, y)
+		edit, end := w.button("Edit", x, y)
+		if edit {
+			w.editProfile(profile.Source)
+		}
+		hit, end := w.button("Open file", end+6, y)
 		if hit {
 			w.open(profile.Source)
 		}
