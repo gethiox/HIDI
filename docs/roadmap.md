@@ -153,6 +153,18 @@ rest on assumptions about real devices and should be checked first:
   once Raw Input has said which device they came from. To be tried in the
   Windows input stage; the known costs are that injected keys do not reach
   elevated windows and that some games reject them.
+- How HIDI for Windows is distributed until the MIDI API is part of
+  Windows. The API's DLL to build and test against is the one in
+  Microsoft's NuGet package `Windows.Devices.Midi2`, version
+  0.99.92-preview.11 at the time of writing, from the releases of
+  github.com/microsoft/MIDI; the copy their Tools installer puts next to
+  its own programs must not be used. Shipping the DLL with HIDI means
+  accepting Microsoft's "go-live" terms from those release notes: telling
+  users that a preview API is in use, keeping up with new previews,
+  removing the DLL once Windows has it, and not shipping to Windows below
+  11 25H2. Whether a GPL program may carry that DLL in its download is a
+  licence question to settle before the first release; the alternative is
+  to have users fetch the DLL themselves.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
 - The monitor shows how many notes sound, not which. Showing the notes

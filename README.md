@@ -150,7 +150,12 @@ thirty seconds. If a stage fails, or the program stops without a message,
 the output up to that point says where.
 
 Windows MIDI Services needs Windows 11 25H2 or later. Until Windows itself
-ships the API, `Windows.Devices.Midi2.dll` from Microsoft's preview has to be
+ships the API, `Windows.Devices.Midi2.dll` has to be supplied. Take it, with
+the `.pri` file next to it, from the NuGet package
+`Windows.Devices.Midi2.<version>.nupkg` on the releases page of
+[microsoft/MIDI](https://github.com/microsoft/MIDI/releases); the package is
+a zip archive. Do not use the copy that Microsoft's Tools installer places
+next to its own programs. The DLL has to be
 in the same folder as `hidi.exe`, unless `hidi doctor` reports that it found
 the API in Windows. A program started with `go run` lives in a temporary
 folder, so either build it first (`go build -o hidi.exe ./cmd/hidi`) or set
