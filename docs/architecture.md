@@ -56,6 +56,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
+| `settings` | exists | HIDI's own settings, where HIDI keeps its files, and filling that directory on the first start. |
 | `ipc` | exists | Local control protocol between the running HIDI and its clients. |
 | `ui` | partial | The interfaces of the desktop. `ui/tray` is the icon in the notification area and `ui/gui` the window. The terminal views live in `cmd/hidi`. |
 
@@ -186,8 +187,22 @@ Configuration files are TOML and carry a schema version. A file written for an
 older schema is migrated on load. HIDI 1.x configuration files are not
 supported.
 
-Profiles come from two places: built into the binary, and files in the
-user's profile directory, which take precedence. The directory is polled once
+Everything the user can change is in one directory named HIDI in the
+system's place for configuration, which `settings` knows: HIDI's own
+settings in `settings.toml`, and the profiles as files in `profiles`. The two
+are kept apart on purpose: a profile says how one kind of device plays, the
+settings say how HIDI behaves.
+
+HIDI carries its default settings and profiles inside the binary and writes
+them into the directory on the first start. From then on the files are all
+there is; the copies inside HIDI are used only without a directory. So that
+a later HIDI can improve a profile it wrote, it records a fingerprint of
+every file it writes: a file that still has the fingerprint is the user's
+untouched copy and may be replaced, any other is left alone, and a recorded
+file that is gone was removed on purpose. A directory without that record
+and with anything HIDI 2 does not keep there is never written to.
+
+The profile directory is polled once
 a second and loaded again when it changes; polling keeps this code free of
 platform-specific file watching. A changed profile reaches a running
 instrument through `Manager.SetProfiles`, which replaces the engine and keeps

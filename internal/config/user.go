@@ -13,17 +13,6 @@ import (
 	"time"
 )
 
-// DefaultDir returns the directory HIDI reads the user's profiles from:
-// hidi/profiles in the user's configuration directory, which is
-// ~/.config on Linux and %AppData% on Windows.
-func DefaultDir() (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("finding the configuration directory: %w", err)
-	}
-	return filepath.Join(base, "hidi", "profiles"), nil
-}
-
 // Problem is a profile file that cannot be used.
 type Problem struct {
 	// File is the path of the file, or of the directory if it could not be
@@ -153,7 +142,10 @@ func WriteBuiltin(dir string) (written, skipped []string, err error) {
 // The directory is polled instead of watched through the operating system,
 // which keeps this code the same on every platform; reading the names and
 // times of a few files once a second costs nothing noticeable.
-func Watch(ctx context.Context, dir string, interval time.Duration, changed func([]*Profile, []Problem)) {
+//
+// load reads the profiles anew; it is [Load] of the directory, or
+// [LoadDir] where the built-in profiles are not wanted beside it.
+func Watch(ctx context.Context, dir string, interval time.Duration, load func() ([]*Profile, []Problem, error), changed func([]*Profile, []Problem)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	loaded := fingerprint(dir)
@@ -171,7 +163,7 @@ func Watch(ctx context.Context, dir string, interval time.Duration, changed func
 			continue
 		}
 		loaded = now
-		profiles, problems, err := Load(dir)
+		profiles, problems, err := load()
 		if err != nil {
 			continue // only a broken build has broken built-in profiles
 		}

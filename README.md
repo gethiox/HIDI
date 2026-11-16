@@ -86,7 +86,8 @@ other programs.
 | `-off` | Start turned off. |
 | `-v` | Also log every MIDI message and every ignored device. |
 | `-no-color` | Write the log without colours. |
-| `-profiles DIR` | Read your profiles from another directory. |
+| `-config DIR` | Use another directory for HIDI's settings and profiles. |
+| `-profiles DIR` | Read profiles from another directory, beside the built-in ones. |
 | `-connect PORT` | Also send to an existing MIDI port; see below. |
 
 The log is coloured when it goes to a terminal, and plain when it goes to a
@@ -94,9 +95,12 @@ file or a pipe. Besides `-no-color`, setting the `NO_COLOR` environment
 variable turns the colours off; `FORCE_COLOR` keeps them when the output is
 piped.
 
-To change what a device plays, run `./hidi profiles -export` and edit the
-files it writes to `~/.config/hidi/profiles`. HIDI picks up changes while it
-runs. The [profile format](docs/configuration.md) is documented.
+On its first start HIDI creates its directory, `~/.config/HIDI` on Linux and
+`%AppData%\HIDI` on Windows, with its settings in `settings.toml` and the
+profiles as files in `profiles`. `./hidi config` shows where they are. To
+change what a device plays, edit its profile; HIDI picks up changes while it
+runs. The settings give the defaults for the options above. Both formats are
+[documented](docs/configuration.md).
 
 ### Looking at a running HIDI
 

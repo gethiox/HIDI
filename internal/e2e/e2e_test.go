@@ -104,7 +104,7 @@ func TestKeyboardToMIDI(t *testing.T) {
 
 	socket := filepath.Join(t.TempDir(), "control.sock")
 	var log syncBuffer
-	hidi := exec.Command(binary, "run", "-v", "-no-color", "-profiles", "", "-socket", socket)
+	hidi := exec.Command(binary, "run", "-v", "-no-color", "-config", "", "-socket", socket)
 	hidi.Stdout, hidi.Stderr = &log, &log
 	if err := hidi.Start(); err != nil {
 		t.Fatalf("starting %s: %v", binary, err)

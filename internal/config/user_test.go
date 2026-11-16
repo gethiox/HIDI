@@ -174,7 +174,7 @@ func TestWatch(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Watch(ctx, dir, 10*time.Millisecond, func(profiles []*Profile, problems []Problem) {
+		Watch(ctx, dir, 10*time.Millisecond, func() ([]*Profile, []Problem, error) { return Load(dir) }, func(profiles []*Profile, problems []Problem) {
 			var names []string
 			for _, p := range profiles {
 				if !p.IsBuiltin() {
@@ -235,17 +235,5 @@ func TestWatch(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Watch did not return after its context was cancelled")
-	}
-}
-
-func TestDefaultDir(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/somewhere")
-	t.Setenv("AppData", `C:\somewhere`)
-	dir, err := DefaultDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Base(dir) != "profiles" || filepath.Base(filepath.Dir(dir)) != "hidi" {
-		t.Errorf("DefaultDir = %q", dir)
 	}
 }

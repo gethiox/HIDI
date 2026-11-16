@@ -42,6 +42,7 @@ Commands:
   gui       open the window: the instruments, what is played, and the log
   tray      show an icon in the notification area that turns HIDI on and off
   ports     list the MIDI ports an instrument can be connected to
+  config    show where HIDI keeps its settings and profiles
   profiles  list the profiles, check them, or write the built-in ones out
   doctor    check that this system can do what HIDI needs, step by step
   version   print version information
@@ -118,6 +119,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdPorts(args[1:], stdout, stderr)
 	case "doctor":
 		return cmdDoctor(ctx, args[1:], stdout, stderr)
+	case "config":
+		return cmdConfig(args[1:], stdout, stderr)
 	case "profiles":
 		return cmdProfiles(args[1:], stdout, stderr)
 	case "version", "-version", "--version":
@@ -156,7 +159,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
 	noColour := fs.Bool("no-color", false, "write the log without colours")
-	profilesDir := profilesFlag(fs)
+	root, profilesDir := placeFlags(fs)
 	var connect listFlag
 	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
@@ -165,11 +168,33 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		return code
 	}
 
-	toggle, err := parseToggle(*toggleFlag)
-	if err != nil {
-		fmt.Fprintf(stderr, "hidi run: -toggle: %v\n", err)
-		return 2
+	// The settings file gives what the command line leaves open. Nothing
+	// is written yet: a HIDI that stops over its options, or because one
+	// is running already, leaves the directory as it is.
+	pl := findPlace(*root, *profilesDir, false)
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	toggle := pl.settings.Input.Toggle
+	if given["toggle"] {
+		var err error
+		if toggle, err = parseToggle(*toggleFlag); err != nil {
+			fmt.Fprintf(stderr, "hidi run: -toggle: %v\n", err)
+			return 2
+		}
 	}
+	if !given["no-grab"] {
+		*noGrab = !pl.settings.Input.GrabKeyboards
+	}
+	if !given["grab-gamepads"] {
+		*grabGamepads = pl.settings.Input.GrabGamepads
+	}
+	if !given["off"] {
+		*startOff = !pl.settings.Input.StartOn
+	}
+	if !given["connect"] {
+		connect = pl.settings.Output.Connect
+	}
+	var err error
 	if len(toggle) == 0 && !*noGrab {
 		// A grabbed keyboard cannot type Ctrl+C, so without the combination
 		// a user with one keyboard could not get it back.
@@ -217,14 +242,22 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 			configLog.Error("profile cannot be used", "file", p.File, "error", p.Err)
 		}
 	}
-	profiles, problems, err := config.Load(*profilesDir)
+	// Now HIDI's directory is made ready: filled on the first start.
+	pl = findPlace(*root, *profilesDir, true)
+	for _, note := range pl.notes {
+		configLog.Info(note)
+	}
+	for _, problem := range pl.problems {
+		configLog.Warn(problem)
+	}
+	profiles, problems, err := pl.load()
 	if err != nil {
 		configLog.Error("loading the built-in profiles failed", "error", err)
 		return 1
 	}
 	reportProblems(problems)
-	if *profilesDir != "" {
-		configLog.Info("profiles loaded", "directory", *profilesDir, "yours", countUser(profiles), "built-in", len(profiles)-countUser(profiles))
+	if pl.profiles != "" {
+		configLog.Info("profiles loaded", "directory", pl.profiles, "profiles", len(profiles))
 	}
 	source, err := backend.Devices(func(what string, err error) {
 		inputLog.Warn("device cannot be used", "device", what, "error", err)
@@ -286,9 +319,9 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	} else {
 		close(served)
 	}
-	if *profilesDir != "" {
-		go config.Watch(ctx, *profilesDir, time.Second, func(profiles []*config.Profile, problems []config.Problem) {
-			configLog.Info("profiles changed; loading them again", "yours", countUser(profiles))
+	if pl.profiles != "" {
+		go config.Watch(ctx, pl.profiles, time.Second, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
+			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
 			manager.SetProfiles(profiles)
 		})
@@ -368,35 +401,20 @@ func cmdPorts(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// profilesFlag adds the option that names the directory of the user's
-// profiles.
-func profilesFlag(fs *flag.FlagSet) *string {
-	dir, err := config.DefaultDir()
-	if err != nil {
-		dir = "" // no home directory: built-in profiles only
-	}
-	return fs.String("profiles", dir, "`directory` of your profiles; empty uses the built-in profiles only")
-}
-
-// countUser returns how many of the profiles are the user's own.
-func countUser(profiles []*config.Profile) int {
-	n := 0
-	for _, p := range profiles {
-		if !p.IsBuiltin() {
-			n++
-		}
-	}
-	return n
-}
-
 // cmdProfiles lists the profiles and what is wrong with the files that
 // cannot be used, or writes the built-in profiles out as files to edit.
 func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
-	dir := profilesFlag(fs)
-	export := fs.Bool("export", false, "write the built-in profiles into the directory, as files to start from")
+	root, profilesDir := placeFlags(fs)
+	export := fs.Bool("export", false, "write the built-in profiles into the directory of profiles, as files to start from;\nfiles that are there are kept")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
+	}
+	pl := findPlace(*root, *profilesDir, false)
+	pl.tell(stderr, "profiles")
+	dir := &pl.profiles
+	if *dir == "" && pl.paths.Root != "" {
+		dir = &pl.paths.Profiles // not in use yet: where the profiles will be
 	}
 
 	if *export {
@@ -418,13 +436,18 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	profiles, problems, err := config.Load(*dir)
+	profiles, problems, err := pl.load()
 	if err != nil {
 		fmt.Fprintf(stderr, "hidi profiles: loading the built-in profiles failed: %v\n", err)
 		return 1
 	}
-	if *dir != "" {
-		fmt.Fprintf(stdout, "Your profiles are read from %s\n\n", *dir)
+	switch {
+	case pl.managed:
+		fmt.Fprintf(stdout, "The profiles are the files in %s\n\n", pl.profiles)
+	case pl.profiles != "":
+		fmt.Fprintf(stdout, "Your profiles are read from %s, beside the built-in ones\n\n", pl.profiles)
+	default:
+		fmt.Fprint(stdout, "Only the built-in profiles are in use\n\n")
 	}
 	// Later profiles take precedence, so the user's own come first here.
 	for _, p := range slices.Backward(profiles) {
@@ -441,12 +464,14 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 
 func cmdDevices(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("devices", flag.ContinueOnError)
-	profilesDir := profilesFlag(fs)
+	root, profilesDir := placeFlags(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
 
-	profiles, problems, err := config.Load(*profilesDir)
+	pl := findPlace(*root, *profilesDir, false)
+	pl.tell(stderr, "devices")
+	profiles, problems, err := pl.load()
 	if err != nil {
 		fmt.Fprintf(stderr, "hidi devices: loading the built-in profiles failed: %v\n", err)
 		return 1
