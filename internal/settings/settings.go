@@ -221,3 +221,11 @@ log_height = %d
 		list(s.Output.Connect), s.Window.BackgroundFPS, s.Window.LogHeight)
 	return []byte(b.String())
 }
+
+// Save writes the settings to their file, whole or not at all.
+func Save(path string, s Settings) error {
+	if problems := s.Check(); len(problems) > 0 {
+		return errors.New(strings.Join(problems, "\n"))
+	}
+	return writeFile(path, s.Text())
+}

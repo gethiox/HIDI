@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gethiox/HIDI/internal/ipc"
+	"github.com/gethiox/HIDI/internal/settings"
 )
 
 // Controller is the running HIDI as the window needs it; *ipc.Client is
@@ -26,4 +27,9 @@ type Options struct {
 	// to after a moment, and then closes. It is for the documentation and
 	// for tests.
 	Screenshot string
+	// Paths says where HIDI's settings and profiles are, for the settings
+	// view. An empty Root means there is no such directory.
+	Paths settings.Paths
+	// ShowSettings opens the window with the settings showing.
+	ShowSettings bool
 }
