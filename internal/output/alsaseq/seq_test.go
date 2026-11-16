@@ -61,6 +61,8 @@ func TestStructLayout(t *testing.T) {
 		{"SET_CLIENT_INFO", ioctlSetClientInfo, unsafe.Sizeof(clientInfo{})},
 		{"CREATE_PORT", ioctlCreatePort, unsafe.Sizeof(portInfo{})},
 		{"SUBSCRIBE_PORT", ioctlSubscribePort, unsafe.Sizeof(portSubscribe{})},
+		{"QUERY_NEXT_CLIENT", ioctlNextClient, unsafe.Sizeof(clientInfo{})},
+		{"QUERY_NEXT_PORT", ioctlNextPort, unsafe.Sizeof(portInfo{})},
 	}
 	for _, r := range requests {
 		if got := r.request >> 16 & 0x3FFF; got != r.size {
@@ -149,5 +151,44 @@ func TestEncode(t *testing.T) {
 
 	if _, ok := encode(midi.Message{}, source); ok {
 		t.Error("encode accepted an invalid message")
+	}
+}
+
+func TestPortNames(t *testing.T) {
+	for _, tt := range []struct{ client, port, want string }{
+		{"FluidSynth", "FluidSynth", "FluidSynth"},
+		{"FluidSynth", "", "FluidSynth"},
+		{"USB MIDI Interface", "USB MIDI Interface MIDI 1", "USB MIDI Interface MIDI 1"},
+		{"Midi Through", "Port-0", "Midi Through: Port-0"},
+	} {
+		if got := portName(tt.client, tt.port); got != tt.want {
+			t.Errorf("portName(%q, %q) = %q, want %q", tt.client, tt.port, got, tt.want)
+		}
+	}
+}
+
+func TestPortAddresses(t *testing.T) {
+	a, err := parseAddr("128:3")
+	if err != nil || a != (addr{Client: 128, Port: 3}) || formatAddr(a) != "128:3" {
+		t.Errorf("parseAddr(128:3) = %+v, %v", a, err)
+	}
+	for _, bad := range []string{"", "128", "128:", ":0", "256:0", "1:256", "a:b", "1:2:3", "-1:0"} {
+		if _, err := parseAddr(bad); err == nil {
+			t.Errorf("parseAddr(%q) succeeded", bad)
+		}
+	}
+}
+
+func TestAcceptsConnections(t *testing.T) {
+	for capability, want := range map[uint32]bool{
+		portCapWrite | portCapSubsWrite:               true,
+		portCapWrite | portCapSubsWrite | portCapRead: true,
+		portCapWrite:                  false, // not open to others
+		portCapRead | portCapSubsRead: false, // an output
+		portCapWrite | portCapSubsWrite | portCapNoExport: false,
+	} {
+		if acceptsConnections(capability) != want {
+			t.Errorf("acceptsConnections(%#x) = %v, want %v", capability, !want, want)
+		}
 	}
 }

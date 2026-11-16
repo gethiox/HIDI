@@ -52,7 +52,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | exists | Configuration schema, versioning, migration, validation. |
 | `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. |
-| `output` | partial | MIDI output backend interface, with one subpackage per transport. The ALSA sequencer backend exists. |
+| `output` | partial | MIDI output backend interface and the router that connects endpoints to existing ports, with one subpackage per transport. The ALSA sequencer backend exists. |
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
@@ -112,10 +112,16 @@ virtual MIDI endpoint created for that instrument:
 - Windows: a virtual device created through the in-box Windows MIDI Services
   API (`Windows.Devices.Midi2`), which requires Windows 11 25H2 or later.
 
-An instrument can instead be routed to an existing MIDI port. That covers a
+An instrument can also be connected to existing MIDI ports. That covers a
 single-board computer bridging to a hardware MIDI interface or acting as a USB
-MIDI gadget. Network and Bluetooth MIDI outputs are planned after 2.0 and will
-be further implementations of the same interface.
+MIDI gadget. The virtual endpoint stays in either case: a connection is a
+subscription from the endpoint to the port, the same thing `aconnect` makes.
+`output.Router` keeps the chosen connections in place by looking at the list
+of ports once a second, so an interface that is plugged in later, or again,
+is connected when it appears.
+
+Network and Bluetooth MIDI outputs are planned after 2.0 and will be further
+implementations of the same interface.
 
 ### Taking input away from the operating system
 

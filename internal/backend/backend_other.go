@@ -17,6 +17,12 @@ func Devices(problem func(what string, err error)) (*Source, error) {
 	return nil, errUnsupported
 }
 
+// Ports lists the existing MIDI ports an instrument can be connected to. It
+// is not implemented for this platform yet.
+func Ports() ([]output.Port, error) {
+	return nil, errUnsupported
+}
+
 // OpenEndpoint creates a virtual MIDI device with the given name. It is not
 // implemented for this platform yet.
 func OpenEndpoint(name string) (output.Endpoint, error) {
