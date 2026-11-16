@@ -8,6 +8,7 @@ package instrument
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -418,7 +419,11 @@ func (r *runner) run() {
 		want := active && rules.grab && eng != nil
 		switch {
 		case want && !grabbed:
-			if err := r.device.Grab(); err != nil {
+			if err := r.device.Grab(); errors.Is(err, input.ErrGrabbedElsewhere) {
+				// Not a fault: the user runs a program that takes the
+				// device and passes its input on through one of its own.
+				r.log.Info("another program has this device to itself, such as an input remapper; its input reaches HIDI through that program's device", "error", err)
+			} else if err != nil {
 				r.log.Warn("the device cannot be grabbed; it stays usable by other programs", "error", err)
 			}
 			grabbed = true

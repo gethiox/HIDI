@@ -3,7 +3,17 @@
 // only place that talks to the operating system's input stack.
 package input
 
-import "github.com/gethiox/HIDI/internal/control"
+import (
+	"errors"
+
+	"github.com/gethiox/HIDI/internal/control"
+)
+
+// ErrGrabbedElsewhere is what Grab returns when another program has taken
+// the device for itself. Such a program, an input remapper for one,
+// usually passes the input on through a device of its own; the device it
+// took then reports nothing to anyone else.
+var ErrGrabbedElsewhere = errors.New("another program has the device to itself")
 
 // Device is one connected piece of input hardware: a keyboard, a game
 // controller. Hardware that the operating system presents in several pieces

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/input"
 )
 
 func startWatcher(t *testing.T) *Watcher {
@@ -234,5 +235,77 @@ func TestWatcherClose(t *testing.T) {
 	}
 	if err := w.Close(); err != nil {
 		t.Errorf("second Close: %v", err)
+	}
+}
+
+// An input remapper takes a keyboard for itself, passes its keys on through
+// a device of its own that copies the keyboard's identity, and makes further
+// devices for what it types and clicks, which all report one identity and
+// one made-up location. Each of these is a device of its own with the right
+// kind, the keyboard that was taken says so when HIDI wants it, and the one
+// that passes it on plays.
+func TestWatcherBesideInputRemapper(t *testing.T) {
+	keys := typingNums(100)
+	source := createVirtualDevice(t, virtualSpec{name: "HIDI test remapped", phys: "hidi-remap/input0", keys: keys})
+	taken, err := Open(source.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	if err := taken.Grab(); err != nil {
+		t.Fatalf("the stand-in for the remapper cannot take the keyboard: %v", err)
+	}
+	forwarded := createVirtualDevice(t, virtualSpec{name: "input-remapper HIDI test remapped forwarded", phys: "input-remapper/hidi-remap/input0", keys: keys})
+	createVirtualDevice(t, virtualSpec{name: "input-remapper keyboard", phys: "input-remapper", keys: keys})
+	createVirtualDevice(t, virtualSpec{name: "input-remapper gamepad", phys: "input-remapper",
+		keys: []uint16{0x130, 0x131, 0x133, 0x134}, axes: map[uint16]axisRange{0: {min: -32768, max: 32767}, 1: {min: -32768, max: 32767}}})
+
+	w := startWatcher(t)
+	want := map[string]control.DeviceType{
+		"HIDI test remapped":                          control.DeviceKeyboard,
+		"input-remapper HIDI test remapped forwarded": control.DeviceKeyboard,
+		"input-remapper keyboard":                     control.DeviceKeyboard,
+		"input-remapper gamepad":                      control.DeviceGamepad,
+	}
+	found := map[string]*Device{}
+	timeout := time.After(5 * time.Second)
+	for len(found) < len(want) {
+		select {
+		case d, ok := <-w.Devices():
+			if !ok {
+				t.Fatal("the watcher closed")
+			}
+			if _, wanted := want[d.Info().Name]; !wanted || found[d.Info().Name] != nil {
+				d.Close()
+				continue
+			}
+			found[d.Info().Name] = d
+			t.Cleanup(func() { d.Close() })
+		case <-timeout:
+			t.Fatalf("found %d of %d devices; devices of the remapper were taken for one", len(found), len(want))
+		}
+	}
+	for name, kind := range want {
+		d := found[name]
+		if got := d.Info().Type; got != kind {
+			t.Errorf("%s is a %v, want a %v", name, got, kind)
+		}
+		if n := len(d.Nodes()); n != 1 {
+			t.Errorf("%s has %d nodes, want 1", name, n)
+		}
+	}
+
+	// The keyboard the remapper has cannot be taken, and HIDI can tell why.
+	if err := found["HIDI test remapped"].Grab(); !errors.Is(err, input.ErrGrabbedElsewhere) {
+		t.Errorf("grabbing the taken keyboard: %v, want the error for a device another program has", err)
+	}
+	// The device that passes it on can, and plays.
+	through := found["input-remapper HIDI test remapped forwarded"]
+	if err := through.Grab(); err != nil {
+		t.Errorf("grabbing the device that passes the keyboard on: %v", err)
+	}
+	forwarded.emit(evKey, 30, 1)
+	if ev := awaitEvent(t, through); ev.Code != control.Key(30) || ev.Value != 1 {
+		t.Errorf("event = %+v, want KEY_A pressed", ev)
 	}
 }
