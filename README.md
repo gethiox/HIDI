@@ -114,6 +114,38 @@ From another terminal:
 redraws in place on a terminal; piped, or with `NO_COLOR` set, it writes
 each change below the last.
 
+### The window
+
+```
+./hidi gui
+```
+
+opens a window with the instruments: their state, a keyboard that lights the
+notes being played, and a switch that turns HIDI on and off. Like the
+terminal views it only looks at the running HIDI; closing it stops nothing,
+and it waits for a HIDI that is not running yet.
+
+![The window with two instruments and the log pulled up](docs/images/gui.png)
+
+The log lives in the bar at the bottom, which shows its last line, faint.
+Pull the bar up, or click it, for the whole log, and choose the least severe
+level to show.
+
+![The window with only the last log line showing](docs/images/gui-bar.png)
+
+| Option | Meaning |
+| --- | --- |
+| `-background-fps N` | Draw at most N times a second while another window has the focus. Without it the window keeps to the monitor's refresh rate. |
+| `-log-height N` | Open with the log pulled up N pixels. |
+
+The window is drawn at the refresh rate of the monitor it is on, and only
+when something it shows has changed, so an idle window costs next to
+nothing. It never keeps the computer or the display awake.
+
+The window needs 64-bit Linux or Windows with OpenGL 3.3, and a HIDI built
+with `CGO_ENABLED=0`, which is how releases are built. It has not run on a
+real display yet, only on a virtual one.
+
 ### An icon in the notification area
 
 ```

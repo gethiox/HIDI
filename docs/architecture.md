@@ -57,7 +57,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
 | `ipc` | exists | Local control protocol between the running HIDI and its clients. |
-| `ui` | partial | The interfaces of the desktop. `ui/tray` is the icon in the notification area; the graphical UI is planned. The terminal views live in `cmd/hidi`. |
+| `ui` | partial | The interfaces of the desktop. `ui/tray` is the icon in the notification area and `ui/gui` the window. The terminal views live in `cmd/hidi`. |
 
 ### Dependency rules
 
@@ -249,6 +249,31 @@ offers its menu as a `com.canonical.dbusmenu` object, both over D-Bus, with
 the pure Go library `godbus`. On Windows it uses `Shell_NotifyIcon`. The
 icon is drawn by the program in every size asked for, so there are no image
 files to install.
+
+`hidi gui` is the window, also a client. It is drawn with raylib through
+the binding `raylib-go`, which loads raylib as a shared library it carries
+with it, without cgo. That works on 64-bit Linux and Windows; elsewhere, and
+in a build with cgo turned on, which would compile raylib from C instead,
+`hidi gui` says that there is no window. The rest of HIDI is the same in
+every build.
+
+The window follows the decisions on the roadmap:
+
+- It is drawn in step with the monitor it is on, at whatever rate that
+  refreshes, and only when something it shows has changed: the state or
+  log of HIDI, or the pointer. A limit for a window that is not in front
+  can be set.
+- Nothing in it asks the system to stay awake.
+- Text is set in DejaVu Sans, embedded in the program. Everything that
+  changes while one looks at it, the numbers of an instrument and the log,
+  is set in DejaVu Sans Mono with a fixed number of places, so that
+  nothing moves sideways.
+- The log is the bar at the bottom: its last line, coloured as in the
+  terminal but faint, and the whole log when the bar is pulled up, with a
+  choice of the least severe level to show.
+
+To show what is played, the state HIDI reports for an instrument now names
+the notes that are on, not only their number.
 
 The socket also makes HIDI a single instance. A second `hidi run` finds the
 first one answering and stops before it opens any device.

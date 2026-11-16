@@ -563,3 +563,33 @@ func TestDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// The state names the notes that are on, each once, whatever channel they
+// are on, and forgets them when they end.
+func TestStateNotes(t *testing.T) {
+	r := newRig(t, baseProfile(
+		key(keyA, Note{Note: 60}),
+		key(keyB, Note{Note: 60, ChannelOffset: 1}),
+		key(keyC, Note{Note: 127}),
+	))
+	notes := func(want ...int) {
+		t.Helper()
+		if got := r.e.State().NoteNumbers(); !slices.Equal(got, want) {
+			t.Errorf("notes = %v, want %v", got, want)
+		}
+	}
+	notes()
+	r.press(keyA, "NoteOn ch=1 note=C3 velocity=100")
+	r.press(keyB, "NoteOn ch=2 note=C3 velocity=100")
+	r.press(keyC, "NoteOn ch=1 note=G8 velocity=100")
+	notes(60, 127)
+	r.release(keyA, "NoteOff ch=1 note=C3 velocity=0")
+	notes(60, 127) // still on, on the other channel
+	r.release(keyB, "NoteOff ch=2 note=C3 velocity=0")
+	notes(127)
+	if before, after := r.e.State(), r.e.State(); before != after {
+		t.Error("two states of an unchanged instrument differ")
+	}
+	r.reset("NoteOff ch=1 note=G8 velocity=0")
+	notes()
+}

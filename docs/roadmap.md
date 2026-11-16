@@ -102,6 +102,9 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
 - MIDI input on Linux (`alsaseq.Input`), which the test uses as its
   receiver and which lighting the played keys will build on.
 - `hidi run` and `hidi devices`.
+- The window (`hidi gui`): the instruments with their state, a keyboard
+  that shows the notes being played, the on/off switch, and the log in a
+  bar at the bottom that can be pulled up, with a level filter.
 - The icon in the notification area (`hidi tray`), for Linux and Windows:
   shows on, off and not running, turns HIDI on and off, lists the
   instruments.
@@ -138,11 +141,6 @@ In planned order. Each item is roughly one pull request.
 
 ### Interfaces
 
-5. **Graphical interface**: status of the instruments, a live view of what
-    is played, and the log. Frame pacing as decided above. The log lives
-    in a status bar at the bottom: it shows the last line, coloured but
-    faint, and dragging it up reveals the whole log, with a choice of the
-    least level to show.
 6. **Configuring in the graphical interface**: every setting and every
     part of a profile, including learning a binding by pressing the
     control. This needs the configuration to be written back to its file
@@ -189,6 +187,10 @@ rest on assumptions about real devices and should be checked first:
   the built-in profiles guess.
 - That `hidi run -connect` reaches a real USB MIDI interface, and
   reconnects after it was unplugged.
+- That the window of `hidi gui` opens and is sharp on a real display, also a
+  dense one, on Wayland and on Windows; that it keeps to the refresh rate
+  of a fast monitor; that it lets the system go to sleep. It ran on a
+  virtual display with software drawing only.
 - That the icon of `hidi tray` shows and works in KDE, GNOME (with the
   AppIndicator extension) and on Windows; it was tried in the panel of Xfce
   only.
@@ -233,8 +235,10 @@ rest on assumptions about real devices and should be checked first:
   identifier the device declares.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
-- The monitor shows how many notes sound, not which. Showing the notes
-  and controller values needs the engine to report them, and is wanted
-  for the graphical interface as well.
+- The engine reports which notes sound, and the window shows them; the
+  terminal monitor still shows only how many. Controller values are not
+  reported yet, so neither view shows what an axis does.
+- The icons of `hidi tray` are drawn placeholders, and the window has no
+  icon of its own; the maintainer will supply the art.
 - `-connect` applies to every instrument. Choosing ports for each
   instrument separately needs those settings, and belongs with them.

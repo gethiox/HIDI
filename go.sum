@@ -1,5 +1,11 @@
+github.com/ebitengine/purego v0.10.2 h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
+github.com/ebitengine/purego v0.10.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
+github.com/gen2brain/raylib-go/raylib v0.62.2 h1:3HsX6KorXi//aO2u5ZpXO0TVGs6jY01dD88mH1WU58Q=
+github.com/gen2brain/raylib-go/raylib v0.62.2/go.mod h1:hNXVJGgOMB/ReUeFTdVPSqdOBXIQFT4cvKCaa2eTEDo=
 github.com/godbus/dbus/v5 v5.2.4 h1:F2gUCy++NMIxGmo9J+z5le/+ZC8W1OgeR51P4i9ZB/U=
 github.com/godbus/dbus/v5 v5.2.4/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
+github.com/jupiterrider/ffi v0.8.0 h1:IH6lto8OZaRIulQYObtZibII4tq71hXT6Z+KLBcxCcQ=
+github.com/jupiterrider/ffi v0.8.0/go.mod h1:9dauhpOfNqrqk28fxuu0kkdeFtT9Qr4vbfigiuIXN7c=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
 github.com/pelletier/go-toml/v2 v2.4.3/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 golang.org/x/sys v0.50.0 h1:dkKZEFTEKaLr1sjhs0WiKqoi8Jj5nHbS3Njmx1UoMJs=

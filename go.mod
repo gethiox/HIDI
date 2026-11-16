@@ -9,3 +9,9 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/sys v0.50.0
 )
+
+require (
+	github.com/ebitengine/purego v0.10.2 // indirect
+	github.com/gen2brain/raylib-go/raylib v0.62.2 // indirect
+	github.com/jupiterrider/ffi v0.8.0 // indirect
+)
