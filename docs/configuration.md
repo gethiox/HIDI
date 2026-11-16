@@ -12,6 +12,48 @@ starting point for your own.
 HIDI checks a profile completely when it loads it and reports every problem it
 finds at once.
 
+## Where your profiles live
+
+HIDI reads every `.toml` file in its profile directory:
+
+| System | Directory |
+|---|---|
+| Linux | `~/.config/hidi/profiles` (or under `$XDG_CONFIG_HOME`) |
+| Windows | `%AppData%\hidi\profiles` |
+
+The `-profiles DIR` option of every command names another directory, and
+`-profiles ""` uses the built-in profiles only.
+
+```
+hidi profiles            list the profiles, yours first, and check your files
+hidi profiles -export    write the built-in profiles into the directory
+```
+
+`hidi profiles -export` gives you the built-in profiles as files to edit. It
+never overwrites a file that is already there.
+
+When several profiles select a device, the one that describes it most closely
+wins: a profile for one product beats one for all keyboards. Between two that
+are equally close, yours beats the built-in one, and among your own the file
+that sorts later by name wins.
+
+### Changes apply while HIDI runs
+
+A running HIDI notices within about two seconds when a file in the directory
+is added, changed or removed, and loads the profiles again.
+
+- An instrument whose profile did not change keeps playing undisturbed.
+- An instrument whose profile changed releases its notes and continues with
+  the new profile. Its MIDI device stays, so connections in other programs
+  survive. It starts again from the profile's defaults.
+- A device that had no profile becomes an instrument when one appears, and an
+  instrument whose profile was removed stops.
+
+A file with a mistake is not used, and HIDI logs what is wrong with it and
+where. Until it is fixed, the device falls back to the next best profile,
+usually the built-in one. `hidi profiles` shows the same report and exits
+with status 1, which makes it usable as a check.
+
 ## Example
 
 ```toml

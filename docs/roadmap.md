@@ -54,6 +54,9 @@ completes or changes an item.
   combination, and grabbing keyboards.
 - `logging`: the coloured, structured log format, and the newest lines
   kept in memory for the interfaces.
+- Profiles of the user: read from the configuration directory, applied to
+  running instruments when a file changes, and `hidi profiles` to list,
+  check and export them.
 - `hidi run` and `hidi devices`.
 - CI runs the tests that need kernel interfaces in a virtual machine.
 
@@ -63,59 +66,54 @@ In planned order. Each item is roughly one pull request.
 
 ### Linux
 
-1. **User profiles.** Loading profiles from the user's configuration
-   directory, reloading them when they change without restarting the
-   instruments that are not affected, and a way to write the built-in
-   profiles out as a starting point. A broken file is reported with what
-   is wrong and where, and never stops the other profiles from loading.
-2. **Sending to an existing MIDI port.** Listing ALSA ports and connecting
+1. **Sending to an existing MIDI port.** Listing ALSA ports and connecting
    an instrument to one, for hardware MIDI interfaces and USB gadget mode.
-3. **Control interface.** A local protocol to a running HIDI, with
+2. **Control interface.** A local protocol to a running HIDI, with
    `hidi status`, `hidi on`, `hidi off` and a live `hidi monitor` view.
-4. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
+3. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
    and the setting for what an axis does on a channel or layout change.
-5. **An end-to-end test** from a virtual input device to a received MIDI
+4. **An end-to-end test** from a virtual input device to a received MIDI
    message, in the CI virtual machine.
 
 ### Windows
 
-6. **MIDI output** through Windows MIDI Services. This starts with a small
+5. **MIDI output** through Windows MIDI Services. This starts with a small
    test program to prove that a virtual device can be created from Go.
-7. **Input**: Raw Input for keyboards and game controllers, and the
+6. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
-8. **Platform glue**, and testing on a real machine.
+7. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
-9. **Tray icon** with the on/off switch.
-10. **Graphical interface**: status of the instruments, a live view of what
+8. **Tray icon** with the on/off switch.
+9. **Graphical interface**: status of the instruments, a live view of what
     is played, and the log. Frame pacing as decided above. The log lives
     in a status bar at the bottom: it shows the last line, coloured but
     faint, and dragging it up reveals the whole log, with a choice of the
     least level to show.
-11. **Configuring in the graphical interface**: every setting and every
+10. **Configuring in the graphical interface**: every setting and every
     part of a profile, including learning a binding by pressing the
     control. This needs the configuration to be written back to its file
     without losing what the user wrote there by hand.
 
 ### Features
 
-12. **Chord memory** (the 1.x "multinote" action, which computed its
+11. **Chord memory** (the 1.x "multinote" action, which computed its
     intervals but never applied them) and **CC learning**.
-13. **MIDI input and OpenRGB**: lighting the keys that are played here or
+12. **MIDI input and OpenRGB**: lighting the keys that are played here or
     by another MIDI source.
-14. **Velocity from how a control is pressed**, for controls that report
+13. **Velocity from how a control is pressed**, for controls that report
     pressure or travel.
 
 ### Release
 
-15. Packaging, a udev rule so that HIDI needs neither root nor group
+14. Packaging, a udev rule so that HIDI needs neither root nor group
     changes, and updating the dependencies of the CI workflow.
-16. The release workflow: reproducible builds (`-trimpath`, a pinned
+15. The release workflow: reproducible builds (`-trimpath`, a pinned
     toolchain, no build time in the binary), checksums, build provenance
     attestation, and immutable releases.
-17. Rewriting the README and the user documentation.
-18. Merging `dev` into `main`.
+16. Rewriting the README and the user documentation.
+17. Merging `dev` into `main`.
 
 ### After 2.0
 

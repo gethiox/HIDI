@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
 )
 
@@ -30,6 +31,7 @@ func Builtin() ([]*Profile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("built-in profile %s:\n%w", name, err)
 		}
+		p.Source = BuiltinSource + path.Base(name)
 		profiles = append(profiles, p)
 	}
 	return profiles, nil

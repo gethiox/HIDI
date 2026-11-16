@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
@@ -26,7 +27,19 @@ type Profile struct {
 	// WrittenFor is the schema version the file declared. It is lower than
 	// [Schema] if the file was upgraded while reading.
 	WrittenFor int
+	// Source says where the profile comes from: the path of its file, or
+	// "built-in/" and a file name. [Parse] leaves it empty.
+	Source string
+	// Digest identifies the content of the file. Two profiles with the same
+	// digest behave the same.
+	Digest [sha256.Size]byte
 }
+
+// BuiltinSource starts the [Profile.Source] of the profiles inside HIDI.
+const BuiltinSource = "built-in/"
+
+// IsBuiltin reports whether the profile ships inside HIDI.
+func (p *Profile) IsBuiltin() bool { return strings.HasPrefix(p.Source, BuiltinSource) }
 
 // Match selects devices. Every field that is set must agree with the device;
 // a Match with no fields set selects every device.
@@ -40,6 +53,29 @@ type Match struct {
 	// Serial restricts the profile to the one device with this serial
 	// number. Empty means any.
 	Serial string
+}
+
+// String describes the devices the match selects, for listings.
+func (m Match) String() string {
+	var parts []string
+	if m.Type != control.DeviceUnknown {
+		parts = append(parts, "type="+m.Type.String())
+	}
+	for _, id := range []struct {
+		name  string
+		value *uint16
+	}{{"bus", m.Bus}, {"vendor", m.Vendor}, {"product", m.Product}, {"version", m.Version}} {
+		if id.value != nil {
+			parts = append(parts, fmt.Sprintf("%s=0x%04x", id.name, *id.value))
+		}
+	}
+	if m.Serial != "" {
+		parts = append(parts, fmt.Sprintf("serial=%q", m.Serial))
+	}
+	if len(parts) == 0 {
+		return "any device"
+	}
+	return strings.Join(parts, " ")
 }
 
 // Score reports whether the device is selected and, if so, how specific the
@@ -94,7 +130,7 @@ func Parse(data []byte) (*Profile, error) {
 	}
 
 	r := &reader{}
-	p := &Profile{WrittenFor: from}
+	p := &Profile{WrittenFor: from, Digest: sha256.Sum256(data)}
 	top := r.table("", doc, "schema", "name", "match", "defaults", "global", "layout")
 	p.Name = top.str("name", "")
 	p.Match = r.match(top.sub("match"))
