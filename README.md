@@ -147,6 +147,9 @@ and switches layout with F11 and F12. Escape silences everything.
   that arrives. On a Linux machine with `/dev/uinput` and the ALSA sequencer
   they also run locally, as root or with access to both:
   `go build -o /tmp/hidi ./cmd/hidi && HIDI_E2E_BINARY=/tmp/hidi go test ./internal/e2e`
+- `scripts/vm-test.sh` runs those tests in a virtual machine of its own, for a
+  machine or container without the two interfaces. It needs no hardware
+  virtualisation; the comment at its top lists the packages.
 
 Run the same checks locally before opening a pull request:
 
