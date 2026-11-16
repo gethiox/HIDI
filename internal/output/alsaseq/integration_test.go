@@ -326,3 +326,93 @@ func TestEndpointConnect(t *testing.T) {
 		t.Errorf("Connect on a closed endpoint = %v, want ErrClosed", err)
 	}
 }
+
+// An input connected to an instrument receives what the instrument sends.
+func TestInputReceives(t *testing.T) {
+	requireSequencer(t)
+
+	ep, err := Open("HIDI test instrument")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ep.Close()
+	in, err := OpenInput("HIDI test input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+
+	sources, err := Sources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for _, s := range sources {
+		if s.Name == "HIDI test instrument" {
+			id = s.ID
+		}
+		if s.Name == "HIDI test input" {
+			t.Errorf("an input is listed as a source: %+v", s)
+		}
+	}
+	if id == "" {
+		t.Fatalf("the instrument is not among the sources: %+v", sources)
+	}
+	if already, err := in.Connect(id); err != nil || already {
+		t.Fatalf("Connect = %v, %v", already, err)
+	}
+	if already, err := in.Connect(id); err != nil || !already {
+		t.Fatalf("second Connect = %v, %v", already, err)
+	}
+
+	sent := make([]midi.Message, len(messages))
+	for i, tt := range messages {
+		sent[i] = tt.msg
+	}
+	if err := ep.Send(sent); err != nil {
+		t.Fatal(err)
+	}
+	var got []midi.Message
+	deadline := time.Now().Add(5 * time.Second)
+	for len(got) < len(sent) {
+		if time.Now().After(deadline) {
+			t.Fatalf("received %d of %d messages", len(got), len(sent))
+		}
+		if got, err = in.Read(got); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range sent {
+		want, have := sent[i].AppendBytes(nil), got[i].AppendBytes(nil)
+		if string(want) != string(have) {
+			t.Errorf("%s: received % x, want % x", messages[i].name, have, want)
+		}
+	}
+}
+
+// Close must end a Read that is waiting.
+func TestInputCloseInterruptsRead(t *testing.T) {
+	requireSequencer(t)
+	in, err := OpenInput("HIDI test input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Read(nil)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	in.Close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrClosed) {
+			t.Errorf("Read returned %v, want ErrClosed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Read did not return after Close")
+	}
+	if _, err := in.Connect("128:0"); !errors.Is(err, ErrClosed) {
+		t.Errorf("Connect on a closed input = %v", err)
+	}
+}

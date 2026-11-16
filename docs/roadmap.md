@@ -65,6 +65,10 @@ completes or changes an item.
   `hidi status`, `hidi on`, `hidi off`, `hidi toggle` and `hidi monitor`.
 - Axis settings in a profile: the rate at which an axis is passed on, and
   what its controller does on a channel or layout change.
+- An end-to-end test in the CI virtual machine: the real program, a
+  keyboard created in software, and a MIDI receiver.
+- MIDI input on Linux (`alsaseq.Input`), which the test uses as its
+  receiver and which lighting the played keys will build on.
 - `hidi run` and `hidi devices`.
 - CI runs the tests that need kernel interfaces in a virtual machine.
 
@@ -72,50 +76,45 @@ completes or changes an item.
 
 In planned order. Each item is roughly one pull request.
 
-### Linux
-
-1. **An end-to-end test** from a virtual input device to a received MIDI
-   message, in the CI virtual machine.
-
 ### Windows
 
-2. **MIDI output** through Windows MIDI Services. This starts with a small
+1. **MIDI output** through Windows MIDI Services. This starts with a small
    test program to prove that a virtual device can be created from Go.
-3. **Input**: Raw Input for keyboards and game controllers, and the
+2. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
-4. **Platform glue**, and testing on a real machine.
+3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
-5. **Tray icon** with the on/off switch.
-6. **Graphical interface**: status of the instruments, a live view of what
+4. **Tray icon** with the on/off switch.
+5. **Graphical interface**: status of the instruments, a live view of what
     is played, and the log. Frame pacing as decided above. The log lives
     in a status bar at the bottom: it shows the last line, coloured but
     faint, and dragging it up reveals the whole log, with a choice of the
     least level to show.
-7. **Configuring in the graphical interface**: every setting and every
+6. **Configuring in the graphical interface**: every setting and every
     part of a profile, including learning a binding by pressing the
     control. This needs the configuration to be written back to its file
     without losing what the user wrote there by hand.
 
 ### Features
 
-8. **Chord memory** (the 1.x "multinote" action, which computed its
+7. **Chord memory** (the 1.x "multinote" action, which computed its
     intervals but never applied them) and **CC learning**.
-9. **MIDI input and OpenRGB**: lighting the keys that are played here or
+8. **MIDI input and OpenRGB**: lighting the keys that are played here or
     by another MIDI source.
-10. **Velocity from how a control is pressed**, for controls that report
+9. **Velocity from how a control is pressed**, for controls that report
     pressure or travel.
 
 ### Release
 
-11. Packaging, a udev rule so that HIDI needs neither root nor group
+10. Packaging, a udev rule so that HIDI needs neither root nor group
     changes, and updating the dependencies of the CI workflow.
-12. The release workflow: reproducible builds (`-trimpath`, a pinned
+11. The release workflow: reproducible builds (`-trimpath`, a pinned
     toolchain, no build time in the binary), checksums, build provenance
     attestation, and immutable releases.
-13. Rewriting the README and the user documentation.
-14. Merging `dev` into `main`.
+12. Rewriting the README and the user documentation.
+13. Merging `dev` into `main`.
 
 ### After 2.0
 

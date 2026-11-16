@@ -141,6 +141,15 @@ and switches layout with F11 and F12. Escape silences everything.
   requests.
 - Every pull request must pass CI: `gofmt`, `go vet`, `staticcheck`, the tests,
   and builds for all supported targets.
+- The tests that need the kernel's input and MIDI interfaces run in a virtual
+  machine in CI. They include an end-to-end test (`internal/e2e`) that starts
+  the real program, plays a keyboard created in software and checks the MIDI
+  that arrives. On a Linux machine with `/dev/uinput` and the ALSA sequencer
+  they also run locally, as root or with access to both:
+  `go build -o /tmp/hidi ./cmd/hidi && HIDI_E2E_BINARY=/tmp/hidi go test ./internal/e2e`
+- `scripts/vm-test.sh` runs those tests in a virtual machine of its own, for a
+  machine or container without the two interfaces. It needs no hardware
+  virtualisation; the comment at its top lists the packages.
 
 Run the same checks locally before opening a pull request:
 

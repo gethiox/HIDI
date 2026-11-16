@@ -5,36 +5,18 @@ package evdev
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
-	"unsafe"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/gethiox/HIDI/internal/control"
-)
-
-// Requests on /dev/uinput, from linux/uinput.h. The kernel's uinput driver
-// lets a program create an input device, which is how these tests get a
-// keyboard and a game controller to read from.
-var (
-	uiDevCreate  = ioc(0, 'U', 1, 0)
-	uiDevDestroy = ioc(0, 'U', 2, 0)
-	uiDevSetup   = ioc(iocWrite, 'U', 3, 92) // struct uinput_setup
-	uiAbsSetup   = ioc(iocWrite, 'U', 4, 28) // struct uinput_abs_setup
-	uiSetEvBit   = ioc(iocWrite, 'U', 100, 4)
-	uiSetKeyBit  = ioc(iocWrite, 'U', 101, 4)
-	uiSetAbsBit  = ioc(iocWrite, 'U', 103, 4)
-	uiSetPhys    = ioc(iocWrite, 'U', 108, uintptr(wordSize))
-	uiGetSysname = ioc(iocRead, 'U', 44, 64)
+	"github.com/gethiox/HIDI/internal/input/evdev/uinput"
 )
 
 // virtualDevice is an input device created through uinput.
 type virtualDevice struct {
 	t    *testing.T
-	fd   int
+	dev  *uinput.Device
 	path string // the /dev/input/event* node of the device
 }
 
@@ -44,7 +26,7 @@ const (
 	testVendor  = 0x1234
 	testProduct = 0x5678
 	testVersion = 0x0111
-	busVirtual  = 0x06
+	busVirtual  = uinput.BusVirtual
 )
 
 // virtualSpec describes a device to create through uinput.
@@ -66,97 +48,36 @@ func newVirtualDevice(t *testing.T, keys []uint16, axes map[uint16]axisRange) *v
 // skip would hide that nothing was tested.
 func createVirtualDevice(t *testing.T, spec virtualSpec) *virtualDevice {
 	t.Helper()
-	keys, axes := spec.keys, spec.axes
-	fd, err := unix.Open("/dev/uinput", unix.O_WRONLY|unix.O_CLOEXEC, 0)
-	if err != nil {
+	axes := map[uint16]uinput.Range{}
+	for axis, r := range spec.axes {
+		axes[axis] = uinput.Range{Min: r.min, Max: r.max}
+	}
+	dev, err := uinput.Create(uinput.Spec{
+		Name: spec.name, Phys: spec.phys,
+		Vendor: testVendor, Product: testProduct, Version: testVersion,
+		Keys: spec.keys, Axes: axes,
+	})
+	if errors.Is(err, uinput.ErrUnavailable) {
 		if os.Getenv("HIDI_REQUIRE_UINPUT") != "" {
-			t.Fatalf("HIDI_REQUIRE_UINPUT is set but /dev/uinput cannot be opened: %v", err)
+			t.Fatalf("HIDI_REQUIRE_UINPUT is set, but %v", err)
 		}
-		t.Skipf("uinput is not available: %v", err)
+		t.Skip(err)
 	}
-	d := &virtualDevice{t: t, fd: fd}
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &virtualDevice{t: t, dev: dev, path: dev.Path}
 	t.Cleanup(d.destroy)
-
-	set := func(request uintptr, value uint16) {
-		t.Helper()
-		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), request, uintptr(value)); errno != 0 {
-			t.Fatalf("uinput ioctl %#x(%d): %v", request, value, errno)
-		}
-	}
-	ptr := func(request uintptr, arg unsafe.Pointer) {
-		t.Helper()
-		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), request, uintptr(arg)); errno != 0 {
-			t.Fatalf("uinput ioctl %#x: %v", request, errno)
-		}
-	}
-
-	set(uiSetEvBit, evKey)
-	for _, key := range keys {
-		set(uiSetKeyBit, key)
-	}
-	if len(axes) > 0 {
-		set(uiSetEvBit, evAbs)
-	}
-	for axis, r := range axes {
-		set(uiSetAbsBit, axis)
-		// struct uinput_abs_setup: code, padding, then struct input_absinfo
-		// (value, minimum, maximum, fuzz, flat, resolution).
-		var setup [28]byte
-		native.PutUint16(setup[0:], axis)
-		native.PutUint32(setup[8:], uint32(r.min))
-		native.PutUint32(setup[12:], uint32(r.max))
-		ptr(uiAbsSetup, unsafe.Pointer(&setup))
-	}
-
-	phys := append([]byte(spec.phys), 0)
-	ptr(uiSetPhys, unsafe.Pointer(&phys[0]))
-
-	// struct uinput_setup: struct input_id, name[80], ff_effects_max.
-	var setup [92]byte
-	native.PutUint16(setup[0:], busVirtual)
-	native.PutUint16(setup[2:], testVendor)
-	native.PutUint16(setup[4:], testProduct)
-	native.PutUint16(setup[6:], testVersion)
-	copy(setup[8:87], spec.name)
-	ptr(uiDevSetup, unsafe.Pointer(&setup))
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uiDevCreate, 0); errno != 0 {
-		t.Fatalf("creating the uinput device: %v", errno)
-	}
-
-	var sysname [64]byte
-	ptr(uiGetSysname, unsafe.Pointer(&sysname))
-	pattern := filepath.Join("/sys/devices/virtual/input", unix.ByteSliceToString(sysname[:]), "event*")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if matches, _ := filepath.Glob(pattern); len(matches) == 1 {
-			d.path = filepath.Join("/dev/input", filepath.Base(matches[0]))
-			if _, err := os.Stat(d.path); err == nil {
-				return d
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the event node for %s did not appear", pattern)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	return d
 }
 
-func (d *virtualDevice) destroy() {
-	if d.fd < 0 {
-		return
-	}
-	unix.Syscall(unix.SYS_IOCTL, uintptr(d.fd), uiDevDestroy, 0)
-	unix.Close(d.fd)
-	d.fd = -1
-}
+func (d *virtualDevice) destroy() { d.dev.Close() }
 
 // emit makes the device report one event, followed by the end of a packet.
 func (d *virtualDevice) emit(typ, code uint16, value int32) {
 	d.t.Helper()
-	for _, raw := range [][]byte{rawEvent(typ, code, value), rawEvent(evSyn, synReport, 0)} {
-		if _, err := unix.Write(d.fd, raw); err != nil {
-			d.t.Fatalf("writing to uinput: %v", err)
-		}
+	if err := d.dev.Emit(typ, code, value); err != nil {
+		d.t.Fatal(err)
 	}
 }
 
