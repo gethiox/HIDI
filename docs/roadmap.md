@@ -78,11 +78,13 @@ In planned order. Each item is roughly one pull request.
 
 ### Windows
 
-1. **MIDI output** through Windows MIDI Services. The code is written
-   (`internal/output/winmidi`) and `hidi doctor` exercises it stage by
-   stage; it has to be run on a real Windows machine and corrected from
-   what that shows. Most positions in the interface tables are derived
-   from Microsoft's interface definitions and not yet confirmed.
+1. **MIDI output** through Windows MIDI Services works: on Windows 11
+   build 26300 with the DLL of Microsoft's Preview 11 package,
+   `hidi doctor` created a virtual device and sent to it. Every method
+   position that creating and sending uses is thereby confirmed for that
+   version. Still open: that another program sees the device and receives
+   the notes, and removing the device, which did not return on the first
+   run and is now traced and limited in time.
 2. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
 3. **Platform glue**, and testing on a real machine.
@@ -165,6 +167,10 @@ rest on assumptions about real devices and should be checked first:
   11 25H2. Whether a GPL program may carry that DLL in its download is a
   licence question to settle before the first release; the alternative is
   to have users fetch the DLL themselves.
+- The identifier a virtual device declares on Windows: with spaces in it
+  the MIDI service refused to create the device, without a reason; made
+  of letters, digits and dashes it worked. That the spaces were the
+  cause is likely but was not isolated.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
 - The monitor shows how many notes sound, not which. Showing the notes

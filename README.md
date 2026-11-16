@@ -145,8 +145,8 @@ hidi.exe doctor
 
 It prints the Windows build, where it found Windows MIDI Services, and each
 stage of creating a MIDI device. If all stages pass, a device named
-"HIDI test device" appears in other programs and plays a C major chord for
-thirty seconds. If a stage fails, or the program stops without a message,
+"HIDI test device" appears in other programs and plays a C major chord until
+you press Ctrl+C. If a stage fails, or the program stops without a message,
 the output up to that point says where.
 
 Windows MIDI Services needs Windows 11 25H2 or later. Until Windows itself

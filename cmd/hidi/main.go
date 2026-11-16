@@ -50,6 +50,13 @@ Run "hidi <command> -h" for the options of a command.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// The first interrupt asks HIDI to stop cleanly. From then on the
+	// system's own handling is back, so that a second one ends a HIDI that
+	// does not manage to.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 

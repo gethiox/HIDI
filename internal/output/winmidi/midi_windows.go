@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -177,7 +178,14 @@ type Endpoint struct {
 	device       object // IMidiVirtualDevice
 	connectionID windows.GUID
 	words        []uint32
+	trace        tracer
 }
+
+// closeTimeout is how long removing a device may take. The calls go into
+// the MIDI service and have been seen not to return; a program that is
+// ending must not wait for them, and Windows removes the device of a
+// program that has ended anyway.
+const closeTimeout = 3 * time.Second
 
 // ErrClosed is returned by [Endpoint.Send] after the endpoint was closed.
 var ErrClosed = errors.New("MIDI endpoint is closed")
@@ -193,7 +201,7 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 	if _, err := Check(); err != nil {
 		return nil, err
 	}
-	e := &Endpoint{}
+	e := &Endpoint{trace: t}
 	defer func() {
 		if err != nil {
 			e.Close()
@@ -521,26 +529,65 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 	return nil
 }
 
-// Close removes the device. Closing an endpoint twice is not an error.
+// Close removes the device. Closing an endpoint twice is not an error. If
+// Windows does not finish within a few seconds, Close returns an error and
+// leaves the rest to the end of the program.
 func (e *Endpoint) Close() error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.closed {
+		e.mu.Unlock()
 		return nil
 	}
 	e.closed = true
-	e.raw.release()
+	e.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.teardown()
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(closeTimeout):
+		return errors.New("Windows did not finish removing the MIDI device; it goes away when the program ends")
+	}
+}
+
+// teardown gives the device up in the order Microsoft's sample does:
+// disconnect, release what belongs to the connection, close the session.
+// Each stage is announced before it runs, like the stages of opening.
+func (e *Endpoint) teardown() {
+	e.trace.step("releasing the fast way to send", func() error {
+		e.raw.release()
+		return nil
+	})
 	if !e.session.isNil() && !e.connection.isNil() && e.connectionID != (windows.GUID{}) {
-		e.session.call(slotSessionDisconnectEndpointConnection, guidArgs(&e.connectionID)...)
+		e.trace.step("disconnecting from the device", func() error {
+			if hr := e.session.call(slotSessionDisconnectEndpointConnection, guidArgs(&e.connectionID)...); hr.failed() {
+				return hr
+			}
+			return nil
+		})
 	}
-	e.connection.release()
-	e.device.release()
+	e.trace.step("releasing the connection and the device", func() error {
+		e.connection.release()
+		e.device.release()
+		return nil
+	})
 	if !e.session.isNil() {
-		if closable, err := e.session.query(iidIClosable); err == nil {
-			closable.call(slotClosableClose)
+		e.trace.step("closing the MIDI session", func() error {
+			closable, err := e.session.query(iidIClosable)
+			if err != nil {
+				return err
+			}
+			hr := closable.call(slotClosableClose)
 			closable.release()
-		}
-		e.session.release()
+			e.session.release()
+			if hr.failed() {
+				return hr
+			}
+			return nil
+		})
 	}
-	return nil
 }
