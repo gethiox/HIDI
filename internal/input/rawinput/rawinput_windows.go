@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,9 @@ var (
 	procUnhookWindowsHookEx     = user32.NewProc("UnhookWindowsHookEx")
 	procCallNextHookEx          = user32.NewProc("CallNextHookEx")
 	procGetProductString        = hid.NewProc("HidD_GetProductString")
+	cfgmgr                      = windows.NewLazySystemDLL("cfgmgr32.dll")
+	procLocateDevNode           = cfgmgr.NewProc("CM_Locate_DevNodeW")
+	procGetDevNodeProperty      = cfgmgr.NewProc("CM_Get_DevNode_PropertyW")
 	procHidGetCaps              = hid.NewProc("HidP_GetCaps")
 	procHidGetValueCaps         = hid.NewProc("HidP_GetValueCaps")
 	procHidGetUsages            = hid.NewProc("HidP_GetUsages")
@@ -444,6 +448,55 @@ func deviceInfo(handle uintptr) (ridDeviceInfo, bool) {
 	return info, int32(r) > 0
 }
 
+// devPropKey is DEVPROPKEY: a property of a device in Windows' tree of
+// devices.
+type devPropKey struct {
+	fmtid windows.GUID
+	pid   uint32
+}
+
+// containerIDKey is DEVPKEY_Device_ContainerId: the identifier that every
+// function of one piece of hardware shares. A keyboard that presents its
+// keys, its media keys and a few more interfaces is several devices to
+// Windows, each with an instance of its own, and one container.
+var containerIDKey = devPropKey{
+	fmtid: windows.GUID{Data1: 0x8c7ed206, Data2: 0x3f8a, Data3: 0x4827, Data4: [8]byte{0xb3, 0xab, 0xae, 0x9e, 0x1f, 0xae, 0xfc, 0x6c}},
+	pid:   2,
+}
+
+// noContainer is what Windows reports for hardware that is part of the
+// machine and has no container of its own.
+var noContainer = windows.GUID{Data4: [8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}
+
+// container returns the identifier of the piece of hardware an interface
+// belongs to, or an empty string where Windows does not tell.
+func container(path string) string {
+	id := instanceID(path)
+	if id == "" {
+		return ""
+	}
+	name, err := windows.UTF16PtrFromString(id)
+	if err != nil {
+		return ""
+	}
+	var node uint32
+	if r, _, _ := procLocateDevNode.Call(uintptr(unsafe.Pointer(&node)), uintptr(unsafe.Pointer(name)), 0); r != 0 {
+		return ""
+	}
+	var (
+		kind  uint32
+		guid  windows.GUID
+		size  = uint32(unsafe.Sizeof(guid))
+		empty windows.GUID
+	)
+	r, _, _ := procGetDevNodeProperty.Call(uintptr(node), uintptr(unsafe.Pointer(&containerIDKey)),
+		uintptr(unsafe.Pointer(&kind)), uintptr(unsafe.Pointer(&guid)), uintptr(unsafe.Pointer(&size)), 0)
+	if r != 0 || guid == empty || guid == noContainer {
+		return ""
+	}
+	return guid.String()
+}
+
 // add takes in an interface of a keyboard or a game controller. The
 // interfaces of one piece of hardware become one device, which is
 // delivered when its first interface appears.
@@ -468,6 +521,11 @@ func (w *Watcher) add(handle uintptr) {
 		return
 	}
 	id := parsePath(path)
+	// The interfaces of one piece of hardware share its container; where
+	// Windows names none, what the path says has to do.
+	if c := container(path); c != "" {
+		id.group = c
+	}
 	kind, typ, group := "Keyboard", control.DeviceKeyboard, id.group
 	if controller {
 		if id.xinput && w.opts.SkipXInput {
@@ -491,7 +549,8 @@ func (w *Watcher) add(handle uintptr) {
 		d.handles++
 		return
 	}
-	name := productName(path)
+	// Some devices pad the name they give themselves with spaces.
+	name := strings.TrimSpace(productName(path))
 	if name == "" {
 		name = kind
 		if id.vendor != 0 {

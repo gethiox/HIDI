@@ -9,6 +9,7 @@ package instrument
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -68,6 +69,7 @@ type Manager struct {
 	mu       sync.Mutex
 	profiles []*config.Profile
 	running  map[*runner]struct{} // every connected device, parked ones too
+	names    map[string]bool      // the names of MIDI devices in use
 	active   bool
 	done     sync.WaitGroup
 	quit     chan struct{} // closed when Run ends
@@ -231,6 +233,7 @@ func (m *Manager) add(dev input.Device) {
 	}
 	m.mu.Lock()
 	m.running[r] = struct{}{}
+	r.endpointName = m.takeName(EndpointPrefix + info.Name)
 	r.rules.Store(m.rulesFor(info))
 	r.wanted.Store(m.active)
 	r.assign(m.choose(info, r.log))
@@ -242,6 +245,7 @@ func (m *Manager) add(dev input.Device) {
 		r.run()
 		m.mu.Lock()
 		delete(m.running, r)
+		delete(m.names, r.endpointName)
 		m.mu.Unlock()
 	}()
 }
@@ -267,6 +271,23 @@ func (m *Manager) SetInput(toggle []control.Code, grab func(control.DeviceInfo) 
 		r.rules.Store(m.rulesFor(r.info))
 		r.poke()
 	}
+}
+
+// takeName returns a name for a MIDI device that no other device of this
+// HIDI has: the name wanted, or, for the second device of a model and
+// those after it, the name with a number. Two devices of one name cannot
+// be told apart in another program, and Windows wants every device to
+// declare an identifier of its own. The caller holds m.mu.
+func (m *Manager) takeName(wanted string) string {
+	if m.names == nil {
+		m.names = map[string]bool{}
+	}
+	name := wanted
+	for n := 2; m.names[name]; n++ {
+		name = fmt.Sprintf("%s #%d", wanted, n)
+	}
+	m.names[name] = true
+	return name
 }
 
 // Status describes a running instrument.
@@ -314,6 +335,8 @@ type runner struct {
 	// and which keys turn HIDI off and on. The manager replaces it when
 	// the settings change.
 	rules atomic.Pointer[inputRules]
+	// endpointName is the name of the instrument's MIDI device.
+	endpointName string
 	// onToggle is what the toggle combination calls.
 	onToggle func()
 	// lights gives the lights of the device, and heard holds the notes
@@ -506,7 +529,7 @@ func (r *runner) run() {
 			return
 		}
 		if endpoint == nil {
-			e, err := r.open(EndpointPrefix + r.info.Name)
+			e, err := r.open(r.endpointName)
 			if err != nil {
 				r.log.Error("MIDI device cannot be created", "error", err)
 				return

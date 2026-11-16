@@ -56,6 +56,22 @@ func parsePath(path string) identity {
 	return id
 }
 
+// instanceID turns the interface path of a device into the name Windows
+// knows the device by in its tree of devices:
+//
+//	\\?\HID#VID_046D&PID_C31C&MI_00#7&2a1b3c4d&0&0000#{884b96c3-...}
+//
+// becomes HID\VID_046D&PID_C31C&MI_00\7&2a1b3c4d&0&0000. It returns an
+// empty string for a path that does not have this form.
+func instanceID(path string) string {
+	path = strings.TrimPrefix(path, `\\?\`)
+	parts := strings.Split(path, "#")
+	if len(parts) < 3 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-1], `\`)
+}
+
 // hex16 reads up to four hexadecimal digits at the start of s.
 func hex16(s string) uint16 {
 	if len(s) > 4 {
