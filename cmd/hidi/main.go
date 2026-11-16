@@ -20,6 +20,7 @@ import (
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/crashlog"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
@@ -57,7 +58,39 @@ func main() {
 		<-ctx.Done()
 		stop()
 	}()
-	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(guarded(ctx, os.Args[1:]))
+}
+
+// guarded runs the command line with crashes recorded. The commands that
+// run for long, and use the parts most likely to fail, keep a crash report:
+// when HIDI dies, the reason is written to a file, and the next start says
+// so. A crash needs no cleaning up after: the system takes back a grabbed
+// keyboard and removes the MIDI devices of a program that has ended.
+func guarded(ctx context.Context, args []string) (code int) {
+	if len(args) == 0 || (args[0] != "run" && args[0] != "doctor") {
+		return run(ctx, args, os.Stdout, os.Stderr)
+	}
+	dir, err := crashlog.Dir()
+	if err == nil {
+		var previous string
+		if previous, err = crashlog.Start(dir); previous != "" {
+			fmt.Fprintf(os.Stderr, "HIDI did not end properly the last time it ran. What happened is in\n  %s\nPlease include that file if you report it.\n\n", previous)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hidi: crashes will not be recorded: %v\n", err)
+		return run(ctx, args, os.Stdout, os.Stderr)
+	}
+	// This catches a failure in the command itself. One in another part
+	// that runs alongside ends the program at once; the runtime then
+	// prints the reason and writes it to the same file.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintln(os.Stderr, "\n"+crashlog.Report(r, dir))
+			code = 3
+		}
+	}()
+	return run(ctx, args, os.Stdout, os.Stderr)
 }
 
 // run executes the command line and returns the process exit code.
