@@ -114,6 +114,25 @@ From another terminal:
 redraws in place on a terminal; piped, or with `NO_COLOR` set, it writes
 each change below the last.
 
+### An icon in the notification area
+
+```
+./hidi tray
+```
+
+shows an icon that tells whether HIDI is on, off or not running. A click
+turns HIDI on or off, and its menu lists the instruments. The icon is a
+program of its own next to `hidi run`: it may start first, stays when HIDI
+stops, and removing it leaves HIDI running. Put it among the programs your
+desktop starts at login.
+
+![The icon and its menu while HIDI is on, off and not running](docs/images/tray.png)
+
+On Linux the icon needs a desktop that shows such icons the modern way
+(StatusNotifierItem): KDE, Xfce, the bars of Wayland compositors such as
+Waybar, and GNOME with the AppIndicator extension. On Windows it works as it
+is, and has not run on a real machine yet.
+
 ### Sending to a hardware MIDI interface
 
 Every instrument is a MIDI device of its own that other programs connect to.

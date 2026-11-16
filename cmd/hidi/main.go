@@ -39,6 +39,7 @@ Commands:
   monitor   keep showing it, with the log, until interrupted
   on, off, toggle
             turn the running HIDI on or off
+  tray      show an icon in the notification area that turns HIDI on and off
   ports     list the MIDI ports an instrument can be connected to
   profiles  list the profiles, check them, or write the built-in ones out
   doctor    check that this system can do what HIDI needs, step by step
@@ -108,6 +109,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdControl(ctx, args[0], args[1:], stdout, stderr)
 	case "monitor":
 		return cmdMonitor(ctx, args[1:], stdout, stderr)
+	case "tray":
+		return cmdTray(ctx, args[1:], stderr)
 	case "ports":
 		return cmdPorts(args[1:], stdout, stderr)
 	case "doctor":

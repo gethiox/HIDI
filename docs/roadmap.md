@@ -102,6 +102,9 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
 - MIDI input on Linux (`alsaseq.Input`), which the test uses as its
   receiver and which lighting the played keys will build on.
 - `hidi run` and `hidi devices`.
+- The icon in the notification area (`hidi tray`), for Linux and Windows:
+  shows on, off and not running, turns HIDI on and off, lists the
+  instruments.
 - CI runs the tests that need kernel interfaces in a virtual machine.
 
 ## Remaining
@@ -135,7 +138,6 @@ In planned order. Each item is roughly one pull request.
 
 ### Interfaces
 
-4. **Tray icon** with the on/off switch.
 5. **Graphical interface**: status of the instruments, a live view of what
     is played, and the log. Frame pacing as decided above. The log lives
     in a status bar at the bottom: it shows the last line, coloured but
@@ -187,6 +189,9 @@ rest on assumptions about real devices and should be checked first:
   the built-in profiles guess.
 - That `hidi run -connect` reaches a real USB MIDI interface, and
   reconnects after it was unplugged.
+- That the icon of `hidi tray` shows and works in KDE, GNOME (with the
+  AppIndicator extension) and on Windows; it was tried in the panel of Xfce
+  only.
 - Windows: that Raw Input still delivers the keys the hook swallows; that
   XInput reports the guide button and the model of a controller through
   its two functions without a name; that a DualShock 4 or DualSense numbers its controls
@@ -195,6 +200,10 @@ rest on assumptions about real devices and should be checked first:
   right-hand modifiers, and does not collide with a desktop shortcut.
 
 ## Open questions
+
+- The icon is a program the user has to start. Whether HIDI should put it
+  among the programs started at login, and whether `hidi run` should start
+  it, is to be decided with packaging.
 
 - `axis_on_change` is one setting for a profile. Whether single bindings
   need to differ from it will show in use.

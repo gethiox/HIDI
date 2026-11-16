@@ -57,7 +57,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `backend` | exists | Selects the input and output implementations for the platform. |
 | `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
 | `ipc` | exists | Local control protocol between the running HIDI and its clients. |
-| `ui` | planned | Terminal views, tray icon and graphical UI. |
+| `ui` | partial | The interfaces of the desktop. `ui/tray` is the icon in the notification area; the graphical UI is planned. The terminal views live in `cmd/hidi`. |
 
 ### Dependency rules
 
@@ -240,6 +240,15 @@ protocol is one JSON object per line and is described in the `ipc` package. A
 client asks for the state once, switches HIDI on or off, or watches: it then
 receives a snapshot after every change, at most twenty a second, and the log
 lines as they are written.
+
+`hidi tray` is such a client too: a small program of its own that shows an
+icon in the notification area. Keeping it out of `hidi run` means that HIDI
+on a machine without a desktop carries nothing of it, and that the icon can
+say "not running". On Linux it speaks the StatusNotifierItem protocol and
+offers its menu as a `com.canonical.dbusmenu` object, both over D-Bus, with
+the pure Go library `godbus`. On Windows it uses `Shell_NotifyIcon`. The
+icon is drawn by the program in every size asked for, so there are no image
+files to install.
 
 The socket also makes HIDI a single instance. A second `hidi run` finds the
 first one answering and stops before it opens any device.
