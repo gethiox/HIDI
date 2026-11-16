@@ -84,11 +84,23 @@ other programs.
 | `-no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `-grab-gamepads` | Also take game controllers away from other programs. |
 | `-off` | Start turned off. |
-| `-v` | Also log every MIDI message and every ignored device. |
+| `-v` | Also log details, such as every ignored device. |
+| `-log-midi` | Also log every MIDI message sent. It is for finding faults: an instrument sends hundreds a second. |
+| `-no-status` | Write the log only, without the lines about HIDI's state at the bottom of the terminal. |
 | `-no-color` | Write the log without colours. |
 | `-config DIR` | Use another directory for HIDI's settings and profiles. |
 | `-profiles DIR` | Read profiles from another directory, beside the built-in ones. |
 | `-connect PORT` | Also send to an existing MIDI port; see below. |
+
+On a terminal, the last lines show what HIDI is doing: whether it is on, and
+for every instrument its channel, octave, the notes that sound, and how many
+events came in from the device and how many MIDI messages went out in the
+last second. The log runs above them.
+
+![The log of hidi run with the state of HIDI below it](docs/images/run-status.png)
+
+When the output goes to a file or a pipe, or with `-no-status`, only the log
+is written.
 
 The log is coloured when it goes to a terminal, and plain when it goes to a
 file or a pipe. Besides `-no-color`, setting the `NO_COLOR` environment
@@ -271,8 +283,12 @@ hidi.exe doctor
 
 It creates three MIDI devices, as HIDI makes one for every instrument, plays
 on the first, removes them, and creates one more to see that removing left
-the MIDI service working. `-devices N` changes how many, and `-removal
-disconnect` or `-removal release` try other ways of giving a device up.
+the MIDI service working. `-devices N` changes how many. `-removal
+disconnect` and `-removal release` try other ways of giving a device up, and
+`-removal none` gives up nothing and leaves it to Windows to clear up when
+the program ends. Before a device is removed it is left alone for half a
+second, because removing one straight after using it has been seen to hang
+the MIDI service; `-wait 0` or `-wait 2s` changes that time.
 
 It prints the Windows build, where it found Windows MIDI Services, and each
 stage of creating a MIDI device. If all stages pass, a device named

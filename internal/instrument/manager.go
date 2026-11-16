@@ -51,6 +51,10 @@ type Options struct {
 	// Lights, if set, returns the lights of a keyboard that became an
 	// instrument, or nil if it has none to offer.
 	Lights func(control.DeviceInfo) Light
+	// LogMIDI writes every MIDI message an instrument sends to the log,
+	// at debug level. It is for finding faults: an instrument sends
+	// hundreds of messages a second.
+	LogMIDI bool
 	// Changed, if set, is called whenever what [Manager.Status] or
 	// [Manager.Active] report has changed. It is called from several
 	// goroutines and must return quickly.
@@ -133,6 +137,8 @@ func (m *Manager) toggle() {
 // every instrument: held notes are released and the MIDI devices are
 // removed.
 func (m *Manager) Run(ctx context.Context, devices <-chan input.Device) {
+	rates := time.NewTicker(ratePeriod)
+	defer rates.Stop()
 loop:
 	for {
 		select {
@@ -143,6 +149,8 @@ loop:
 				break loop
 			}
 			m.add(dev)
+		case <-rates.C:
+			m.measure()
 		}
 	}
 
@@ -153,6 +161,24 @@ loop:
 	}
 	m.mu.Unlock()
 	m.done.Wait()
+}
+
+// ratePeriod is the time over which the rates in a [Status] are counted.
+var ratePeriod = time.Second
+
+// measure works out how much every instrument did since the last time.
+func (m *Manager) measure() {
+	m.mu.Lock()
+	changed := false
+	for r := range m.running {
+		if r.measure() {
+			changed = true
+		}
+	}
+	m.mu.Unlock()
+	if changed {
+		m.changed()
+	}
 }
 
 // SetProfiles replaces the available profiles while the manager runs. Every
@@ -230,6 +256,7 @@ func (m *Manager) add(dev input.Device) {
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
 		changed:  m.changed,
+		logMIDI:  m.opts.LogMIDI,
 	}
 	m.mu.Lock()
 	m.running[r] = struct{}{}
@@ -284,7 +311,7 @@ func (m *Manager) takeName(wanted string) string {
 	}
 	name := wanted
 	for n := 2; m.names[name]; n++ {
-		name = fmt.Sprintf("%s #%d", wanted, n)
+		name = fmt.Sprintf("%s %d", wanted, n)
 	}
 	m.names[name] = true
 	return name
@@ -304,6 +331,9 @@ type Status struct {
 	// Input is what the device itself reports, before any profile is
 	// applied to it.
 	Input Input
+	// InputRate is how many events the device reported in the last
+	// second, and MIDIRate how many MIDI messages the instrument sent.
+	InputRate, MIDIRate int
 }
 
 // Status returns the running instruments, in no particular order.
@@ -363,10 +393,33 @@ type runner struct {
 	// changed tells the manager's owner that the status is different.
 	changed func()
 
+	// logMIDI says that every message sent goes to the log.
+	logMIDI bool
+	// seen and sent count the events of the device and the MIDI messages
+	// of the instrument since the start; measured is where they stood
+	// when the rates were last worked out.
+	seen, sent atomic.Uint64
+	measured   [2]uint64
+
 	mu         sync.Mutex
 	status     Status
 	instrument bool // whether status describes a running instrument
 	input      inputTracker
+}
+
+// measure works out the rates of the last period from the counters and
+// reports whether they differ from those before.
+func (r *runner) measure() bool {
+	now := [2]uint64{r.seen.Load(), r.sent.Load()}
+	in, out := int(now[0]-r.measured[0]), int(now[1]-r.measured[1])
+	r.measured = now
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.instrument || (r.status.InputRate == in && r.status.MIDIRate == out) {
+		return false
+	}
+	r.status.InputRate, r.status.MIDIRate = in, out
+	return true
 }
 
 // snapshot returns the status of the instrument, if the device is one.
@@ -382,6 +435,7 @@ func (r *runner) snapshot() (Status, bool) {
 
 // saw records an event of the device for the view of its raw input.
 func (r *runner) saw(ev control.Event) {
+	r.seen.Add(1)
 	r.mu.Lock()
 	changed := r.input.record(ev)
 	r.mu.Unlock()
@@ -433,7 +487,9 @@ func (r *runner) run() {
 
 		// limit thins out axis input; due collects what it releases, and
 		// release fires when it next has something.
-		limit   = newLimiter(0)
+		limit = newLimiter(0)
+		// steady drops the trembling of resting axes.
+		steady  = newSteadier(0)
 		due     []control.Event
 		release <-chan time.Time
 	)
@@ -552,6 +608,7 @@ func (r *runner) run() {
 		}
 		eng, profile = a.engine, a.profile
 		limit = newLimiter(profile.AxisRate)
+		steady = newSteadier(profile.AxisThreshold)
 		state = eng.State()
 		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, State: state}, true)
 	}
@@ -657,7 +714,11 @@ loop:
 			if !active {
 				continue
 			}
-			if !limit.admit(ev, time.Now()) {
+			now := time.Now()
+			if !steady.admit(ev, now) {
+				continue
+			}
+			if !limit.admit(ev, now) {
 				if release == nil {
 					flush()
 				}
@@ -761,7 +822,7 @@ func (r *runner) send(endpoint output.Endpoint, msgs []midi.Message) bool {
 	if len(msgs) == 0 {
 		return true
 	}
-	if r.log.Enabled(context.Background(), slog.LevelDebug) {
+	if r.logMIDI {
 		for _, m := range msgs {
 			r.log.Debug("midi", "message", m.String())
 		}
@@ -770,5 +831,6 @@ func (r *runner) send(endpoint output.Endpoint, msgs []midi.Message) bool {
 		r.log.Error("sending MIDI failed; stopping the instrument", "error", err)
 		return false
 	}
+	r.sent.Add(uint64(len(msgs)))
 	return true
 }

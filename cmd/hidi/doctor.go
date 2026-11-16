@@ -24,12 +24,13 @@ func cmdDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	seconds := fs.Int("seconds", 0, "how long to keep the test device and play on it; 0 means until Ctrl+C")
 	devices := fs.Int("devices", 3, "how many MIDI devices to create in all, as HIDI makes one for each instrument")
-	removal := fs.String("removal", "session", "on Windows, how devices are given up: session, disconnect or release")
+	removal := fs.String("removal", "session", "on Windows, how devices are given up: session, disconnect, release,\nor none, which leaves them to the end of the program")
+	wait := fs.Duration("wait", -1, "on Windows, how long a device is left alone before it is removed,\nsuch as 0 or 2s; the usual time when not given")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
 
-	if err := backend.SetRemoval(*removal); err != nil {
+	if err := backend.SetRemoval(*removal, *wait); err != nil {
 		fmt.Fprintf(stderr, "hidi doctor: %v\n", err)
 		return 2
 	}

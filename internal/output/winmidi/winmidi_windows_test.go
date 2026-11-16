@@ -106,14 +106,26 @@ func TestCheckAndOpenReportWhatIsMissing(t *testing.T) {
 
 func TestInstanceID(t *testing.T) {
 	for name, want := range map[string]string{
-		"HIDI test device": "HIDI-HIDI-test-device",
-		"Keychron K2":      "HIDI-Keychron-K2",
-		"Zażółć (USB) #2":  "HIDI-Za------USB---2",
-		"":                 "HIDI-",
+		"HIDI test device":               "HIDI-test-device",
+		"HIDI VKBsim Gladiator EVO  R 2": "HIDI-VKBsim-Gladiator-EVO-R-2",
+		"Keychron K2":                    "HIDI-Keychron-K2",
+		"HIDI Pad (USB) #2":              "HIDI-Pad-USB-2",
+		"":                               "HIDI",
 	} {
 		if got := instanceID(name); got != want {
 			t.Errorf("instanceID(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// Names in another alphabet keep identifiers of their own.
+func TestInstanceIDOfForeignNames(t *testing.T) {
+	a, b := instanceID("HIDI Клавиатура"), instanceID("HIDI Геймпад")
+	if a == b || !strings.HasPrefix(a, "HIDI-") || len(a) != len("HIDI-")+8 {
+		t.Errorf("identifiers %q and %q", a, b)
+	}
+	if again := instanceID("HIDI Клавиатура"); again != a {
+		t.Errorf("the identifier changed: %q then %q", a, again)
 	}
 }
 

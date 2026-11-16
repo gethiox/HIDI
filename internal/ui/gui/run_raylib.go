@@ -409,6 +409,8 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		{"channel", fmt.Sprintf("%2d", in.Channel)},
 		{"velocity", fmt.Sprintf("%3d", in.Velocity)},
 		{"notes", fmt.Sprintf("%2d", in.Sounding)},
+		{"input", fmt.Sprintf("%4d/s", in.InputRate)},
+		{"MIDI", fmt.Sprintf("%4d/s", in.MIDIRate)},
 		{"layout", in.Layout},
 		{"chord", in.Chord},
 		{"", map[bool]string{true: "learning"}[in.Learning]},

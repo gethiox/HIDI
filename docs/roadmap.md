@@ -74,54 +74,49 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
   once, without a hang.
 - The duplicates are gone for the keyboard and the mouse.
 
-### What does not, in the order to work on
+### What was done about the rest, and waits to be tried there
 
-1. **Removing a MIDI device sometimes never returns**, now in "closing the
-   MIDI session" (before, in disconnecting). When it happens, the MIDI
-   service answers nobody afterwards: the next `hidi run` fails at its
-   first device until Windows is restarted. Seen so far:
-   - `hidi doctor`: the close of the first device hung. It came right
-     after the last note was sent, with devices 2 and 3 still open.
-   - second `hidi run`: five devices closed in a millisecond each; the
-     sixth, created 22 ms before, hung.
-   - first `hidi run`: all six closed fine; HIDI had been off and idle
-     for seconds.
-   So the guess to try first: closing too soon after something else was
-   asked of that session or device (a send, the creation). Wait until
-   half a second has passed since the last use before closing; if that
-   is not it, try the other ways (`hidi doctor -removal release`).
-   Since the devices go away with the process anyway, a HIDI that is
-   stopping could also skip the removal and just end; only an instrument
-   unplugged while HIDI runs needs a real removal.
-2. **The second device of a model cannot be created.** For the second VKB
-   joystick the service answered status 808 "error from the service",
-   for the name "HIDI VKBsim Gladiator EVO R #2" with the identifier
-   "HIDI-HIDI-VKBsim-Gladiator-EVO-R--2". The guess: the "#" in the name,
-   which Windows uses as a separator in device paths. Number without it
-   ("... 2"). The identifier also carries "HIDI" twice, since the name
-   already begins with it.
-3. **An axis that does not rest still floods.** The Saitek throttle sent
-   controller 6 as 63, 64, 63, 64 … every 8 ms, forever. A value should
-   only be sent on when it has moved clearly away from the last one sent
-   (hysteresis of a bit more than half a step), in the engine, for every
-   system.
-4. **Logging** (asked for by the maintainer):
-   - Single MIDI messages do not belong in the log at all, not at debug
-     level either. Only a flag of its own, for debugging, turns them on.
-   - `hidi run` on a terminal should keep a few lines at the bottom with
-     the state of HIDI and its devices, like the window does, with the
-     log scrolling above them; writing the log only stays possible.
-   - The interfaces should say how much is going on: input events a
-     second and MIDI messages sent a second, for each instrument.
-5. A mouse that presents a keyboard interface (Razer Basilisk V3) is an
-   instrument. Still no sure way to tell.
-6. `hidi run` with grabbing (without `-no-grab`), an Xbox controller
-   through XInput, and what a HIDI that was killed leaves behind, are
-   still untried there.
+1. **Removing a MIDI device sometimes never returned**, and then the MIDI
+   service answered nobody until Windows was restarted. It was seen right
+   after a message was sent to the device (`hidi doctor`) and 22 ms after
+   the device was created (a second `hidi run`), and not for devices that
+   had been idle for seconds. So a device is now left alone for half a
+   second before it is removed; devices closed together wait together.
+   Whether that is the cause is not known until it is tried:
+   `hidi doctor` should pass, twice in a row, and so should starting and
+   stopping `hidi run` quickly. `hidi doctor -wait 0` should hang as
+   before if the guess is right. If it still hangs with the wait:
+   `-wait 2s`, `-removal release`, and `-removal none`, which removes
+   nothing and shows what Windows does with the devices of a program that
+   ended.
+2. **The second device of a model could not be created**: status 808 for
+   the name "HIDI VKBsim Gladiator EVO R #2" with the identifier
+   "HIDI-HIDI-VKBsim-Gladiator-EVO-R--2". The devices of `hidi doctor`,
+   "HIDI test device 2" and "3", were created without trouble, so the
+   number is now written the same way, without "#", and the identifier
+   has "HIDI" once and never two dashes in a row. Why that one joystick
+   appears as two devices is a separate question: `hidi devices` now
+   prints where each device is found, which shows whether Windows gives
+   them one container or two.
+3. **An axis that does not rest still flooded**: done, see `axis_threshold`
+   in the profile reference.
+4. **Logging**: done. Single MIDI messages are logged only with
+   `-log-midi`; `hidi run` keeps lines about its state at the bottom of
+   the terminal; every interface shows input events and MIDI messages a
+   second.
 
-Open besides: pull request #46 (changing profiles in the window) awaits
-merging. After the Windows round, "Release" is next: packaging, the udev
-rule, the release workflow.
+Still open there:
+
+- A mouse that presents a keyboard interface (Razer Basilisk V3) is an
+  instrument. Still no sure way to tell.
+- `hidi run` with grabbing (without `-no-grab`), an Xbox controller
+  through XInput, and what a HIDI that was killed leaves behind, are
+  still untried.
+- The lines at the bottom of the terminal are untried in the Windows
+  terminal.
+
+After the Windows round, "Release" is next: packaging, the udev rule, the
+release workflow.
 
 ## Done
 
@@ -146,8 +141,12 @@ rule, the release workflow.
   and `hidi run -connect`.
 - The control interface: a local socket to the running HIDI, with
   `hidi status`, `hidi on`, `hidi off`, `hidi toggle` and `hidi monitor`.
-- Axis settings in a profile: the rate at which an axis is passed on, and
-  what its controller does on a channel or layout change.
+- Axis settings in a profile: the rate at which an axis is passed on,
+  how far a resting axis has to move to count as moved, and what its
+  controller does on a channel or layout change.
+- `hidi run` on a terminal: the state of HIDI and its instruments in the
+  last lines, the log above; input events and MIDI messages a second for
+  every instrument, in every interface.
 - An end-to-end test in the CI virtual machine: the real program, a
   keyboard created in software, and a MIDI receiver.
 - MIDI input on Linux (`alsaseq.Input`), which the test uses as its

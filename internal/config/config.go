@@ -30,6 +30,10 @@ type Profile struct {
 	// AxisRate is how many updates a second an absolute axis may pass on
 	// to the engine. Zero means every one.
 	AxisRate int
+	// AxisThreshold is how far a resting axis has to move, as a fraction
+	// of its travel, before its positions are passed on. Zero passes
+	// everything.
+	AxisThreshold float64
 	// Source says where the profile comes from: the path of its file, or
 	// "built-in/" and a file name. [Parse] leaves it empty.
 	Source string
@@ -139,7 +143,7 @@ func Parse(data []byte) (*Profile, error) {
 	p.Match = r.match(top.sub("match"))
 	var s settings
 	p.Engine.Defaults, s = r.defaults(top.sub("defaults"))
-	p.Engine.Collision, p.Engine.RestAxes, p.AxisRate = s.collision, s.restAxes, s.axisRate
+	p.Engine.Collision, p.Engine.RestAxes, p.AxisRate, p.AxisThreshold = s.collision, s.restAxes, s.axisRate, s.axisThreshold
 	p.Engine.Global = r.bindings("global", top.sub("global").values)
 
 	layouts, _ := top.values["layout"].([]any)
@@ -205,12 +209,23 @@ const (
 	MaxAxisRate     = 1000
 )
 
+// DefaultAxisThreshold is how far a resting axis has to move before it
+// counts as moved, unless a profile says otherwise: a hundredth of its
+// travel, a little more than one step of a MIDI controller. MaxAxisThreshold
+// is the most a profile may ask for.
+const (
+	DefaultAxisThreshold = 0.01
+	MaxAxisThreshold     = 0.5
+)
+
 // settings are the values of a [defaults] table that are not part of the
 // instrument's starting state.
 type settings struct {
 	collision engine.CollisionMode
 	restAxes  bool
 	axisRate  int
+	// axisThreshold is described at Profile.AxisThreshold.
+	axisThreshold float64
 }
 
 func (r *reader) defaults(t *table) (engine.Defaults, settings) {
@@ -235,7 +250,12 @@ func (r *reader) defaults(t *table) (engine.Defaults, settings) {
 		r.failf(t.where, "axis_on_change: unknown mode %q; use keep or rest", mode)
 	}
 	s.axisRate = int(t.integer("axis_rate", DefaultAxisRate, 0, MaxAxisRate))
-	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate")
+	s.axisThreshold = t.number("axis_threshold", DefaultAxisThreshold)
+	if !(s.axisThreshold >= 0 && s.axisThreshold <= MaxAxisThreshold) {
+		r.failf(t.where, "axis_threshold must be from 0 to %v, not %v", MaxAxisThreshold, s.axisThreshold)
+		s.axisThreshold = DefaultAxisThreshold
+	}
+	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate", "axis_threshold")
 	return d, s
 }
 

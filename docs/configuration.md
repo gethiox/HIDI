@@ -189,6 +189,7 @@ These are also the values the reset combinations return to.
 | `collision` | `"interrupt"` | What happens when a note that is already sounding is played again, which is possible when two controls are bound to the same note. See below. |
 | `axis_on_change` | `"keep"` | What happens to a controller when a change of channel or layout takes its axis away. See below. |
 | `axis_rate` | `120` | How many positions a second an axis passes on, from 1 to 1000; `0` passes every one. |
+| `axis_threshold` | `0.01` | How far a resting axis has to move before it counts as moved, as a fraction of its travel, from 0 to 0.5; `0` passes everything. See below. |
 
 Axes when the channel or layout changes: pitch bend, and a controller driven
 by an axis marked `centered`, always return to rest, so that nothing stays
@@ -203,6 +204,17 @@ a throttle lever driving volume, you choose:
 `axis_rate` thins out the positions of sticks, triggers and levers, which can
 report a thousand times a second. The last position always arrives. Keys are
 never delayed.
+
+`axis_threshold` keeps a lever that is left alone quiet. Few axes report one
+steady position at rest: they waver between two neighbouring ones, and each
+waver would be sent as a controller message, without end. So HIDI takes the
+position an axis is at as its rest position and ignores what stays within
+the threshold of it. Once the axis is further away than that it is moving,
+and every position is passed on in full detail, small steps included. When
+it has stayed in one place for a quarter of a second, that place is its new
+rest position. A slow movement is not lost: it leaves the rest position
+behind like a fast one. The two ends of the travel always arrive. Raise the
+value for a worn lever that wanders more; `0` turns this off.
 
 Collision modes:
 

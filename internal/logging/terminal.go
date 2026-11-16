@@ -20,6 +20,18 @@ func colourChoice(f *os.File, getenv func(string) string) bool {
 		enableTerminal(f) // best effort: the user insists
 		return true
 	}
+	return isTerminal(f)
+}
+
+// IsTerminal reports whether f is a terminal that understands ANSI codes,
+// which a [Footer] needs, and prepares it for them where that is needed.
+// Unlike [TerminalColour] it does not ask the variables about colour: a
+// footer without colours is still a footer.
+func IsTerminal(f *os.File) bool {
+	return os.Getenv("TERM") != "dumb" && isTerminal(f)
+}
+
+func isTerminal(f *os.File) bool {
 	if f == nil {
 		return false
 	}

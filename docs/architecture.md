@@ -53,9 +53,9 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `config` | exists | Configuration schema, versioning, migration, validation. |
 | `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. The Windows backends (`rawinput` for keyboards and most game controllers, `xinput` for Xbox controllers) await their first run on a real machine. |
 | `output` | partial | MIDI output backend interface and the router that connects endpoints to existing ports, with one subpackage per transport. The ALSA sequencer backend exists; the Windows MIDI Services backend is written and awaits its first run on a real machine. |
-| `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
+| `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. Before the engine it thins out axis input and drops the trembling of resting axes; it counts what comes in and goes out. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
-| `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs. |
+| `logging` | exists | `log/slog` handler with coloured output and an in-memory buffer for the UIs, and the footer that keeps lines at the bottom of a terminal while the log runs above. |
 | `light` | exists | What the keys of a keyboard show for the state of its instrument, and a hub that sends it to the keyboard's lights through an OpenRGB server (`light/openrgb` is the client). |
 | `settings` | exists | HIDI's own settings, where HIDI keeps its files, and filling that directory on the first start. |
 | `ipc` | exists | Local control protocol between the running HIDI and its clients. |

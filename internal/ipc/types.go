@@ -49,6 +49,10 @@ type Instrument struct {
 	// Notes are the numbers of the notes that are on, lowest first; note
 	// 60 is middle C.
 	Notes []int `json:"notes"`
+	// InputRate is how many events the device reported in the last
+	// second, and MIDIRate how many MIDI messages the instrument sent.
+	InputRate int `json:"input_rate"`
+	MIDIRate  int `json:"midi_rate"`
 	// Buttons and Axes are the controls the device has reported so far,
 	// and where each stands: its raw input, before the profile.
 	Buttons []Button `json:"buttons"`

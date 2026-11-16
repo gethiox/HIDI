@@ -75,6 +75,8 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Learning:    st.State.Learning,
 			Sounding:    st.State.Sounding,
 			Notes:       st.State.NoteNumbers(),
+			InputRate:   st.InputRate,
+			MIDIRate:    st.MIDIRate,
 		})
 	}
 	// Two devices of the same model have the same name; where they are
@@ -104,6 +106,7 @@ func describe(w io.Writer, s ipc.Snapshot) {
 		// redraws.
 		fmt.Fprintf(w, "  octave %+3d  transpose %+4d  channel %2d  velocity %3d  notes %2d  layout %s\n",
 			in.Octave, in.Transpose, in.Channel, in.Velocity, in.Sounding, in.Layout)
+		fmt.Fprintf(w, "  input %4d/s  MIDI %4d/s\n", in.InputRate, in.MIDIRate)
 		if in.Chord != "" {
 			fmt.Fprintf(w, "  chord %s\n", in.Chord)
 		}

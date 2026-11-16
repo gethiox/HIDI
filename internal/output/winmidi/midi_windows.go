@@ -3,10 +3,13 @@ package winmidi
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -143,6 +146,13 @@ func within(d time.Duration, fn func()) bool {
 // each waiting its turn to find out the same.
 var serviceStuck atomic.Bool
 
+// note reports something that is not a stage.
+func (t *tracer) note(what string) {
+	if t.w != nil {
+		fmt.Fprintf(t.w, "  %s\n", what)
+	}
+}
+
 func (t *tracer) step(what string, do func() error) error {
 	if t.stuck.Load() || serviceStuck.Load() {
 		return errStuck
@@ -245,6 +255,9 @@ type Endpoint struct {
 	connectionID windows.GUID
 	words        []uint32
 	trace        *tracer
+	// used is when the device was last asked for something: its creation
+	// or a send, in nanoseconds since 1970.
+	used atomic.Int64
 }
 
 // ErrClosed is returned by [Endpoint.Send] after the endpoint was closed.
@@ -275,10 +288,21 @@ const (
 	RemoveByDisconnect Removal = "disconnect"
 	// RemoveByRelease only lets go of the objects.
 	RemoveByRelease Removal = "release"
+	// RemoveNot does nothing at all: the devices stay until the program
+	// ends, and Windows is left to clear up after it.
+	RemoveNot Removal = "none"
 )
 
 // HowToRemove is the way devices are given up.
 var HowToRemove = RemoveBySession
+
+// Settle is how long a device is left alone before it is removed. On the
+// machine this was first tried on, removing a device never returned, and
+// left the MIDI service answering nobody, when it came right after
+// something else was asked of the device: 22 ms after it was created, or
+// straight after a message was sent. Devices that had been idle for
+// seconds were removed in a millisecond each.
+var Settle = 500 * time.Millisecond
 
 func open(name string, t *tracer) (_ *Endpoint, err error) {
 	service.Lock()
@@ -498,21 +522,39 @@ func open(name string, t *tracer) (_ *Endpoint, err error) {
 	if err != nil {
 		return nil, err
 	}
+	e.used.Store(time.Now().UnixNano())
 	return e, nil
 }
 
 // instanceID makes the identifier a device declares from its name. It
 // keeps to letters, digits and dashes, as the identifiers in Microsoft's
 // samples do.
+//
+// The name of every device of HIDI begins with "HIDI", which the
+// identifier does not repeat, and whatever is not a letter or a digit
+// becomes one dash however long it is: "HIDI Pad (USB) 2" gives
+// "HIDI-Pad-USB-2". A name with letters of another alphabet would lose
+// them, and two such names could end up the same; a number made from the
+// whole name keeps them apart.
 func instanceID(name string) string {
-	id := []byte("HIDI-")
-	for _, r := range name {
+	id := []byte("HIDI")
+	dash, foreign := true, false
+	for _, r := range strings.TrimPrefix(name, "HIDI") {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			id = append(id, byte(r))
+			if dash {
+				id = append(id, '-')
+			}
+			id, dash = append(id, byte(r)), false
 		default:
-			id = append(id, '-')
+			dash = true
+			foreign = foreign || r > unicode.MaxASCII
 		}
+	}
+	if foreign {
+		h := fnv.New32a()
+		h.Write([]byte(name))
+		id = fmt.Appendf(id, "-%08x", h.Sum32())
 	}
 	return string(id)
 }
@@ -624,6 +666,7 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 		e.words = nil // the call that did not return still reads the old ones
 		return fmt.Errorf("sending to Windows MIDI Services: %w", errStuck)
 	}
+	e.used.Store(time.Now().UnixNano())
 	if hr.failed() {
 		return fmt.Errorf("sending to Windows MIDI Services: %w", hr)
 	}
@@ -634,20 +677,51 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 // Windows does not finish within a few seconds, Close returns an error and
 // leaves the rest to the end of the program.
 func (e *Endpoint) Close() error {
-	service.Lock()
-	defer service.Unlock()
-	return e.closeLocked()
-}
-
-// closeLocked is Close for a caller that holds service.
-func (e *Endpoint) closeLocked() error {
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
+	if !e.markClosed() {
 		return nil
 	}
+	// Nothing is sent any more. The device is left alone for a moment
+	// before it is removed; see [Settle]. Devices that are closed
+	// together wait together, since nothing is locked yet.
+	if used := e.used.Load(); used != 0 && HowToRemove != RemoveNot {
+		if wait := Settle - time.Since(time.Unix(0, used)); wait > 0 {
+			e.trace.note(fmt.Sprintf("leaving the device alone for %d ms", wait.Milliseconds()))
+			time.Sleep(wait)
+		}
+	}
+	service.Lock()
+	defer service.Unlock()
+	return e.remove()
+}
+
+// markClosed makes the endpoint refuse further sends and reports whether
+// it was open until now.
+func (e *Endpoint) markClosed() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return false
+	}
 	e.closed = true
-	e.mu.Unlock()
+	return true
+}
+
+// closeLocked is Close for a caller that holds service, and without the
+// wait: it is for a device whose creation failed halfway.
+func (e *Endpoint) closeLocked() error {
+	if !e.markClosed() {
+		return nil
+	}
+	return e.remove()
+}
+
+// remove gives up a device that was marked closed. The caller holds
+// service.
+func (e *Endpoint) remove() error {
+	if HowToRemove == RemoveNot {
+		e.trace.note("not removing the device; it goes away when the program ends")
+		return nil
+	}
 
 	if e.trace.stuck.Load() || serviceStuck.Load() {
 		// An earlier call never returned; another one would not either.
