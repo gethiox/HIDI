@@ -367,7 +367,12 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		{"velocity", fmt.Sprintf("%3d", in.Velocity)},
 		{"notes", fmt.Sprintf("%2d", in.Sounding)},
 		{"layout", in.Layout},
+		{"chord", in.Chord},
+		{"", map[bool]string{true: "learning"}[in.Learning]},
 	} {
+		if field.value == "" {
+			continue // no chord remembered, not learning
+		}
 		text(w.sans, field.label, x, y, sizeText, col(colFaint))
 		x += width(w.sans, field.label, sizeText) + 6
 		text(w.mono, field.value, x, y+1, sizeMono, col(colText))

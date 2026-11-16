@@ -20,6 +20,7 @@ KEY_F3 = "transpose_down"
 KEY_F4 = "transpose_up"
 KEY_F5 = "channel_down"
 KEY_F6 = "channel_up"
+KEY_F9 = "chord"
 KEY_F11 = "layout_previous"
 KEY_F12 = "layout_next"
 

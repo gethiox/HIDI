@@ -593,3 +593,98 @@ func TestStateNotes(t *testing.T) {
 	r.reset("NoteOff ch=1 note=G8 velocity=0")
 	notes()
 }
+
+func TestChord(t *testing.T) {
+	r := newRig(t, baseProfile(
+		key(keyA, Note{Note: 60}),
+		key(keyB, Note{Note: 64}),
+		key(keyC, Note{Note: 67}),
+		key(keyUp, CommandChord),
+		key(keyDown, Note{Note: 125}),
+	))
+	chord := func(want string) {
+		t.Helper()
+		if got := r.e.State().Chord; got != want {
+			t.Errorf("Chord = %q, want %q", got, want)
+		}
+	}
+
+	// A major chord is held and remembered.
+	r.press(keyB, "NoteOn ch=1 note=E3 velocity=100")
+	r.press(keyC, "NoteOn ch=1 note=G3 velocity=100")
+	r.press(keyA, "NoteOn ch=1 note=C3 velocity=100")
+	r.press(keyUp, "")
+	r.release(keyUp, "")
+	chord("+4 +7")
+	r.release(keyA, "NoteOff ch=1 note=C3 velocity=0")
+	r.release(keyB, "NoteOff ch=1 note=E3 velocity=0")
+	r.release(keyC, "NoteOff ch=1 note=G3 velocity=0")
+
+	// Every note now sounds with it, and its release ends all of it.
+	r.press(keyB, "NoteOn ch=1 note=E3 velocity=100; NoteOn ch=1 note=G#3 velocity=100; NoteOn ch=1 note=B3 velocity=100")
+	if got := r.e.State().NoteNumbers(); !slices.Equal(got, []int{64, 68, 71}) {
+		t.Errorf("notes = %v", got)
+	}
+	r.release(keyB, "NoteOff ch=1 note=E3 velocity=0; NoteOff ch=1 note=G#3 velocity=0; NoteOff ch=1 note=B3 velocity=0")
+
+	// Notes of the chord above the highest MIDI note are left out.
+	r.press(keyDown, "NoteOn ch=1 note=F8 velocity=100")
+	r.release(keyDown, "NoteOff ch=1 note=F8 velocity=0")
+
+	// Remembering anew counts the keys that are held, not the notes the
+	// old chord adds to them.
+	r.press(keyA, "NoteOn ch=1 note=C3 velocity=100; NoteOn ch=1 note=E3 velocity=100; NoteOn ch=1 note=G3 velocity=100")
+	r.press(keyUp, "")
+	r.release(keyUp, "")
+	chord("") // one key held: forgotten
+	r.release(keyA, "NoteOff ch=1 note=C3 velocity=0; NoteOff ch=1 note=E3 velocity=0; NoteOff ch=1 note=G3 velocity=0")
+	r.press(keyA, "NoteOn ch=1 note=C3 velocity=100")
+	r.release(keyA, "NoteOff ch=1 note=C3 velocity=0")
+
+	// The chord survives a panic and turning HIDI off and on.
+	r.press(keyA, "NoteOn ch=1 note=C3 velocity=100")
+	r.press(keyC, "NoteOn ch=1 note=G3 velocity=100")
+	r.press(keyUp, "")
+	chord("+7")
+	r.reset("NoteOff ch=1 note=G3 velocity=0; NoteOff ch=1 note=C3 velocity=0")
+	chord("+7")
+}
+
+// While the learn command is held, an axis gets through only when it is
+// moved more than halfway; a key that drives a controller always does.
+func TestLearn(t *testing.T) {
+	r := newRig(t, baseProfile(
+		key(keyUp, CommandLearn),
+		key(keyA, ControlChange{Controller: 64}),
+		Binding{Source: Source{Code: trigger}, Action: ControlChange{Controller: 7}},
+		Binding{Source: Source{Code: stickX, Centered: true}, Action: ControlChange{Controller: 10}},
+	))
+	r.set(trigger, 0.25, "ControlChange ch=1 controller=7 value=32")
+	r.press(keyUp, "")
+	if !r.e.State().Learning {
+		t.Error("Learning is not set while the command is held")
+	}
+	r.set(trigger, 0.3, "") // merely touched
+	r.set(stickX, 0.55, "") // does not rest quite still
+	r.set(stickX, 0.7, "")  // less than halfway out
+	r.set(trigger, 0.75, "ControlChange ch=1 controller=7 value=95")
+	r.set(stickX, 0.1, "ControlChange ch=1 controller=10 value=12")
+	r.press(keyA, "ControlChange ch=1 controller=64 value=127")
+	r.release(keyA, "ControlChange ch=1 controller=64 value=0")
+	r.release(keyUp, "")
+	if r.e.State().Learning {
+		t.Error("Learning stayed set")
+	}
+	r.set(trigger, 0.3, "ControlChange ch=1 controller=7 value=38")
+}
+
+func TestNewCommandNames(t *testing.T) {
+	for name, want := range map[string]Command{"chord": CommandChord, "learn": CommandLearn} {
+		if got, err := ParseCommand(name); err != nil || got != want {
+			t.Errorf("ParseCommand(%q) = %v, %v", name, got, err)
+		}
+	}
+	if CommandChord.opposite() != 0 || CommandLearn.opposite() != 0 {
+		t.Error("the new commands are taken for halves of a pair")
+	}
+}

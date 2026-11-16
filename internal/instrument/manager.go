@@ -579,6 +579,7 @@ func (r *runner) publish(eng *engine.Engine, last *engine.State) {
 	}
 	changed := now.Octave != last.Octave || now.Transpose != last.Transpose ||
 		now.Channel != last.Channel || now.Velocity != last.Velocity || now.Layout != last.Layout
+	chord := now.Chord != last.Chord
 	*last = now
 	r.mu.Lock()
 	r.status.State = now
@@ -588,6 +589,12 @@ func (r *runner) publish(eng *engine.Engine, last *engine.State) {
 		r.log.Info("instrument changed",
 			"octave", now.Octave, "transpose", now.Transpose,
 			"channel", now.Channel+1, "velocity", now.Velocity, "layout", now.Layout)
+	}
+	switch {
+	case chord && now.Chord == "":
+		r.log.Info("chord forgotten")
+	case chord:
+		r.log.Info("chord remembered", "intervals", now.Chord)
 	}
 }
 

@@ -59,6 +59,8 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Channel:   int(st.State.Channel) + 1,
 			Velocity:  int(st.State.Velocity),
 			Layout:    st.State.Layout,
+			Chord:     st.State.Chord,
+			Learning:  st.State.Learning,
 			Sounding:  st.State.Sounding,
 			Notes:     st.State.NoteNumbers(),
 		})
@@ -90,6 +92,12 @@ func describe(w io.Writer, s ipc.Snapshot) {
 		// redraws.
 		fmt.Fprintf(w, "  octave %+3d  transpose %+4d  channel %2d  velocity %3d  notes %2d  layout %s\n",
 			in.Octave, in.Transpose, in.Channel, in.Velocity, in.Sounding, in.Layout)
+		if in.Chord != "" {
+			fmt.Fprintf(w, "  chord %s\n", in.Chord)
+		}
+		if in.Learning {
+			fmt.Fprintln(w, "  learning: axes get through only when moved far")
+		}
 	}
 }
 
