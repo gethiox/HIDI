@@ -136,7 +136,18 @@ While an instrument is active its device does not type or click.
 - Linux: the device is grabbed exclusively through evdev.
 - Windows: there is no per-device grab. While HIDI is active, all keyboard
   input is suppressed with a low-level hook and read per device through
-  Raw Input. Game controllers are read without suppression.
+  Raw Input. Game controllers are read through Raw Input as well, which
+  hands over their HID reports; `hid.dll` takes the buttons and axes out of
+  a report. Windows has no way to keep a controller from other programs, so
+  `-grab-gamepads` has no effect there.
+
+A controller names its controls in the terms of the HID standard. They are
+translated to the codes the Linux kernel gives the same controller, so that
+one profile fits both systems: by the kernel's generic rules for most, and
+by a table for Xbox and PlayStation controllers, which have drivers of
+their own on Linux. Through HID, Windows reports both triggers of an Xbox
+controller as one value; HIDI splits it into two axes, which cannot tell
+both triggers pressed at once from neither.
 
 A global key combination, handled inside HIDI's own input path, toggles this
 state so that a user with a single keyboard can always get it back. HIDI

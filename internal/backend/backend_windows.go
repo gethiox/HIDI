@@ -11,8 +11,8 @@ import (
 	"github.com/gethiox/HIDI/internal/output/winmidi"
 )
 
-// Devices starts watching for input devices. On Windows these are the
-// keyboards so far; game controllers are not read yet.
+// Devices starts watching for input devices: keyboards and game
+// controllers.
 func Devices(problem func(what string, err error)) (*Source, error) {
 	w, err := rawinput.Watch()
 	if err != nil {
