@@ -688,3 +688,36 @@ func TestNewCommandNames(t *testing.T) {
 		t.Error("the new commands are taken for halves of a pair")
 	}
 }
+
+func TestKeys(t *testing.T) {
+	p := Profile{
+		Layouts: []Layout{
+			{Name: "notes", Bindings: []Binding{
+				key(keyB, Note{Note: 62}),
+				key(keyA, Note{Note: 60}),
+				key(keyA, Note{Note: 72}, keyC), // with a modifier: not what a lone press does
+				{Source: Source{Code: stickX, Range: RangeUpper}, Action: Note{Note: 1}},
+			}},
+			{Name: "other", Bindings: []Binding{key(keyA, CommandPanic)}},
+		},
+		Global:   []Binding{key(keyUp, CommandLayoutNext), key(keyA, CommandOctaveUp)},
+		Defaults: Defaults{Velocity: 100, Layout: "notes"},
+	}
+	r := newRig(t, p)
+	keys, layout, layouts := r.e.Keys()
+	if layout != 0 || layouts != 2 {
+		t.Errorf("layout %d of %d", layout, layouts)
+	}
+	// Ordered by code; the layout's binding of a key comes before the
+	// global one.
+	want := []KeyRole{{keyA, Note{Note: 60}}, {keyB, Note{Note: 62}}, {keyUp, CommandLayoutNext}}
+	if !slices.Equal(keys, want) {
+		t.Errorf("keys = %+v, want %+v", keys, want)
+	}
+	r.press(keyUp, "")
+	keys, layout, _ = r.e.Keys()
+	want = []KeyRole{{keyA, CommandPanic}, {keyUp, CommandLayoutNext}}
+	if layout != 1 || !slices.Equal(keys, want) {
+		t.Errorf("after the switch: layout %d, keys %+v", layout, keys)
+	}
+}
