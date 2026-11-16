@@ -151,6 +151,17 @@ const (
 	// CommandPanic silences the instrument: it releases every held note and
 	// asks receivers to stop all sound on the channels the instrument used.
 	CommandPanic
+	// CommandChord remembers a chord. Pressed while two or more notes are
+	// held, it takes their intervals above the lowest one; from then on
+	// every note played sounds with those intervals above it. Pressed
+	// while fewer notes are held, it forgets the chord.
+	CommandChord
+	// CommandLearn, while held, lets an axis through only when it is moved
+	// more than halfway. That is for teaching a program which controller
+	// to listen to: the program takes the first one it hears, and an axis
+	// that is merely touched, or does not rest quite still, must not be
+	// that one.
+	CommandLearn
 
 	commandCount
 )
@@ -161,7 +172,7 @@ var commandNames = [commandCount]string{
 	CommandChannelUp: "channel_up", CommandChannelDown: "channel_down",
 	CommandLayoutNext: "layout_next", CommandLayoutPrevious: "layout_previous",
 	CommandVelocityUp: "velocity_up", CommandVelocityDown: "velocity_down",
-	CommandPanic: "panic",
+	CommandPanic: "panic", CommandChord: "chord", CommandLearn: "learn",
 }
 
 // String returns the name used for the command in configuration files, such

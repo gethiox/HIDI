@@ -217,9 +217,26 @@ its travel.
 | `layout_next`, `layout_previous` | Switch layout. |
 | `velocity_up`, `velocity_down` | Change the note velocity. |
 | `panic` | Silence everything on every channel the instrument has played on. |
+| `chord` | Remember a chord, or forget it. See below. |
+| `learn` | While held, let an axis through only when it is moved far. See below. |
 
 Holding both commands of an up/down pair at once resets that value to its
 default.
+
+**`chord`** turns one key into a chord. Hold two or more notes and press the
+command: HIDI remembers how far the notes are above the lowest of them, and
+from then on every note you play sounds together with notes that far above
+it. Hold C, E and G, press the command, and every key plays a major chord.
+Press the command with fewer than two notes held to forget the chord. The
+chord stays through `panic` and through turning HIDI off and on; it is
+forgotten when the profile is loaded again.
+
+**`learn`** is for teaching a program which controller to listen to ("MIDI
+learn"). Such a program takes the first controller it hears, and a game
+controller has many axes that are touched by accident or do not rest quite
+still. While the command is held, an axis is passed on only when it is moved
+more than halfway, so the program hears just the one you mean. Keys that
+send a controller are not held back.
 
 ## What happens while you play
 

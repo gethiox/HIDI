@@ -102,6 +102,9 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
 - MIDI input on Linux (`alsaseq.Input`), which the test uses as its
   receiver and which lighting the played keys will build on.
 - `hidi run` and `hidi devices`.
+- Chord memory (the `chord` command; the 1.x "multinote", which computed
+  its intervals but never applied them) and the `learn` command, which
+  holds back axes that are not moved far (the 1.x "cc_learning").
 - The window (`hidi gui`): the instruments with their state, a keyboard
   that shows the notes being played, the on/off switch, and the log in a
   bar at the bottom that can be pulled up, with a level filter.
@@ -148,8 +151,6 @@ In planned order. Each item is roughly one pull request.
 
 ### Features
 
-7. **Chord memory** (the 1.x "multinote" action, which computed its
-    intervals but never applied them) and **CC learning**.
 8. **MIDI input and OpenRGB**: lighting the keys that are played here or
     by another MIDI source.
 9. **Velocity from how a control is pressed**, for controls that report
@@ -202,6 +203,9 @@ rest on assumptions about real devices and should be checked first:
   right-hand modifiers, and does not collide with a desktop shortcut.
 
 ## Open questions
+
+- The built-in game controller profiles bind neither `chord` nor `learn`;
+  1.x had learning on the left shoulder button, which is a note now.
 
 - The icon is a program the user has to start. Whether HIDI should put it
   among the programs started at login, and whether `hidi run` should start

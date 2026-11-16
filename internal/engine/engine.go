@@ -2,6 +2,9 @@ package engine
 
 import (
 	"fmt"
+	"math"
+	"slices"
+	"strings"
 
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/midi"
@@ -78,6 +81,11 @@ type State struct {
 	Layout string
 	// Sounding is the number of notes currently on.
 	Sounding int
+	// Chord is the remembered chord as its intervals in semitones above
+	// the note played, such as "+4 +7", or empty when there is none.
+	Chord string
+	// Learning reports that axes are let through only when moved far.
+	Learning bool
 	// Notes has a bit set for every note number that is on, on whatever
 	// channel: bit n%64 of element n/64 for note n.
 	Notes [2]uint64
@@ -124,6 +132,10 @@ type Engine struct {
 	// pitches counts, for each note number, the channels it is on.
 	pitches  [128]uint8
 	noteBits [2]uint64
+	// chord holds the intervals of the remembered chord, lowest first, and
+	// chordText the same for display.
+	chord     []int
+	chordText string
 	// usedChannels has a bit set for every channel a note was sent on.
 	usedChannels uint16
 }
@@ -180,6 +192,8 @@ func (e *Engine) State() State {
 		Layout:    e.profile.Layouts[e.layout].Name,
 		Sounding:  e.soundingNotes,
 		Notes:     e.noteBits,
+		Chord:     e.chordText,
+		Learning:  e.held[CommandLearn] > 0,
 	}
 }
 
@@ -350,14 +364,26 @@ func (e *Engine) noteOn(st *sourceState, a Note, out []midi.Message) []midi.Mess
 	if n < 0 || n > int(midi.MaxNote) {
 		return out // the press stays latched, so its release is a no-op
 	}
-	ref := noteRef{e.channelFor(a.ChannelOffset), midi.Note(n)}
-	count := &e.sounding[ref.channel][ref.note]
-	if *count == 255 {
-		return out
-	}
+	channel := e.channelFor(a.ChannelOffset)
 	velocity := e.velocity
 	if a.Velocity != 0 {
 		velocity = a.Velocity
+	}
+	// The note played comes first in st.notes; rememberChord relies on it.
+	out = e.sound(st, noteRef{channel, midi.Note(n)}, velocity, out)
+	for _, interval := range e.chord {
+		if m := n + interval; m <= int(midi.MaxNote) {
+			out = e.sound(st, noteRef{channel, midi.Note(m)}, velocity, out)
+		}
+	}
+	return out
+}
+
+// sound turns a note on for a source, which remembers it for its release.
+func (e *Engine) sound(st *sourceState, ref noteRef, velocity uint8, out []midi.Message) []midi.Message {
+	count := &e.sounding[ref.channel][ref.note]
+	if *count == 255 {
+		return out
 	}
 
 	on := midi.NoteOn(ref.channel, ref.note, midi.From7(velocity))
@@ -401,6 +427,11 @@ func (e *Engine) noteOff(ref noteRef, out []midi.Message) []midi.Message {
 // drive sends the position x of a source to the target of its
 // position-following action.
 func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Message) []midi.Message {
+	// A key that drives a controller is deliberate and always gets
+	// through; so does its release.
+	if e.held[CommandLearn] > 0 && b.Source.Code.Kind == control.KindAxis && math.Abs(x) <= learnThreshold {
+		return out
+	}
 	var t target
 	var value, rest uint32
 	switch a := b.Action.(type) {
@@ -505,8 +536,42 @@ func (e *Engine) commandPress(c Command, out []midi.Message) []midi.Message {
 		e.velocity = max(e.velocity, velocityStep+1) - velocityStep
 	case CommandPanic:
 		out = e.panic(out)
+	case CommandChord:
+		e.rememberChord()
 	}
 	return out
+}
+
+// learnThreshold is how far an axis has to be moved to get through while
+// CommandLearn is held: more than halfway from rest.
+const learnThreshold = 0.5
+
+// rememberChord takes the chord from the notes that are held: the
+// intervals of the notes played above the lowest of them. Notes that sound
+// because of the chord remembered before do not count. With fewer than two
+// notes held, the chord is forgotten.
+func (e *Engine) rememberChord() {
+	var played []int
+	for _, st := range e.stateOrder {
+		if !st.pressed || len(st.notes) == 0 {
+			continue
+		}
+		if _, isNote := st.latched.Action.(Note); isNote {
+			played = append(played, int(st.notes[0].note))
+		}
+	}
+	slices.Sort(played)
+	played = slices.Compact(played)
+	e.chord, e.chordText = nil, ""
+	if len(played) < 2 {
+		return
+	}
+	var text []string
+	for _, n := range played[1:] {
+		e.chord = append(e.chord, n-played[0])
+		text = append(text, fmt.Sprintf("+%d", n-played[0]))
+	}
+	e.chordText = strings.Join(text, " ")
 }
 
 // resetPair restores the default of the value an Up/Down pair controls.

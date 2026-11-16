@@ -183,7 +183,8 @@ exist yet: HIDI connects when it appears, and again after it was unplugged.
 
 The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,
-and switches layout with F11 and F12. Escape silences everything.
+and switches layout with F11 and F12. F9 remembers the chord that is held, so
+that every key plays it. Escape silences everything.
 
 ## Trying it on Windows
 

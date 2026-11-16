@@ -35,6 +35,12 @@ type Instrument struct {
 	Channel  int    `json:"channel"`
 	Velocity int    `json:"velocity"`
 	Layout   string `json:"layout"`
+	// Chord is the remembered chord as its intervals above the note
+	// played, such as "+4 +7"; empty when there is none.
+	Chord string `json:"chord,omitempty"`
+	// Learning says that the learn command is held: axes get through
+	// only when moved far.
+	Learning bool `json:"learning,omitempty"`
 	// Sounding is the number of notes that are on.
 	Sounding int `json:"sounding"`
 	// Notes are the numbers of the notes that are on, lowest first; note
