@@ -121,8 +121,9 @@ func (d *Device) Err() error {
 	return d.err
 }
 
-// Grab takes every node of the device away from the rest of the system. If
-// one node cannot be grabbed, none stays grabbed.
+// Grab takes every node of the device away from the rest of the system. As
+// described at [Node.Grab], the grab of a node takes effect once none of its
+// keys is down. If one node cannot be grabbed, none stays grabbed.
 func (d *Device) Grab() error {
 	for i, n := range d.nodes {
 		if err := n.Grab(); err != nil {

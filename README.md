@@ -21,7 +21,8 @@ instrument, and use game controllers for notes, pitch bend and control changes.
 - A new configuration format. Configuration files from HIDI 1.x are not
   compatible.
 
-The planned structure is described in [docs/architecture.md](docs/architecture.md).
+The structure is described in [docs/architecture.md](docs/architecture.md), and what is
+done and what remains in [docs/roadmap.md](docs/roadmap.md).
 The profile file format is described in [docs/configuration.md](docs/configuration.md).
 
 ## Building
@@ -64,12 +65,26 @@ Run the instruments:
 
 Every keyboard and game controller becomes a MIDI device named `HIDI`
 followed by the device's name. It shows up in your DAW or synthesizer, and
-in the output of `aconnect -l`. Unplugging the device removes it. Press
-Ctrl+C to stop.
+in the output of `aconnect -l`. Unplugging the device removes it.
 
-HIDI does not take devices away from the system yet, so a keyboard keeps
-typing while you play it. Run it from a terminal you do not mind typing
-into.
+While HIDI is on, keyboards are taken away from the rest of the system, so
+that playing does not type. That includes the keyboard you started HIDI
+with. To get it back, turn HIDI off with the toggle combination:
+
+**Left Ctrl + Left Shift + Left Alt**, pressed together.
+
+Pressing it again turns HIDI back on. While HIDI is off the instruments are
+silent, and the MIDI devices stay in place. To stop HIDI, turn it off and
+press Ctrl+C. Game controllers are not taken away, so they keep working in
+other programs.
+
+| Option | Effect |
+|---|---|
+| `-toggle KEYS` | Use another combination, such as `-toggle KEY_SCROLLLOCK` or `-toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. |
+| `-no-grab` | Leave keyboards usable by the system; they type while you play. |
+| `-grab-gamepads` | Also take game controllers away from other programs. |
+| `-off` | Start turned off. |
+| `-v` | Also log every MIDI message and every ignored device. |
 
 The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,
