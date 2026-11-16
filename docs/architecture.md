@@ -51,7 +51,7 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 | `control` | exists | Platform-neutral input model: device identity, control codes, events. |
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
 | `config` | exists | Configuration schema, versioning, migration, validation. |
-| `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. |
+| `input` | partial | Input device interface, with one subpackage per platform. The Linux backend (`evdev`) exists. The Windows backend (`rawinput`) reads keyboards and awaits its first run on a real machine. |
 | `output` | partial | MIDI output backend interface and the router that connects endpoints to existing ports, with one subpackage per transport. The ALSA sequencer backend exists; the Windows MIDI Services backend is written and awaits its first run on a real machine. |
 | `instrument` | exists | Device lifecycle: matches devices to profiles, starts and stops instruments, turns them on and off, and grabs their devices. |
 | `backend` | exists | Selects the input and output implementations for the platform. |
@@ -145,6 +145,14 @@ refuses to grab keyboards when no combination is set.
 A grab takes effect only once no key of the device is down. A program that
 saw a key go down and then loses the device never sees it come up and treats
 it as held, which would otherwise happen to the Enter key that starts HIDI.
+On Windows the hook reaches the same end differently: it lets the release of
+a key through if other programs saw its press, and swallows a key to its
+release if they did not.
+
+On Windows a hidden window on a thread of its own receives the raw input and
+runs the hook. That thread never waits for the rest of HIDI, because Windows
+removes a hook whose thread is slow to answer; events leave it through a
+queue that grows as needed.
 
 ### Configuration
 

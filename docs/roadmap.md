@@ -44,6 +44,31 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
+## Current focus
+
+Windows MIDI output, tried on the maintainer's machine with `hidi doctor`
+(Windows 11 build 26300, `Windows.Devices.Midi2.dll` from Microsoft's
+Preview 11 NuGet package beside `hidi.exe`). What the next runs have to
+answer, in this order:
+
+1. Does another program (a DAW, a MIDI monitor) list "HIDI test device"
+   and receive the notes while `hidi doctor` plays?
+2. Which stage under "Removing the MIDI device:" does not return? The
+   first run hung there, before any time limit existed. The order used is
+   the one in Microsoft's sample: disconnect the connection, release it
+   and the device, close the session.
+3. After a HIDI that was killed, can the next one create its device, or
+   does the service keep the old one? If it does, the declared identifier
+   has to differ between runs, at the cost of a DAW no longer recognising
+   the device.
+
+The MIDI service on that machine got stuck after the first hang: creating
+a device no longer answered, and the service could not be stopped. A
+restart of Windows was the remedy.
+
+Not started on Windows: trying keyboard input (`hidi run -v -no-grab`,
+then `hidi run -v`), and game controllers.
+
 ## Done
 
 - Module layout, CI for Linux and Windows, and the architecture document.
@@ -89,8 +114,10 @@ In planned order. Each item is roughly one pull request.
    version. Still open: that another program sees the device and receives
    the notes, and removing the device, which did not return on the first
    run and is now traced and limited in time.
-2. **Input**: Raw Input for keyboards and game controllers, and the
-   low-level hook that suppresses keyboard input while HIDI is on.
+2. **Input**: Raw Input for keyboards and the low-level hook that
+   suppresses keyboard input while HIDI is on are written
+   (`internal/input/rawinput`) and have to be tried on a real machine.
+   Game controllers are still to do.
 3. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
@@ -175,6 +202,9 @@ rest on assumptions about real devices and should be checked first:
   the MIDI service refused to create the device, without a reason; made
   of letters, digits and dashes it worked. That the spaces were the
   cause is likely but was not isolated.
+- Two input devices of the same model get MIDI devices of the same name.
+  They need to be told apart, in the name and, on Windows, in the
+  identifier the device declares.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
 - The monitor shows how many notes sound, not which. Showing the notes

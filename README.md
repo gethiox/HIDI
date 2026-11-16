@@ -136,9 +136,11 @@ and switches layout with F11 and F12. Escape silences everything.
 
 ## Trying it on Windows
 
-Only MIDI output exists on Windows so far. It has created a device and sent
-to it on one machine; expect rough edges. `hidi doctor` is the way to find out
-whether it works on yours:
+The Windows side is new, so expect it to need corrections. MIDI output has
+created a device and sent to it on one machine. Reading keyboards has not run
+on a real machine yet; game controllers are not read at all.
+
+Start with `hidi doctor`, which checks MIDI output on its own:
 
 ```
 hidi.exe doctor
@@ -161,6 +163,12 @@ in the same folder as `hidi.exe`, unless `hidi doctor` reports that it found
 the API in Windows. A program started with `go run` lives in a temporary
 folder, so either build it first (`go build -o hidi.exe ./cmd/hidi`) or set
 the environment variable `HIDI_MIDI_DLL` to the full path of the DLL.
+
+Once `hidi doctor` passes, `hidi.exe run -v` turns every keyboard into an
+instrument, as on Linux. Windows cannot keep one keyboard from typing and let
+another type: while HIDI is on, no keyboard types. The toggle combination,
+Left Ctrl + Left Shift + Left Alt, turns HIDI off and gives them back. To try
+it without that, run `hidi.exe run -v -no-grab`; the keys then also type.
 
 ## Development
 
