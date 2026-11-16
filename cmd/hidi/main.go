@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/logging"
+	"github.com/gethiox/HIDI/internal/output"
 )
 
 const usage = `HIDI turns keyboards and game controllers into MIDI instruments.
@@ -31,6 +33,7 @@ Usage:
 Commands:
   run       run the instruments until interrupted
   devices   list the connected input devices and the profile each would use
+  ports     list the MIDI ports an instrument can be connected to
   profiles  list the profiles, check them, or write the built-in ones out
   version   print version information
   help      show this help
@@ -55,6 +58,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdRun(ctx, args[1:], stderr)
 	case "devices":
 		return cmdDevices(args[1:], stdout, stderr)
+	case "ports":
+		return cmdPorts(args[1:], stdout, stderr)
 	case "profiles":
 		return cmdProfiles(args[1:], stdout, stderr)
 	case "version", "-version", "--version":
@@ -94,6 +99,8 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
 	noColour := fs.Bool("no-color", false, "write the log without colours")
 	profilesDir := profilesFlag(fs)
+	var connect listFlag
+	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
 	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
@@ -170,9 +177,24 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	if !*noGrab {
 		log.Info("keyboards do not type while HIDI is on; turn it off to get them back")
 	}
+	openEndpoint := backend.OpenEndpoint
+	if len(connect) > 0 {
+		// A port that is not there yet is connected when it appears, so a
+		// MIDI interface can be plugged in later.
+		router := output.NewRouter(backend.Ports, output.MatchPorts(connect), logs.Logger("output"))
+		go router.Run(ctx, time.Second)
+		openEndpoint = func(name string) (output.Endpoint, error) {
+			e, err := backend.OpenEndpoint(name)
+			if err != nil {
+				return nil, err
+			}
+			return router.Add(strings.TrimPrefix(name, instrument.EndpointPrefix), e), nil
+		}
+		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(connect, ", "))
+	}
 	manager := instrument.NewManager(instrument.Options{
 		Profiles:      profiles,
-		OpenEndpoint:  backend.OpenEndpoint,
+		OpenEndpoint:  openEndpoint,
 		Logger:        logs.Logger("instrument"),
 		Grab:          grab,
 		Toggle:        toggle,
@@ -224,6 +246,39 @@ func formatToggle(keys []control.Code) string {
 		names[i] = k.String()
 	}
 	return strings.Join(names, "+")
+}
+
+// listFlag is an option that may be given several times.
+type listFlag []string
+
+func (l *listFlag) String() string { return strings.Join(*l, ", ") }
+
+func (l *listFlag) Set(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("must not be empty")
+	}
+	*l = append(*l, strings.TrimSpace(value))
+	return nil
+}
+
+// cmdPorts lists the MIDI ports that exist on the system and accept input.
+func cmdPorts(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("ports", flag.ContinueOnError)
+	if ok, code := parseFlags(fs, args, stderr); !ok {
+		return code
+	}
+	ports, err := backend.Ports()
+	if err != nil {
+		fmt.Fprintf(stderr, "hidi ports: %v\n", err)
+		return 1
+	}
+	for _, p := range ports {
+		fmt.Fprintf(stdout, "%-8s %s\n", p.ID, p.Name)
+	}
+	if len(ports) == 0 {
+		fmt.Fprintln(stderr, "hidi ports: no MIDI ports found")
+	}
+	return 0
 }
 
 // profilesFlag adds the option that names the directory of the user's

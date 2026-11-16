@@ -26,6 +26,11 @@ func Devices(problem func(what string, err error)) (*Source, error) {
 	return &Source{Devices: devices, close: w.Close}, nil
 }
 
+// Ports lists the existing MIDI ports an instrument can be connected to.
+func Ports() ([]output.Port, error) {
+	return alsaseq.Ports()
+}
+
 // OpenEndpoint creates a virtual MIDI device with the given name.
 func OpenEndpoint(name string) (output.Endpoint, error) {
 	return alsaseq.Open(name)

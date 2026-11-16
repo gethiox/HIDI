@@ -87,6 +87,7 @@ other programs.
 | `-v` | Also log every MIDI message and every ignored device. |
 | `-no-color` | Write the log without colours. |
 | `-profiles DIR` | Read your profiles from another directory. |
+| `-connect PORT` | Also send to an existing MIDI port; see below. |
 
 The log is coloured when it goes to a terminal, and plain when it goes to a
 file or a pipe. Besides `-no-color`, setting the `NO_COLOR` environment
@@ -96,6 +97,22 @@ piped.
 To change what a device plays, run `./hidi profiles -export` and edit the
 files it writes to `~/.config/hidi/profiles`. HIDI picks up changes while it
 runs. The [profile format](docs/configuration.md) is documented.
+
+### Sending to a hardware MIDI interface
+
+Every instrument is a MIDI device of its own that other programs connect to.
+HIDI can also send straight to a MIDI port that already exists, such as a
+USB MIDI interface with a synthesizer behind it, which is what a single-board
+computer without a screen needs:
+
+```
+./hidi ports                      # what is there
+./hidi run -connect "USB MIDI"    # send every instrument there as well
+```
+
+`-connect` takes a part of the port's name, or its ID from the first column
+of `hidi ports`, and may be given several times. The port does not have to
+exist yet: HIDI connects when it appears, and again after it was unplugged.
 
 The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,

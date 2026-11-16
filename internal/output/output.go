@@ -19,3 +19,24 @@ type Endpoint interface {
 	// error.
 	Close() error
 }
+
+// Port is a MIDI destination that already exists on the system: the input
+// of a hardware MIDI interface, a synthesizer, or another program.
+type Port struct {
+	// ID identifies the port for [Connector.Connect]. It is only valid for
+	// as long as the port exists; a device that is plugged in again may get
+	// another one.
+	ID string
+	// Name is what the port is called, including the device or program it
+	// belongs to.
+	Name string
+}
+
+// Connector is an endpoint that can also deliver what it sends to existing
+// ports.
+type Connector interface {
+	Endpoint
+	// Connect makes the endpoint deliver to the port as well. It reports
+	// whether the two were connected already, which is not an error.
+	Connect(portID string) (already bool, err error)
+}

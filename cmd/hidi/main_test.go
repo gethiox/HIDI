@@ -28,6 +28,8 @@ func TestRun(t *testing.T) {
 		{"profiles with an argument", []string{"profiles", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"built-in profiles only", []string{"profiles", "-profiles", ""}, 0, `"Default keyboard"`, ""},
 		{"export without a directory", []string{"profiles", "-profiles", "", "-export"}, 2, "", "-export needs a directory"},
+		{"ports with an argument", []string{"ports", "extra"}, 2, "", `unexpected argument "extra"`},
+		{"empty connect", []string{"run", "-connect", " "}, 2, "", "must not be empty"},
 		{"bad toggle key", []string{"run", "-toggle", "KEY_NOPE"}, 2, "", "unknown control"},
 		{"toggle with an axis", []string{"run", "-toggle", "ABS_X"}, 2, "", "not a key"},
 		{"grab without toggle", []string{"run", "-toggle", ""}, 2, "", "needs a toggle combination"},
@@ -112,5 +114,18 @@ func TestProfilesCommand(t *testing.T) {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr %q does not mention %q", stderr, want)
 		}
+	}
+}
+
+func TestListFlag(t *testing.T) {
+	var l listFlag
+	if err := l.Set(" USB MIDI "); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Set("128:0"); err != nil {
+		t.Fatal(err)
+	}
+	if len(l) != 2 || l[0] != "USB MIDI" || l.String() != "USB MIDI, 128:0" {
+		t.Errorf("listFlag = %q", l)
 	}
 }

@@ -5,6 +5,7 @@ package alsaseq
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -12,6 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/gethiox/HIDI/internal/midi"
+	"github.com/gethiox/HIDI/internal/output"
 )
 
 // requireSequencer skips the test on a machine without the ALSA sequencer.
@@ -39,19 +41,28 @@ type receiver struct {
 
 func newReceiver(t *testing.T, from addr) *receiver {
 	t.Helper()
-	c, err := openClient("HIDI test receiver", unix.O_RDWR)
+	r, port := newListener(t, "HIDI test receiver", "in")
+	if err := r.client.subscribe(from, port); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// newListener creates a client with a port that accepts MIDI, connected to
+// nothing: what a hardware MIDI output or a synthesizer looks like before
+// anything is routed to it.
+func newListener(t *testing.T, clientName, portName string) (*receiver, addr) {
+	t.Helper()
+	c, err := openClient(clientName, unix.O_RDWR)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.close() })
-	port, err := c.createPort("in", portCapWrite|portCapSubsWrite, portTypeMIDIGeneric|portTypeApplication)
+	port, err := c.createPort(portName, portCapWrite|portCapSubsWrite, portTypeMIDIGeneric|portTypeApplication)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.subscribe(from, port); err != nil {
-		t.Fatal(err)
-	}
-	return &receiver{t, c}
+	return &receiver{t, c}, port
 }
 
 // read returns the next n events, failing the test if they do not arrive.
@@ -205,5 +216,101 @@ func TestEndpointsAreIndependent(t *testing.T) {
 	}
 	if got := decodeEvent(rxB.read(1)[0]).note; got != 72 {
 		t.Errorf("listener of B received note %d, want 72", got)
+	}
+}
+
+func findPort(t *testing.T, name string) (output.Port, bool) {
+	t.Helper()
+	ports, err := Ports()
+	if err != nil {
+		t.Fatalf("Ports: %v", err)
+	}
+	for _, p := range ports {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return output.Port{}, false
+}
+
+// Ports must list what can be connected to, and nothing else.
+func TestPorts(t *testing.T) {
+	requireSequencer(t)
+
+	_, in := newListener(t, "HIDI test synth", "MIDI in")
+	ep, err := Open("HIDI test instrument")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ep.Close()
+
+	p, ok := findPort(t, "HIDI test synth: MIDI in")
+	if !ok {
+		t.Fatal("a port that accepts MIDI is not listed")
+	}
+	if p.ID != formatAddr(in) {
+		t.Errorf("the port has ID %q, want %q", p.ID, formatAddr(in))
+	}
+	ports, _ := Ports()
+	for _, p := range ports {
+		if strings.HasPrefix(p.ID, "0:") {
+			t.Errorf("a port of the sequencer itself is listed: %+v", p)
+		}
+		// An instrument's own port only sends.
+		if p.Name == "HIDI test instrument" {
+			t.Errorf("an endpoint is listed as a destination: %+v", p)
+		}
+	}
+}
+
+// An endpoint connected to an existing port delivers there, connecting twice
+// is harmless, and the port going away breaks nothing.
+func TestEndpointConnect(t *testing.T) {
+	requireSequencer(t)
+
+	rx, in := newListener(t, "HIDI test synth", "MIDI in")
+	ep, err := Open("HIDI test instrument")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ep.Close()
+
+	p, ok := findPort(t, "HIDI test synth: MIDI in")
+	if !ok {
+		t.Fatal("the port is not listed")
+	}
+	if already, err := ep.Connect(p.ID); err != nil || already {
+		t.Fatalf("Connect = %v, %v; want a new connection", already, err)
+	}
+	if already, err := ep.Connect(p.ID); err != nil || !already {
+		t.Fatalf("second Connect = %v, %v; want the existing connection reported", already, err)
+	}
+
+	if err := ep.Send([]midi.Message{midi.NoteOn(0, 60, midi.From7(100))}); err != nil {
+		t.Fatal(err)
+	}
+	events := rx.read(1)
+	if events[0].Type != eventNoteOn || events[0].Source != ep.port || events[0].Dest != in {
+		t.Errorf("received %+v", events[0])
+	}
+
+	if _, err := ep.Connect("not a port"); err == nil {
+		t.Error("a malformed port ID was accepted")
+	}
+	if _, err := ep.Connect("200:0"); err == nil {
+		t.Error("connecting to a port that does not exist succeeded")
+	}
+
+	rx.client.close()
+	if _, ok := findPort(t, "HIDI test synth: MIDI in"); ok {
+		t.Error("the port is still listed after its client went away")
+	}
+	if err := ep.Send([]midi.Message{midi.NoteOff(0, 60, 0)}); err != nil {
+		t.Errorf("Send after the connected port went away: %v", err)
+	}
+
+	ep.Close()
+	if _, err := ep.Connect(p.ID); !errors.Is(err, ErrClosed) {
+		t.Errorf("Connect on a closed endpoint = %v, want ErrClosed", err)
 	}
 }

@@ -57,6 +57,8 @@ completes or changes an item.
 - Profiles of the user: read from the configuration directory, applied to
   running instruments when a file changes, and `hidi profiles` to list,
   check and export them.
+- Connecting instruments to existing MIDI ports on Linux, with `hidi ports`
+  and `hidi run -connect`.
 - `hidi run` and `hidi devices`.
 - CI runs the tests that need kernel interfaces in a virtual machine.
 
@@ -66,54 +68,52 @@ In planned order. Each item is roughly one pull request.
 
 ### Linux
 
-1. **Sending to an existing MIDI port.** Listing ALSA ports and connecting
-   an instrument to one, for hardware MIDI interfaces and USB gadget mode.
-2. **Control interface.** A local protocol to a running HIDI, with
+1. **Control interface.** A local protocol to a running HIDI, with
    `hidi status`, `hidi on`, `hidi off` and a live `hidi monitor` view.
-3. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
+2. **Rate limiting of axis input**, which 1.x had at 120 updates a second,
    and the setting for what an axis does on a channel or layout change.
-4. **An end-to-end test** from a virtual input device to a received MIDI
+3. **An end-to-end test** from a virtual input device to a received MIDI
    message, in the CI virtual machine.
 
 ### Windows
 
-5. **MIDI output** through Windows MIDI Services. This starts with a small
+4. **MIDI output** through Windows MIDI Services. This starts with a small
    test program to prove that a virtual device can be created from Go.
-6. **Input**: Raw Input for keyboards and game controllers, and the
+5. **Input**: Raw Input for keyboards and game controllers, and the
    low-level hook that suppresses keyboard input while HIDI is on.
-7. **Platform glue**, and testing on a real machine.
+6. **Platform glue**, and testing on a real machine.
 
 ### Interfaces
 
-8. **Tray icon** with the on/off switch.
-9. **Graphical interface**: status of the instruments, a live view of what
+7. **Tray icon** with the on/off switch.
+8. **Graphical interface**: status of the instruments, a live view of what
     is played, and the log. Frame pacing as decided above. The log lives
     in a status bar at the bottom: it shows the last line, coloured but
     faint, and dragging it up reveals the whole log, with a choice of the
     least level to show.
-10. **Configuring in the graphical interface**: every setting and every
+9. **Configuring in the graphical interface**: every setting and every
     part of a profile, including learning a binding by pressing the
     control. This needs the configuration to be written back to its file
     without losing what the user wrote there by hand.
 
 ### Features
 
-11. **Chord memory** (the 1.x "multinote" action, which computed its
+10. **Chord memory** (the 1.x "multinote" action, which computed its
     intervals but never applied them) and **CC learning**.
-12. **MIDI input and OpenRGB**: lighting the keys that are played here or
+11. **MIDI input and OpenRGB**: lighting the keys that are played here or
     by another MIDI source.
-13. **Velocity from how a control is pressed**, for controls that report
+12. **Velocity from how a control is pressed**, for controls that report
     pressure or travel.
 
 ### Release
 
-14. Packaging, a udev rule so that HIDI needs neither root nor group
+13. Packaging, a udev rule so that HIDI needs neither root nor group
     changes, and updating the dependencies of the CI workflow.
-15. The release workflow: reproducible builds (`-trimpath`, a pinned
+14. The release workflow: reproducible builds (`-trimpath`, a pinned
     toolchain, no build time in the binary), checksums, build provenance
     attestation, and immutable releases.
-16. Rewriting the README and the user documentation.
-17. Merging `dev` into `main`.
+15. Rewriting the README and the user documentation.
+16. Merging `dev` into `main`.
 
 ### After 2.0
 
@@ -135,6 +135,8 @@ rest on assumptions about real devices and should be checked first:
 - That a mouse which also presents a keyboard is left alone.
 - Which axes of the Saitek X56 stick and throttle return to their centre;
   the built-in profiles guess.
+- That `hidi run -connect` reaches a real USB MIDI interface, and
+  reconnects after it was unplugged.
 - That the toggle combination suits a keyboard with one Ctrl and no
   right-hand modifiers, and does not collide with a desktop shortcut.
 
@@ -145,3 +147,5 @@ rest on assumptions about real devices and should be checked first:
   marked as centred always keeps its controller value.
 - Whether the settings of HIDI itself (the toggle combination, grabbing,
   the frame rate limit) live in one file next to the profiles.
+- `-connect` applies to every instrument. Choosing ports for each
+  instrument separately needs those settings, and belongs with them.

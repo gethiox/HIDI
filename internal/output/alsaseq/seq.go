@@ -22,6 +22,8 @@ const (
 	ioctlSetClientInfo = 0x40bc5311
 	ioctlCreatePort    = 0xc0a85320
 	ioctlSubscribePort = 0x40505330
+	ioctlNextClient    = 0xc0bc5351
+	ioctlNextPort      = 0xc0a85352
 )
 
 // Port capabilities and types.
@@ -30,6 +32,7 @@ const (
 	portCapWrite     = 1 << 1 // the port can be written to
 	portCapSubsRead  = 1 << 5 // other clients may subscribe to read from it
 	portCapSubsWrite = 1 << 6 // other clients may subscribe to write to it
+	portCapNoExport  = 1 << 7 // only its owner may connect it
 
 	portTypeMIDIGeneric = 1 << 1
 	portTypeSoftware    = 1 << 17
