@@ -41,6 +41,20 @@ const (
 	screenshotDelay = 1500 * time.Millisecond
 )
 
+// The colours of the window.
+var (
+	colBackground = RGB{0x1b, 0x1f, 0x26}
+	colPanel      = RGB{0x25, 0x2a, 0x33}
+	colPanelEdge  = RGB{0x33, 0x3a, 0x46}
+	colBar        = RGB{0x14, 0x17, 0x1c}
+	colFaint      = RGB{0x8b, 0x94, 0xa3}
+	colOn         = RGB{0x21, 0xa3, 0x5a}
+	colOff        = RGB{0x5c, 0x63, 0x6e}
+	colAccent     = RGB{0x3d, 0xc9, 0x7b}
+	colWhiteKey   = RGB{0xdd, 0xe1, 0xe7}
+	colBlackKey   = RGB{0x16, 0x19, 0x1e}
+)
+
 type window struct {
 	hidi  Controller
 	model *Model
@@ -111,6 +125,10 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		if version != seen || w.dragging || userActive() || rl.IsWindowResized() || rl.IsWindowFocused() != focused {
 			seen, focused, settle = version, rl.IsWindowFocused(), 3
 		}
+		shoot := opts.Screenshot != "" && time.Since(started) > screenshotDelay
+		if shoot {
+			settle = 1 // the picture is taken of a frame drawn now
+		}
 		if settle == 0 {
 			rl.PollInputEvents()
 			rl.WaitTime(1 / float64(pace.target))
@@ -120,7 +138,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		rl.BeginDrawing()
 		w.draw()
 		rl.EndDrawing()
-		if opts.Screenshot != "" && time.Since(started) > screenshotDelay {
+		if shoot {
 			rl.TakeScreenshot(opts.Screenshot)
 			break
 		}

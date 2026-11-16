@@ -3,20 +3,8 @@ package gui
 // RGB is a colour.
 type RGB struct{ R, G, B uint8 }
 
-// The colours of the window.
-var (
-	colBackground = RGB{0x1b, 0x1f, 0x26}
-	colPanel      = RGB{0x25, 0x2a, 0x33}
-	colPanelEdge  = RGB{0x33, 0x3a, 0x46}
-	colBar        = RGB{0x14, 0x17, 0x1c}
-	colText       = RGB{0xe6, 0xe9, 0xee}
-	colFaint      = RGB{0x8b, 0x94, 0xa3}
-	colOn         = RGB{0x21, 0xa3, 0x5a}
-	colOff        = RGB{0x5c, 0x63, 0x6e}
-	colAccent     = RGB{0x3d, 0xc9, 0x7b}
-	colWhiteKey   = RGB{0xdd, 0xe1, 0xe7}
-	colBlackKey   = RGB{0x16, 0x19, 0x1e}
-)
+// colText is the colour of ordinary text.
+var colText = RGB{0xe6, 0xe9, 0xee}
 
 // ansiColours are the 16 colours a log line can use, chosen to read well
 // on the window's dark background.
