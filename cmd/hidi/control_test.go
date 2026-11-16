@@ -27,10 +27,10 @@ func TestDescribe(t *testing.T) {
 	want := `hidi test is on
 
 Keychron K2  (keyboard, profile "Default keyboard")
-  layout Piano  octave +1  transpose -2  channel 3  velocity 100  2 notes sounding
+  octave  +1  transpose   -2  channel  3  velocity 100  notes  2  layout Piano
 
 Pad  (gamepad, profile "Default gamepad")
-  layout Default  octave +0  transpose +0  channel 1  velocity 64  1 note sounding
+  octave  +0  transpose   +0  channel  1  velocity  64  notes  1  layout Default
 `
 	if b.String() != want {
 		t.Errorf("describe wrote:\n%s\nwant:\n%s", b.String(), want)

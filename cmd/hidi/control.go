@@ -84,19 +84,12 @@ func describe(w io.Writer, s ipc.Snapshot) {
 	}
 	for _, in := range s.Instruments {
 		fmt.Fprintf(w, "\n%s  (%s, profile %q)\n", in.Name, in.Type, in.Profile)
-		fmt.Fprintf(w, "  layout %s  octave %+d  transpose %+d  channel %d  velocity %d  %s\n",
-			in.Layout, in.Octave, in.Transpose, in.Channel, in.Velocity, sounding(in.Sounding))
+		// Every number has a fixed width and the text of varying length
+		// comes last, so that nothing moves sideways while the monitor
+		// redraws.
+		fmt.Fprintf(w, "  octave %+3d  transpose %+4d  channel %2d  velocity %3d  notes %2d  layout %s\n",
+			in.Octave, in.Transpose, in.Channel, in.Velocity, in.Sounding, in.Layout)
 	}
-}
-
-func sounding(n int) string {
-	switch n {
-	case 0:
-		return "silent"
-	case 1:
-		return "1 note sounding"
-	}
-	return fmt.Sprintf("%d notes sounding", n)
 }
 
 // controlError explains why the running HIDI could not be reached.
