@@ -1,0 +1,249 @@
+package settings
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/gethiox/HIDI/internal/control"
+)
+
+func TestDefaultRoundTrip(t *testing.T) {
+	got, err := Parse(Default().Text())
+	if err != nil {
+		t.Fatalf("the default file does not parse: %v", err)
+	}
+	want := Default()
+	if !slices.Equal(got.Input.Toggle, want.Input.Toggle) || got.Input.GrabKeyboards != want.Input.GrabKeyboards ||
+		got.Input.GrabGamepads || !got.Input.StartOn || len(got.Output.Connect) != 0 || got.Window != want.Window {
+		t.Errorf("the default file reads as %+v", got)
+	}
+	names := []string{}
+	for _, c := range want.Input.Toggle {
+		names = append(names, c.String())
+	}
+	if strings.Join(names, " ") != "KEY_LEFTCTRL KEY_LEFTSHIFT KEY_LEFTALT" {
+		t.Errorf("the default toggle is %v", names)
+	}
+
+	changed := Default()
+	changed.Input.Toggle = []control.Code{control.Key(1)}
+	changed.Input.GrabGamepads = true
+	changed.Input.StartOn = false
+	changed.Output.Connect = []string{"USB MIDI", `odd "name"`}
+	changed.Window = Window{BackgroundFPS: 30, LogHeight: 200}
+	got, err = Parse(changed.Text())
+	if err != nil {
+		t.Fatalf("changed settings do not parse: %v", err)
+	}
+	if !slices.Equal(got.Input.Toggle, changed.Input.Toggle) || !got.Input.GrabGamepads || got.Input.StartOn ||
+		!slices.Equal(got.Output.Connect, changed.Output.Connect) || got.Window != changed.Window {
+		t.Errorf("changed settings read as %+v", got)
+	}
+}
+
+func TestParse(t *testing.T) {
+	// What is left out keeps its default.
+	s, err := Parse([]byte("schema = 1\n[input]\ngrab_gamepads = true\n"))
+	if err != nil || !s.Input.GrabGamepads || !s.Input.GrabKeyboards || len(s.Input.Toggle) != 3 {
+		t.Errorf("partial file: %+v, %v", s, err)
+	}
+	// An empty list is not the same as no list.
+	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = []\ngrab_keyboards = false\n"))
+	if err != nil || len(s.Input.Toggle) != 0 {
+		t.Errorf("no toggle: %+v, %v", s, err)
+	}
+
+	for _, tt := range []struct{ name, text, want string }{
+		{"no schema", "[input]\n", "schema"},
+		{"future schema", "schema = 9\n", "schema 9"},
+		{"unknown setting", "schema = 1\n[input]\ngrab = true\n", `unknown setting "input.grab"`},
+		{"unknown table", "schema = 1\n[colours]\nx = 1\n", "unknown setting"},
+		{"bad key", "schema = 1\n[input]\ntoggle = [\"KEY_NOPE\"]\n", `"KEY_NOPE" is not the name of a key`},
+		{"axis as key", "schema = 1\n[input]\ntoggle = [\"ABS_X\"]\n", "not the name of a key"},
+		{"grab without toggle", "schema = 1\n[input]\ntoggle = []\n", "needs a toggle combination"},
+		{"off without toggle", "schema = 1\n[input]\ntoggle = []\ngrab_keyboards = false\nstart_on = false\n", "starting turned off"},
+		{"negative", "schema = 1\n[window]\nlog_height = -1\n", "cannot be negative"},
+		{"not TOML", "schema = \n", "toml"},
+	} {
+		s, err := Parse([]byte(tt.text))
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: error %v, want one about %q", tt.name, err, tt.want)
+		}
+		if !s.Input.GrabKeyboards || len(s.Input.Toggle) != 3 {
+			t.Errorf("%s: a file with mistakes did not give the defaults: %+v", tt.name, s)
+		}
+	}
+}
+
+func TestLoad(t *testing.T) {
+	dir := t.TempDir()
+	if s, err := Load(filepath.Join(dir, "none.toml")); err != nil || !s.Input.StartOn {
+		t.Errorf("a missing file: %+v, %v", s, err)
+	}
+	file := filepath.Join(dir, "settings.toml")
+	os.WriteFile(file, []byte("schema = 1\n[window]\nlog_height = 120\n"), 0o644)
+	if s, err := Load(file); err != nil || s.Window.LogHeight != 120 {
+		t.Errorf("Load: %+v, %v", s, err)
+	}
+}
+
+var shipped = map[string][]byte{
+	"keyboard.toml": []byte("schema = 1\nname = \"Keyboard\"\n"),
+	"gamepad.toml":  []byte("schema = 1\nname = \"Gamepad\"\n"),
+}
+
+func read(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestPrepareFirstStart(t *testing.T) {
+	p := PathsIn(filepath.Join(t.TempDir(), "sub", DirName))
+	report, err := Prepare(p, shipped)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if !report.Managed || !report.Created || len(report.Written) != 3 || len(report.Updated) != 0 {
+		t.Errorf("report: %+v", report)
+	}
+	if read(t, filepath.Join(p.Profiles, "keyboard.toml")) != string(shipped["keyboard.toml"]) {
+		t.Error("the profile was not written as it is")
+	}
+	if _, err := Load(p.Settings); err != nil {
+		t.Errorf("the written settings do not load: %v", err)
+	}
+	// A second start finds everything in place.
+	report, err = Prepare(p, shipped)
+	if err != nil || !report.Managed || report.Created || len(report.Written)+len(report.Updated) != 0 {
+		t.Errorf("second start: %+v, %v", report, err)
+	}
+	// Nothing but the files and the record is left behind.
+	entries, _ := os.ReadDir(p.Profiles)
+	if len(entries) != 2 {
+		t.Errorf("%d files in profiles", len(entries))
+	}
+}
+
+func TestPrepareLater(t *testing.T) {
+	p := PathsIn(filepath.Join(t.TempDir(), DirName))
+	if _, err := Prepare(p, shipped); err != nil {
+		t.Fatal(err)
+	}
+	keyboard, gamepad := filepath.Join(p.Profiles, "keyboard.toml"), filepath.Join(p.Profiles, "gamepad.toml")
+	mine := filepath.Join(p.Profiles, "mine.toml")
+
+	// The user changes one profile, removes another, adds one, and
+	// changes the settings.
+	os.WriteFile(keyboard, []byte("schema = 1\nname = \"My keyboard\"\n"), 0o644)
+	os.Remove(gamepad)
+	os.WriteFile(mine, []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
+	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nlog_height = 99\n"), 0o644)
+
+	// A later HIDI comes with changed profiles and a new one.
+	later := map[string][]byte{
+		"keyboard.toml": []byte("schema = 1\nname = \"Keyboard, better\"\n"),
+		"gamepad.toml":  []byte("schema = 1\nname = \"Gamepad, better\"\n"),
+		"wheel.toml":    []byte("schema = 1\nname = \"Wheel\"\n"),
+		"mine.toml":     []byte("schema = 1\nname = \"A built-in of the same name\"\n"),
+	}
+	report, err := Prepare(p, later)
+	if err != nil || !report.Managed {
+		t.Fatalf("Prepare: %+v, %v", report, err)
+	}
+	if !strings.Contains(read(t, keyboard), "My keyboard") {
+		t.Error("a profile the user changed was overwritten")
+	}
+	if _, err := os.Stat(gamepad); err == nil {
+		t.Error("a profile the user removed came back")
+	}
+	if !strings.Contains(read(t, mine), `"Mine"`) {
+		t.Error("the user's own profile was overwritten")
+	}
+	if !strings.Contains(read(t, p.Settings), "log_height = 99") {
+		t.Error("the settings were overwritten")
+	}
+	if len(report.Written) != 1 || filepath.Base(report.Written[0]) != "wheel.toml" || len(report.Updated) != 0 {
+		t.Errorf("report: %+v", report)
+	}
+
+	// A profile the user left alone is brought up to date.
+	newer := map[string][]byte{"wheel.toml": []byte("schema = 1\nname = \"Wheel, better\"\n")}
+	report, err = Prepare(p, newer)
+	if err != nil || len(report.Updated) != 1 || !strings.Contains(read(t, filepath.Join(p.Profiles, "wheel.toml")), "better") {
+		t.Errorf("update: %+v, %v", report, err)
+	}
+	// And only once.
+	if report, _ := Prepare(p, newer); len(report.Updated) != 0 {
+		t.Errorf("updated again: %+v", report)
+	}
+}
+
+func TestPrepareLeavesOtherDirectoriesAlone(t *testing.T) {
+	for name, fill := range map[string]func(root string){
+		"a file of something else":      func(root string) { os.WriteFile(filepath.Join(root, "hidi.toml"), []byte("x = 1\n"), 0o644) },
+		"a directory of something else": func(root string) { os.Mkdir(filepath.Join(root, "factory"), 0o755) },
+		"settings of another kind": func(root string) {
+			os.WriteFile(filepath.Join(root, "settings.toml"), []byte("[midi]\nx = 1\n"), 0o644)
+		},
+		"profiles of another kind": func(root string) {
+			os.Mkdir(filepath.Join(root, "profiles"), 0o755)
+			os.WriteFile(filepath.Join(root, "profiles", "old.toml"), []byte("[identifier]\nbus = 0\n"), 0o644)
+		},
+		"a broken record": func(root string) { os.WriteFile(filepath.Join(root, ".written.json"), []byte("{"), 0o644) },
+	} {
+		root := filepath.Join(t.TempDir(), DirName)
+		os.Mkdir(root, 0o755)
+		fill(root)
+		before, _ := os.ReadDir(root)
+		report, err := Prepare(PathsIn(root), shipped)
+		if err != nil || report.Managed || report.Unrecognised == "" {
+			t.Errorf("%s: %+v, %v", name, report, err)
+		}
+		after, _ := os.ReadDir(root)
+		if len(after) != len(before) {
+			t.Errorf("%s: the directory was touched", name)
+		}
+	}
+}
+
+// A directory an earlier build of HIDI 2 used, with profiles and no
+// record, is taken over without touching what is there.
+func TestPrepareTakesOverEarlierDirectory(t *testing.T) {
+	p := PathsIn(filepath.Join(t.TempDir(), DirName))
+	os.MkdirAll(p.Profiles, 0o755)
+	keyboard := filepath.Join(p.Profiles, "keyboard.toml")
+	os.WriteFile(keyboard, []byte("schema = 1\nname = \"From before\"\n"), 0o644)
+	report, err := Prepare(p, shipped)
+	if err != nil || !report.Managed || len(report.Written) != 2 {
+		t.Fatalf("Prepare: %+v, %v", report, err)
+	}
+	if !strings.Contains(read(t, keyboard), "From before") {
+		t.Error("the profile from before was overwritten")
+	}
+	// It stays the user's, also when HIDI later ships another one.
+	Prepare(p, map[string][]byte{"keyboard.toml": []byte("schema = 1\nname = \"New\"\n")})
+	if !strings.Contains(read(t, keyboard), "From before") {
+		t.Error("the profile from before was overwritten later")
+	}
+}
+
+func TestPaths(t *testing.T) {
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Skipf("no configuration directory here: %v", err)
+	}
+	if filepath.Base(root) != "HIDI" {
+		t.Errorf("DefaultRoot = %q", root)
+	}
+	p := PathsIn(root)
+	if filepath.Dir(p.Settings) != root || filepath.Dir(p.Profiles) != root || filepath.Base(p.Profiles) != "profiles" {
+		t.Errorf("paths: %+v", p)
+	}
+}

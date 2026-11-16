@@ -34,6 +34,7 @@ completes or changes an item.
 | Windows input | While HIDI is on, all keyboard input is suppressed, and devices are told apart through Raw Input. Suppressing one keyboard and not another would need a driver and is left for later. |
 | Grabbing | Recognised devices do not reach the rest of the system while HIDI is on. Game controllers are the exception unless the user asks otherwise. |
 | Configuration | TOML, with a schema version and migrations from 2.0 onwards. HIDI 1.x files are not read. |
+| Where things are kept | One directory named HIDI in the system's place for configuration (`~/.config/HIDI`, `%AppData%\HIDI`): `settings.toml` for HIDI's own settings, apart from the profiles in `profiles/`. HIDI carries its defaults inside and writes them there on the first start, and only into a directory that is new or its own. |
 | Configuring | The graphical interface is the first-class way to configure everything; nobody should have to edit a file. Files can still be edited by hand, and every mistake in one is reported clearly. |
 | Interfaces | A terminal interface for headless use, a tray icon, and a graphical interface built with raylib. They are clients of the running engine. |
 | Graphical interface | Draws at the monitor's refresh rate (vertical sync), including high refresh rates, with an optional, configurable lower limit while its window is not focused. It never keeps the system or the display awake: it must not reset the operating system's idle timer. |
@@ -109,6 +110,8 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
 - Chord memory (the `chord` command; the 1.x "multinote", which computed
   its intervals but never applied them) and the `learn` command, which
   holds back axes that are not moved far (the 1.x "cc_learning").
+- HIDI's directory with the settings file and the profiles, filled on the
+  first start, and `hidi config` to show where it is.
 - The window (`hidi gui`): the instruments with their state, a keyboard
   that shows the notes being played, the on/off switch, and the log in a
   bar at the bottom that can be pulled up, with a level filter.
@@ -148,10 +151,23 @@ In planned order. Each item is roughly one pull request.
 
 ### Interfaces
 
-6. **Configuring in the graphical interface**: every setting and every
-    part of a profile, including learning a binding by pressing the
-    control. This needs the configuration to be written back to its file
-    without losing what the user wrote there by hand.
+6. **Configuring in the graphical interface**, in steps:
+    1. *The settings view.* A faint gear in the upper right corner of the
+       window, brighter under the pointer. A click opens the settings; while
+       they are open the gear turns slowly clockwise, and it keeps its
+       angle when they close and open, never jumping. The view shows HIDI's
+       own settings, and where the settings and the profiles are, with a
+       button for each that opens the place in the file manager.
+    2. *Settings that apply while HIDI runs.* The running HIDI reads its
+       settings at start only; changing them from the window needs it to
+       take them over, through the control protocol or by watching the
+       file.
+    3. *Profiles.* An icon on each instrument opens its profile; the
+       settings view lists all profiles, so that those of devices that are
+       not connected can be reached too. Every part of a profile can be
+       changed, including learning a binding by pressing the control. This
+       needs a profile to be written back to its file without losing what
+       the user wrote there by hand.
 
 ### Features
 
@@ -208,6 +224,12 @@ rest on assumptions about real devices and should be checked first:
 
 ## Open questions
 
+- On Windows the directory is in the roaming `%AppData%`, the usual place
+  for settings that follow the user. The local one would be
+  `%LocalAppData%`; say so if that is preferred.
+- A directory `~/.config/hidi` or `%AppData%\hidi` that a build of 2.0
+  before the settings file used is not looked at any more.
+
 - The built-in game controller profiles bind neither `chord` nor `learn`;
   1.x had learning on the left shoulder button, which is a note now.
 
@@ -241,8 +263,6 @@ rest on assumptions about real devices and should be checked first:
 - Two input devices of the same model get MIDI devices of the same name.
   They need to be told apart, in the name and, on Windows, in the
   identifier the device declares.
-- Whether the settings of HIDI itself (the toggle combination, grabbing,
-  the frame rate limit) live in one file next to the profiles.
 - The engine reports which notes sound, and the window shows them; the
   terminal monitor still shows only how many. The window shows where an
   axis stands, not the controller value sent for it.

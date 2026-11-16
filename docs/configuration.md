@@ -1,41 +1,102 @@
+# Configuration
+
+HIDI keeps everything you can change in one directory:
+
+| System | Directory |
+|---|---|
+| Linux | `~/.config/HIDI` (or under `$XDG_CONFIG_HOME`) |
+| Windows | `%AppData%\HIDI` |
+
+```
+HIDI/
+  settings.toml    how HIDI itself behaves
+  profiles/        how each kind of device plays, one file for each profile
+```
+
+`hidi config` prints these places. The `-config DIR` option of every command
+names another directory, and `-config ""` uses no directory at all: HIDI then
+runs with what it comes with.
+
+On its first start, `hidi run` creates the directory and fills it: the
+settings with their defaults, and the profiles HIDI comes with, as files to
+change. From then on the directory is what counts.
+
+- A profile you change stays as you made it. A profile you remove stays
+  removed.
+- A later HIDI brings a profile it wrote up to date only if you have not
+  changed the file, and adds profiles that are new.
+- A directory that HIDI did not make, with things in it that HIDI 2 does not
+  keep there, is left untouched. HIDI says so and runs with what it comes
+  with until you move the directory away or name another.
+
+## Settings
+
+`settings.toml` is read when HIDI starts. A setting that is left out keeps
+its default, and an option given on the command line comes before the file.
+A file with a mistake is not used: HIDI says what is wrong and runs with the
+defaults.
+
+```toml
+schema = 1
+
+[input]
+toggle = ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT"]
+grab_keyboards = true
+grab_gamepads = false
+start_on = true
+
+[output]
+connect = []
+
+[window]
+background_fps = 0
+log_height = 0
+```
+
+| Setting | Meaning | Option |
+|---|---|---|
+| `input.toggle` | The keys that, pressed together on one device, turn HIDI off and on. An empty list means no combination. | `-toggle` |
+| `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. Needs a toggle combination. | `-no-grab` |
+| `input.grab_gamepads` | Also keep game controllers from other programs. | `-grab-gamepads` |
+| `input.start_on` | Whether HIDI is on when it starts. | `-off` |
+| `output.connect` | Existing MIDI ports every instrument also sends to. | `-connect` |
+| `window.background_fps` | The most the window is drawn per second while not in front; 0 keeps to the monitor. | `-background-fps` |
+| `window.log_height` | The height of the log when the window opens. | `-log-height` |
+
 # Profile files
 
 A profile describes one instrument: which devices it applies to, the state it
 starts in, and what each control does. Profiles are [TOML](https://toml.io)
 files.
 
-HIDI ships with built-in profiles for keyboards and game controllers, so a
-device works without any configuration. The built-in files are in
-[`internal/config/builtin`](../internal/config/builtin) and are the best
-starting point for your own.
+HIDI comes with profiles for keyboards and game controllers, so a device
+works without any configuration. They are the files HIDI writes into
+`profiles` on its first start, and the best starting point for your own.
 
 HIDI checks a profile completely when it loads it and reports every problem it
 finds at once.
 
 ## Where your profiles live
 
-HIDI reads every `.toml` file in its profile directory:
-
-| System | Directory |
-|---|---|
-| Linux | `~/.config/hidi/profiles` (or under `$XDG_CONFIG_HOME`) |
-| Windows | `%AppData%\hidi\profiles` |
-
-The `-profiles DIR` option of every command names another directory, and
-`-profiles ""` uses the built-in profiles only.
+HIDI reads every `.toml` file in the `profiles` directory. Those files are
+all the profiles there are; what HIDI comes with is only used to fill the
+directory.
 
 ```
-hidi profiles            list the profiles, yours first, and check your files
-hidi profiles -export    write the built-in profiles into the directory
+hidi profiles            list the profiles and check the files
+hidi profiles -export    write the profiles HIDI comes with into the directory
 ```
 
-`hidi profiles -export` gives you the built-in profiles as files to edit. It
-never overwrites a file that is already there.
+`hidi profiles -export` brings back profiles you removed. It never overwrites
+a file that is already there.
+
+The `-profiles DIR` option reads profiles from another directory instead.
+Those are used beside the profiles inside HIDI, not in place of them, and
+win over them.
 
 When several profiles select a device, the one that describes it most closely
 wins: a profile for one product beats one for all keyboards. Between two that
-are equally close, yours beats the built-in one, and among your own the file
-that sorts later by name wins.
+are equally close, the file that sorts later by name wins.
 
 ### Changes apply while HIDI runs
 
@@ -51,7 +112,7 @@ is added, changed or removed, and loads the profiles again.
 
 A file with a mistake is not used, and HIDI logs what is wrong with it and
 where. Until it is fixed, the device falls back to the next best profile,
-usually the built-in one. `hidi profiles` shows the same report and exits
+if there is one. `hidi profiles` shows the same report and exits
 with status 1, which makes it usable as a check.
 
 ## Example

@@ -36,3 +36,21 @@ func Builtin() ([]*Profile, error) {
 	}
 	return profiles, nil
 }
+
+// BuiltinFiles returns the built-in profiles as the files they are, by
+// file name, for writing them out.
+func BuiltinFiles() (map[string][]byte, error) {
+	names, err := fs.Glob(builtinFiles, "builtin/*.toml")
+	if err != nil {
+		return nil, err
+	}
+	files := make(map[string][]byte, len(names))
+	for _, name := range names {
+		data, err := builtinFiles.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		files[path.Base(name)] = data
+	}
+	return files, nil
+}

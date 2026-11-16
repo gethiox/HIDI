@@ -26,8 +26,8 @@ func TestRun(t *testing.T) {
 		{"run with an argument", []string{"run", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"devices with an argument", []string{"devices", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"profiles with an argument", []string{"profiles", "extra"}, 2, "", `unexpected argument "extra"`},
-		{"built-in profiles only", []string{"profiles", "-profiles", ""}, 0, `"Default keyboard"`, ""},
-		{"export without a directory", []string{"profiles", "-profiles", "", "-export"}, 2, "", "-export needs a directory"},
+		{"built-in profiles only", []string{"profiles", "-config", ""}, 0, `"Default keyboard"`, ""},
+		{"export without a directory", []string{"profiles", "-config", "", "-export"}, 2, "", "-export needs a directory"},
 		{"ports with an argument", []string{"ports", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"empty connect", []string{"run", "-connect", " "}, 2, "", "must not be empty"},
 		{"status with an argument", []string{"status", "extra"}, 2, "", `unexpected argument "extra"`},
@@ -76,7 +76,7 @@ func TestProfilesCommand(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "profiles")
 	hidi := func(args ...string) (code int, stdout, stderr string) {
 		var out, errOut bytes.Buffer
-		code = run(context.Background(), append([]string{"profiles", "-profiles", dir}, args...), &out, &errOut)
+		code = run(context.Background(), append([]string{"profiles", "-config", "", "-profiles", dir}, args...), &out, &errOut)
 		return code, out.String(), errOut.String()
 	}
 
@@ -129,5 +129,74 @@ func TestListFlag(t *testing.T) {
 	}
 	if len(l) != 2 || l[0] != "USB MIDI" || l.String() != "USB MIDI, 128:0" {
 		t.Errorf("listFlag = %q", l)
+	}
+}
+
+// HIDI's own directory: not in use until "hidi run" fills it, and then the
+// files in it are all the profiles there are.
+func TestConfigDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "HIDI")
+	hidi := func(args ...string) (code int, stdout, stderr string) {
+		var out, errOut bytes.Buffer
+		code = run(context.Background(), append(args, "-config", root), &out, &errOut)
+		return code, out.String(), errOut.String()
+	}
+
+	code, stdout, stderr := hidi("config")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, root) || !strings.Contains(stdout, "not in use yet") {
+		t.Fatalf("config before the first start: code %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(root); err == nil {
+		t.Fatal("looking at the directory created it")
+	}
+	if code, stdout, _ = hidi("profiles"); code != 0 || !strings.Contains(stdout, "built-in/keyboard.toml") {
+		t.Errorf("profiles before the first start: code %d, stdout %q", code, stdout)
+	}
+
+	// What "hidi run" does first.
+	pl := findPlace(root, "", true)
+	if !pl.managed || len(pl.problems) != 0 || len(pl.notes) != 1 || !strings.Contains(pl.notes[0], "first start") {
+		t.Fatalf("first start: %+v", pl)
+	}
+	profiles, problems, err := pl.load()
+	if err != nil || len(problems) != 0 || len(profiles) == 0 {
+		t.Fatalf("loading after the first start: %d profiles, %v, %v", len(profiles), problems, err)
+	}
+	for _, p := range profiles {
+		if p.IsBuiltin() {
+			t.Errorf("%q is read from inside HIDI, not from its file", p.Name)
+		}
+	}
+
+	code, stdout, _ = hidi("config")
+	if code != 0 || !strings.Contains(stdout, "is in use") {
+		t.Errorf("config afterwards: code %d, stdout %q", code, stdout)
+	}
+	keyboard := filepath.Join(root, "profiles", "keyboard.toml")
+	if code, stdout, _ = hidi("profiles"); code != 0 || !strings.Contains(stdout, keyboard) || strings.Contains(stdout, "built-in/") {
+		t.Errorf("profiles afterwards: code %d, stdout %q", code, stdout)
+	}
+	// A removed profile is gone, not replaced by the one inside HIDI.
+	os.Remove(keyboard)
+	if _, stdout, _ = hidi("profiles"); strings.Contains(stdout, "keyboard.toml") {
+		t.Errorf("a removed profile is still listed: %q", stdout)
+	}
+
+	// Mistakes in the settings are told, and the defaults used.
+	os.WriteFile(filepath.Join(root, "settings.toml"), []byte("schema = 1\n[input]\nvolume = 3\n"), 0o644)
+	pl = findPlace(root, "", true)
+	if len(pl.problems) != 1 || !strings.Contains(pl.problems[0], "input.volume") || !pl.settings.Input.GrabKeyboards {
+		t.Errorf("settings with a mistake: %+v", pl)
+	}
+
+	// A directory of something else is left alone.
+	other := filepath.Join(t.TempDir(), "HIDI")
+	os.MkdirAll(filepath.Join(other, "factory"), 0o755)
+	pl = findPlace(other, "", true)
+	if pl.managed || len(pl.problems) != 1 || !strings.Contains(pl.problems[0], "left alone") {
+		t.Errorf("a directory of something else: %+v", pl)
+	}
+	if entries, _ := os.ReadDir(other); len(entries) != 1 {
+		t.Error("a directory of something else was written to")
 	}
 }
