@@ -134,6 +134,26 @@ The default keyboard profile plays notes on the letter rows, changes octave
 with F1 and F2, transposes with F3 and F4, changes channel with F5 and F6,
 and switches layout with F11 and F12. Escape silences everything.
 
+## Trying it on Windows
+
+Only MIDI output exists on Windows so far, and it has not run on a real
+machine yet. `hidi doctor` is the way to find out whether it works on yours:
+
+```
+hidi.exe doctor
+```
+
+It prints the Windows build, where it found Windows MIDI Services, and each
+stage of creating a MIDI device. If all stages pass, a device named
+"HIDI test device" appears in other programs and plays a C major chord for
+thirty seconds. If a stage fails, or the program stops without a message,
+the output up to that point says where.
+
+Windows MIDI Services needs Windows 11 25H2 or later. Until Windows itself
+ships the API, `Windows.Devices.Midi2.dll` from Microsoft's preview has to be
+in the same folder as `hidi.exe`, unless `hidi doctor` reports that it found
+the API in Windows.
+
 ## Development
 
 - `main` holds the released 1.x code and is not changed until 2.0 is ready.

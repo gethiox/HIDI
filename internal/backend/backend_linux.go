@@ -3,6 +3,9 @@
 package backend
 
 import (
+	"fmt"
+	"io"
+
 	"github.com/gethiox/HIDI/internal/input"
 	"github.com/gethiox/HIDI/internal/input/evdev"
 	"github.com/gethiox/HIDI/internal/output"
@@ -29,6 +32,13 @@ func Devices(problem func(what string, err error)) (*Source, error) {
 // Ports lists the existing MIDI ports an instrument can be connected to.
 func Ports() ([]output.Port, error) {
 	return alsaseq.Ports()
+}
+
+// CheckOutput reports to w whether virtual MIDI devices can be created, and
+// creates one.
+func CheckOutput(w io.Writer, name string) (output.Endpoint, error) {
+	fmt.Fprintf(w, "Creating the MIDI device %q through the ALSA sequencer\n", name)
+	return alsaseq.Open(name)
 }
 
 // OpenEndpoint creates a virtual MIDI device with the given name.

@@ -40,6 +40,7 @@ Commands:
             turn the running HIDI on or off
   ports     list the MIDI ports an instrument can be connected to
   profiles  list the profiles, check them, or write the built-in ones out
+  doctor    check that this system can do what HIDI needs, step by step
   version   print version information
   help      show this help
 
@@ -69,6 +70,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdMonitor(ctx, args[1:], stdout, stderr)
 	case "ports":
 		return cmdPorts(args[1:], stdout, stderr)
+	case "doctor":
+		return cmdDoctor(ctx, args[1:], stdout, stderr)
 	case "profiles":
 		return cmdProfiles(args[1:], stdout, stderr)
 	case "version", "-version", "--version":
