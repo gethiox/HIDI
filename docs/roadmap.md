@@ -110,6 +110,10 @@ Input is written and not tried: keyboards (`hidi run -v -no-grab`, then
 - Chord memory (the `chord` command; the 1.x "multinote", which computed
   its intervals but never applied them) and the `learn` command, which
   holds back axes that are not moved far (the 1.x "cc_learning").
+- The settings page of the window: a gear in the corner that turns while
+  the page is open and keeps its angle; the settings, with the switches and
+  the frame limit changeable; where things are kept, with buttons to open
+  the places in the file manager; and the list of all profiles.
 - HIDI's directory with the settings file and the profiles, filled on the
   first start, and `hidi config` to show where it is.
 - The window (`hidi gui`): the instruments with their state, a keyboard
@@ -152,19 +156,16 @@ In planned order. Each item is roughly one pull request.
 ### Interfaces
 
 6. **Configuring in the graphical interface**, in steps:
-    1. *The settings view.* A faint gear in the upper right corner of the
-       window, brighter under the pointer. A click opens the settings; while
-       they are open the gear turns slowly clockwise, and it keeps its
-       angle when they close and open, never jumping. The view shows HIDI's
-       own settings, and where the settings and the profiles are, with a
-       button for each that opens the place in the file manager.
-    2. *Settings that apply while HIDI runs.* The running HIDI reads its
+    1. *Settings that apply while HIDI runs.* The running HIDI reads its
        settings at start only; changing them from the window needs it to
        take them over, through the control protocol or by watching the
-       file.
-    3. *Profiles.* An icon on each instrument opens its profile; the
-       settings view lists all profiles, so that those of devices that are
-       not connected can be reached too. Every part of a profile can be
+       file. With that, the toggle combination and the MIDI ports to
+       connect to can be changed in the window too; for now the page shows
+       them and points to the file.
+    2. *Profiles.* An icon on each instrument opens its profile; the
+       settings page lists all profiles, so that those of devices that are
+       not connected can be reached too, and for now opens their files in
+       the system's editor. Every part of a profile can be
        changed, including learning a binding by pressing the control. This
        needs a profile to be written back to its file without losing what
        the user wrote there by hand.

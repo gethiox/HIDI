@@ -75,6 +75,10 @@ type window struct {
 	logScroll   float32 // lines scrolled back from the newest
 	cardScroll  float32
 	toggling    chan struct{}
+
+	gear     gear
+	settings settingsView
+	pace     *pacer
 }
 
 func col(c RGB) rl.Color               { return rl.NewColor(c.R, c.G, c.B, 255) }
@@ -115,6 +119,10 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	}
 
 	pace := newPacer(opts.BackgroundFPS)
+	w.pace = pace
+	if opts.ShowSettings {
+		w.gear.set(true, time.Now())
+	}
 	started := time.Now()
 	var seen uint64
 	settle := 0
@@ -127,7 +135,9 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		// frames follow every change, since the picture on screen
 		// alternates between two buffers.
 		version := model.Version()
-		if version != seen || w.dragging || userActive() || rl.IsWindowResized() || rl.IsWindowFocused() != focused {
+		// While the settings are open the gear turns, and the page follows
+		// the files on disk.
+		if version != seen || w.gear.open || w.dragging || userActive() || rl.IsWindowResized() || rl.IsWindowFocused() != focused {
 			seen, focused, settle = version, rl.IsWindowFocused(), 3
 		}
 		shoot := opts.Screenshot != "" && time.Since(started) > screenshotDelay
@@ -255,6 +265,8 @@ func (w *window) draw() {
 	sw, sh := float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight())
 	rl.ClearBackground(col(colBackground))
 	state := w.model.Snapshot()
+	// Whatever lies under the pointer may ask for another cursor.
+	rl.SetMouseCursor(rl.MouseCursorDefault)
 
 	// The log takes its height from the bottom; the rest is for the
 	// header and the instruments.
@@ -265,7 +277,12 @@ func (w *window) draw() {
 	logTop := sh - barH - w.logHeight
 
 	w.drawHeader(state, sw)
-	w.drawInstruments(state, rl.NewRectangle(0, headerH, sw, logTop-headerH))
+	w.drawGear(sw)
+	if body := rl.NewRectangle(0, headerH, sw, logTop-headerH); w.gear.open {
+		w.drawSettings(body)
+	} else {
+		w.drawInstruments(state, body)
+	}
 	w.drawLog(rl.NewRectangle(0, logTop, sw, sh-logTop))
 }
 
@@ -308,7 +325,8 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	if r := []rune(version); len(r) > 40 {
 		version = string(r[:40])
 	}
-	text(w.mono, version, sw-margin-width(w.mono, version, sizeMono), 28, sizeMono, col(colFaint))
+	// The gear has the corner; the version stands beside it.
+	text(w.mono, version, sw-margin-44-width(w.mono, version, sizeMono), 28, sizeMono, col(colFaint))
 }
 
 // toggle asks HIDI to turn on or off, without making the drawing wait for
@@ -589,8 +607,6 @@ func (w *window) drawLog(area rl.Rectangle) {
 	mouse := rl.GetMousePosition()
 	if hovered(bar) || w.dragging {
 		rl.SetMouseCursor(rl.MouseCursorResizeNS)
-	} else if !hovered(rl.NewRectangle(0, 0, area.Width, headerH)) {
-		rl.SetMouseCursor(rl.MouseCursorDefault)
 	}
 	if clicked(bar) && !w.overFilter(bar, mouse) {
 		w.dragging, w.dragMoved = true, false

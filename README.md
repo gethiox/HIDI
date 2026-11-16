@@ -141,8 +141,18 @@ level to show.
 
 ![The window with the log pulled up](docs/images/gui.png)
 
+The gear in the upper right corner opens the settings, and turns while they
+are open. The page shows HIDI's settings, of which the switches and the frame
+limit can be changed there; where the settings and profiles are kept, with
+buttons that open those places in the file manager; and every profile, also
+those of devices that are not connected, each with a button that opens its
+file. A running HIDI takes changed settings over when it is started again.
+
+![The settings page](docs/images/gui-settings.png)
+
 | Option | Meaning |
 | --- | --- |
+| `-settings` | Open with the settings showing. |
 | `-background-fps N` | Draw at most N times a second while another window has the focus. Without it the window keeps to the monitor's refresh rate. |
 | `-log-height N` | Open with the log pulled up N pixels. |
 
