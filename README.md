@@ -136,8 +136,9 @@ and switches layout with F11 and F12. Escape silences everything.
 
 ## Trying it on Windows
 
-Only MIDI output exists on Windows so far, and it has not run on a real
-machine yet. `hidi doctor` is the way to find out whether it works on yours:
+Only MIDI output exists on Windows so far. It has created a device and sent
+to it on one machine; expect rough edges. `hidi doctor` is the way to find out
+whether it works on yours:
 
 ```
 hidi.exe doctor
