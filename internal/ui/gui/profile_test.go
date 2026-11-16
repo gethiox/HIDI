@@ -3,6 +3,7 @@ package gui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -86,7 +87,8 @@ func TestProfileDoc(t *testing.T) {
 	if after != before { // one line added, one removed
 		t.Errorf("the file went from %d lines to %d", before, after)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+	// Windows has no such permissions to keep.
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("the file's permissions changed to %v", info.Mode().Perm())
 	}
 
