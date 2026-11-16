@@ -43,7 +43,11 @@ var (
 	iidProcessingPlugin     = guid("8087b303-0519-c0de-31d1-cc001000F040")
 	iidConnectionSource     = guid("8087b303-0519-c0de-31d1-cc001000F030")
 	iidConnectionRaw        = guid("8087b303-0519-31d1-31d1-000000000020")
+	iidConfigManager        = guid("8087b303-0519-c0de-31d1-ee0060001000")
+	iidPluginConfig         = guid("8087b303-0519-c0de-31d1-cc0060006000")
 )
+
+const classConfigManager = "Windows.Devices.Midi2.ServiceConfig.MidiServiceTransportPluginConfigManager"
 
 // Slots of the methods used, in each interface's table. The first six of a
 // WinRT interface are inherited.
@@ -71,8 +75,17 @@ const (
 	slotBlockPutFirstGroup = 20
 	slotBlockPutGroupCount = 22
 
-	slotManagerCreateVirtualDevice = 8
-	slotDeviceGetEndpointDeviceID  = 6
+	slotManagerIsTransportAvailable = 6
+	slotManagerCreateVirtualDevice  = 8
+
+	slotEndpointInfoGetName       = 7
+	slotEndpointInfoGetInstanceID = 9
+
+	slotConfigManagerSendUpdate   = 6
+	slotResponseGetStatus         = 6
+	slotResponseGetErrorCode      = 7
+	slotResponseGetErrorMessage   = 8
+	slotDeviceGetEndpointDeviceID = 6
 
 	slotConnectionOpen           = 8
 	slotConnectionAddPlugin      = 10
@@ -192,9 +205,10 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 		return nil, err
 	}
 	defer hName.free()
-	// The identifier must differ between devices; the name does, since
-	// HIDI numbers devices that share one.
-	hInstance, err := newHString("HIDI-" + name)
+	// The identifier should differ between devices. Two input devices of
+	// the same model have the same name, and so far get the same
+	// identifier; what Windows does then is not known yet.
+	hInstance, err := newHString(instanceID(name))
 	if err != nil {
 		return nil, err
 	}
@@ -292,8 +306,20 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 			return err
 		}
 		defer manager.release()
+		var available uint8
+		if hr := manager.call(slotManagerIsTransportAvailable, uintptr(unsafe.Pointer(&available))); hr.failed() {
+			return fmt.Errorf("asking for the virtual device transport: %w", hr)
+		}
+		if available == 0 {
+			return errors.New("the MIDI service on this machine has no virtual device transport")
+		}
 		hr := manager.call(slotManagerCreateVirtualDevice, uintptr(config.ptr), uintptr(unsafe.Pointer(&e.device.ptr)))
-		return check(hr, e.device)
+		if err := check(hr, e.device); err != nil {
+			// The API does not say why. Asking the service the same thing
+			// directly returns its answer.
+			return fmt.Errorf("%w; %s; the device was described as %s", err, serviceAnswer(config), describeInfo(info))
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -375,6 +401,86 @@ func open(name string, t tracer) (_ *Endpoint, err error) {
 		return nil, err
 	}
 	return e, nil
+}
+
+// instanceID makes the identifier a device declares from its name. It
+// keeps to letters, digits and dashes, as the identifiers in Microsoft's
+// samples do.
+func instanceID(name string) string {
+	id := []byte("HIDI-")
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			id = append(id, byte(r))
+		default:
+			id = append(id, '-')
+		}
+	}
+	return string(id)
+}
+
+// describeInfo reads back the name and identifier of a device description,
+// which shows whether they arrived as they were given.
+func describeInfo(info object) string {
+	var name, id hstring
+	hr1 := info.call(slotEndpointInfoGetName, uintptr(unsafe.Pointer(&name)))
+	hr2 := info.call(slotEndpointInfoGetInstanceID, uintptr(unsafe.Pointer(&id)))
+	defer name.free()
+	defer id.free()
+	if hr1.failed() || hr2.failed() {
+		return fmt.Sprintf("unreadable (%v, %v)", hr1, hr2)
+	}
+	return fmt.Sprintf("name %q, identifier %q", name.String(), id.String())
+}
+
+// serviceAnswer sends the device's settings to the MIDI service the way
+// creating a device does, and returns what the service says about them.
+func serviceAnswer(config object) string {
+	manager, _, err := factory(classConfigManager, iidConfigManager)
+	if err != nil {
+		return "the service could not be asked why: " + err.Error()
+	}
+	defer manager.release()
+	plugin, err := config.query(iidPluginConfig)
+	if err != nil {
+		return "the service could not be asked why: " + err.Error()
+	}
+	defer plugin.release()
+	var response object
+	if err := check(manager.call(slotConfigManagerSendUpdate, uintptr(plugin.ptr), uintptr(unsafe.Pointer(&response.ptr))), response); err != nil {
+		return "the service gave no answer: " + err.Error()
+	}
+	defer response.release()
+	var status int32
+	var code uint32
+	var text hstring
+	response.call(slotResponseGetStatus, uintptr(unsafe.Pointer(&status)))
+	response.call(slotResponseGetErrorCode, uintptr(unsafe.Pointer(&code)))
+	response.call(slotResponseGetErrorMessage, uintptr(unsafe.Pointer(&text)))
+	defer text.free()
+	return fmt.Sprintf("the MIDI service answered with status %d (%s), error code 0x%08X, message %q",
+		status, responseStatus(status), code, text.String())
+}
+
+// responseStatus names a MidiServiceConfigResponseStatus.
+func responseStatus(status int32) string {
+	switch status {
+	case 0:
+		return "success"
+	case 404:
+		return "target not found"
+	case 600:
+		return "configuration empty"
+	case 601:
+		return "error processing the configuration"
+	case 605:
+		return "error processing the response"
+	case 808:
+		return "error from the service"
+	case 2600:
+		return "not implemented"
+	}
+	return "unknown"
 }
 
 // check turns the result of a call that returns an object into an error.

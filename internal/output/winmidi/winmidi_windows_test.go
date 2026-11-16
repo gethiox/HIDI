@@ -101,3 +101,22 @@ func TestCheckAndOpenReportWhatIsMissing(t *testing.T) {
 		t.Error("Open succeeded although Check failed")
 	}
 }
+
+func TestInstanceID(t *testing.T) {
+	for name, want := range map[string]string{
+		"HIDI test device": "HIDI-HIDI-test-device",
+		"Keychron K2":      "HIDI-Keychron-K2",
+		"Zażółć (USB) #2":  "HIDI-Za------USB---2",
+		"":                 "HIDI-",
+	} {
+		if got := instanceID(name); got != want {
+			t.Errorf("instanceID(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestResponseStatusNames(t *testing.T) {
+	if responseStatus(808) != "error from the service" || responseStatus(0) != "success" || responseStatus(1) != "unknown" {
+		t.Error("status names are wrong")
+	}
+}
