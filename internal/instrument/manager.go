@@ -218,8 +218,6 @@ func (m *Manager) add(dev input.Device) {
 	r := &runner{
 		device: dev, info: info, log: m.log.With("device", info.Name),
 		open:     m.opts.OpenEndpoint,
-		grab:     m.opts.Grab != nil && m.opts.Grab(info),
-		toggle:   m.opts.Toggle,
 		onToggle: m.toggle,
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
@@ -227,6 +225,7 @@ func (m *Manager) add(dev input.Device) {
 	}
 	m.mu.Lock()
 	m.running[r] = struct{}{}
+	r.rules.Store(m.rulesFor(info))
 	r.wanted.Store(m.active)
 	r.assign(m.choose(info, r.log))
 	m.mu.Unlock()
@@ -239,6 +238,29 @@ func (m *Manager) add(dev input.Device) {
 		delete(m.running, r)
 		m.mu.Unlock()
 	}()
+}
+
+// inputRules is what the settings say about one device.
+type inputRules struct {
+	grab   bool
+	toggle []control.Code
+}
+
+func (m *Manager) rulesFor(info control.DeviceInfo) *inputRules {
+	return &inputRules{grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: m.opts.Toggle}
+}
+
+// SetInput replaces the toggle combination and the grab policy while the
+// manager runs. Devices that are grabbed and should not be any more are
+// released at once, and the other way round.
+func (m *Manager) SetInput(toggle []control.Code, grab func(control.DeviceInfo) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.Toggle, m.opts.Grab = toggle, grab
+	for r := range m.running {
+		r.rules.Store(m.rulesFor(r.info))
+		r.poke()
+	}
 }
 
 // Status describes a running instrument.
@@ -282,11 +304,11 @@ type runner struct {
 	log    *slog.Logger
 	open   func(name string) (output.Endpoint, error)
 
-	// grab says whether the device is grabbed while the instrument is on.
-	grab bool
-	// toggle is the key combination that turns HIDI off and on, and
-	// onToggle is what it calls.
-	toggle   []control.Code
+	// rules says whether the device is grabbed while the instrument is on,
+	// and which keys turn HIDI off and on. The manager replaces it when
+	// the settings change.
+	rules atomic.Pointer[inputRules]
+	// onToggle is what the toggle combination calls.
 	onToggle func()
 
 	// assigned is the profile the manager last asked for; the manager
@@ -388,13 +410,28 @@ func (r *runner) run() {
 		failed = true
 		go r.device.Close()
 	}
+	// rules are the input rules in force, and grabbed says whether the
+	// device is held. regrab makes that fit the rules and the state.
+	rules := r.rules.Load()
+	grabbed := false
+	regrab := func() {
+		want := active && rules.grab && eng != nil
+		switch {
+		case want && !grabbed:
+			if err := r.device.Grab(); err != nil {
+				r.log.Warn("the device cannot be grabbed; it stays usable by other programs", "error", err)
+			}
+			grabbed = true
+		case !want && grabbed:
+			if err := r.device.Release(); err != nil {
+				r.log.Warn("the device cannot be released", "error", err)
+			}
+			grabbed = false
+		}
+	}
 	ungrab := func() {
-		if !r.grab {
-			return
-		}
-		if err := r.device.Release(); err != nil {
-			r.log.Warn("the device cannot be released", "error", err)
-		}
+		active = false
+		regrab()
 	}
 
 	// reassign makes the device what the manager last asked for.
@@ -414,7 +451,6 @@ func (r *runner) run() {
 			}
 			if active {
 				ungrab()
-				active = false
 			}
 			limit.drop()
 			if err := endpoint.Close(); err != nil {
@@ -448,17 +484,20 @@ func (r *runner) run() {
 	// apply brings the device to the state the manager wants.
 	apply := func() {
 		reassign()
+		if now := r.rules.Load(); now != rules {
+			// Changed settings: another combination starts with no key
+			// of it held, and the grab follows at once.
+			rules = now
+			clear(held)
+			regrab()
+		}
 		want := r.wanted.Load()
 		if eng == nil || want == active || failed {
 			return
 		}
 		active = want
 		if active {
-			if r.grab {
-				if err := r.device.Grab(); err != nil {
-					r.log.Warn("the device cannot be grabbed; it stays usable by other programs", "error", err)
-				}
-			}
+			regrab()
 			return
 		}
 		// Turning off: nothing may keep sounding, and the device goes
@@ -467,7 +506,7 @@ func (r *runner) run() {
 		if !r.send(endpoint, eng.Reset(out[:0])) {
 			fail()
 		}
-		ungrab()
+		regrab()
 		r.publish(eng, &state)
 	}
 
@@ -533,7 +572,7 @@ loop:
 				continue // draining, or parked a moment ago
 			}
 			r.saw(ev)
-			if r.toggled(held, ev) {
+			if toggled(rules.toggle, held, ev) {
 				r.onToggle()
 				apply()
 				continue
@@ -574,8 +613,8 @@ loop:
 
 // toggled tracks the keys of the toggle combination and reports whether ev
 // is the press that completes it.
-func (r *runner) toggled(held map[control.Code]bool, ev control.Event) bool {
-	if len(r.toggle) == 0 || !slices.Contains(r.toggle, ev.Code) {
+func toggled(toggle []control.Code, held map[control.Code]bool, ev control.Event) bool {
+	if len(toggle) == 0 || !slices.Contains(toggle, ev.Code) {
 		return false
 	}
 	if !ev.Pressed() {
@@ -586,7 +625,7 @@ func (r *runner) toggled(held map[control.Code]bool, ev control.Event) bool {
 		return false
 	}
 	held[ev.Code] = true
-	return len(held) == len(r.toggle)
+	return len(held) == len(toggle)
 }
 
 // publish records the engine's state for [Manager.Status] and logs a change
