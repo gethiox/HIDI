@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,7 +43,9 @@ var (
 	procHidGetCaps              = hid.NewProc("HidP_GetCaps")
 	procHidGetValueCaps         = hid.NewProc("HidP_GetValueCaps")
 	procHidGetUsages            = hid.NewProc("HidP_GetUsages")
-	procHidGetUsageValue        = hid.NewProc("HidP_GetUsageValue")
+	procHidGetData              = hid.NewProc("HidP_GetData")
+	procHidMaxDataListLength    = hid.NewProc("HidP_MaxDataListLength")
+	procHidGetUsageValueArray   = hid.NewProc("HidP_GetUsageValueArray")
 )
 
 // Constants from winuser.h.
@@ -180,7 +183,16 @@ type (
 		physicalMax    int32
 		usageMin       uint16 // the usage itself when isRange is 0
 		usageMax       uint16
-		_              [6]uint16
+		_              [4]uint16
+		dataIndexMin   uint16 // the index itself when isRange is 0
+		dataIndexMax   uint16
+	}
+	// hidpData is HIDP_DATA: one control of a report, named by the index
+	// Windows gave it, and its value.
+	hidpData struct {
+		index uint16
+		_     uint16
+		value uint32
 	}
 	kbdLLHook struct {
 		vkCode    uint32
@@ -215,6 +227,8 @@ type Watcher struct {
 
 	// gate decides what the hook swallows.
 	gate gate
+	// claims decides which keyboard gets a swallowed key.
+	claims claims[*Device]
 }
 
 // the watcher whose hook and window procedure run; Windows calls them
@@ -583,6 +597,9 @@ func (w *Watcher) add(handle uintptr) {
 	}
 	w.byHandle[handle] = d
 	w.byGroup[group] = d
+	if !controller {
+		w.claims.add(d)
+	}
 	select {
 	case w.devices <- d:
 	default:
@@ -610,6 +627,7 @@ func (w *Watcher) remove(handle uintptr) {
 
 func (w *Watcher) forget(d *Device) {
 	delete(w.byGroup, d.group)
+	w.claims.remove(d)
 	for handle, other := range w.byHandle {
 		if other == d {
 			delete(w.byHandle, handle)
@@ -680,7 +698,25 @@ func (w *Watcher) key(d *Device, raw *rawKeyboard) {
 	if !ok {
 		return
 	}
-	pressed := raw.flags&flagBreak == 0
+	w.claims.saw(d)
+	w.put(d, code, raw.flags&flagBreak == 0)
+}
+
+// swallowed handles a key the hook kept from other programs. The hook does
+// not tell the keyboard; see [claims].
+func (w *Watcher) swallowed(code uint16, pressed bool) {
+	d, ok := w.claims.owner(code, pressed, func(d *Device) bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.grabbed || d.passing
+	})
+	if ok {
+		w.put(d, code, pressed)
+	}
+}
+
+// put delivers a key event of a keyboard.
+func (w *Watcher) put(d *Device, code uint16, pressed bool) {
 	if d.down[code] == pressed {
 		return // a held key repeating, or a release without a press
 	}
@@ -704,6 +740,22 @@ type padReader struct {
 	preparsed []byte
 	pad       *pad
 	usages    []uint16
+	// byIndex tells the axis of the pad, by the index Windows gave the
+	// value. A controller may have several values of one usage, four hats
+	// for instance, and only the index tells them apart.
+	byIndex map[uint16]int
+	items   []hidpData
+	// arrays holds the values a controller declares as several of one
+	// usage in a row, which Windows reports in one piece.
+	arrays []valueArray
+}
+
+// valueArray is count values of one usage, the axes from first on.
+type valueArray struct {
+	page, usage uint16
+	bits, count uint16
+	first       int
+	buf         []byte
 }
 
 func newPadReader(handle uintptr, l layout, joystick bool) (*padReader, error) {
@@ -712,7 +764,7 @@ func newPadReader(handle uintptr, l layout, joystick bool) (*padReader, error) {
 	if n == 0 {
 		return nil, errors.New("the controller has no description")
 	}
-	r := &padReader{preparsed: make([]byte, n), pad: newPad(l, joystick), usages: make([]uint16, 256)}
+	r := &padReader{preparsed: make([]byte, n), pad: newPad(l, joystick), usages: make([]uint16, 256), byIndex: map[uint16]int{}}
 	if got, _, _ := procGetRawInputDeviceInfo.Call(handle, ridiPreparsedData, r.data(), uintptr(unsafe.Pointer(&n))); int32(got) <= 0 {
 		return nil, errors.New("the controller's description could not be read")
 	}
@@ -727,18 +779,42 @@ func newPadReader(handle uintptr, l layout, joystick bool) (*padReader, error) {
 		if uint32(status) != hidpStatusSuccess {
 			return nil, errors.New("the controller's axes could not be listed")
 		}
-		for _, v := range values[:min(int(count), len(values))] {
+		values = values[:min(int(count), len(values))]
+		// Windows lists the values backwards. In the order of their
+		// indexes they are as the controller declares them, which is the
+		// order Linux numbers a second slider or hat in.
+		slices.SortStableFunc(values, func(a, b hidpValueCaps) int { return int(a.dataIndexMin) - int(b.dataIndexMin) })
+		for _, v := range values {
+			if v.isRange == 0 && v.reportCount > 1 {
+				array := valueArray{page: v.usagePage, usage: v.usageMin, bits: v.bitSize, count: v.reportCount, first: len(r.pad.axes)}
+				for range v.reportCount {
+					if !r.pad.addAxis(v.usagePage, v.usageMin, v.bitSize, v.logicalMin, v.logicalMax) {
+						array.count = uint16(len(r.pad.axes) - array.first)
+						break
+					}
+				}
+				if array.count > 0 {
+					array.buf = make([]byte, (int(v.bitSize)*int(v.reportCount)+7)/8)
+					r.arrays = append(r.arrays, array)
+				}
+				continue
+			}
 			last := v.usageMin
 			if v.isRange != 0 {
 				last = v.usageMax
 			}
 			for usage := v.usageMin; usage >= v.usageMin && usage <= last; usage++ {
-				r.pad.addAxis(v.usagePage, usage, v.bitSize, v.logicalMin, v.logicalMax)
+				if r.pad.addAxis(v.usagePage, usage, v.bitSize, v.logicalMin, v.logicalMax) {
+					r.byIndex[v.dataIndexMin+(usage-v.usageMin)] = len(r.pad.axes) - 1
+				}
 				if usage == 0xffff {
 					break
 				}
 			}
 		}
+	}
+	if n, _, _ := procHidMaxDataListLength.Call(hidpInput, r.data()); n > 0 {
+		r.items = make([]hidpData, n)
 	}
 	return r, nil
 }
@@ -760,11 +836,26 @@ func (r *padReader) read(report []byte, at time.Time) []control.Event {
 	if uint32(status) == hidpStatusSuccess {
 		events = r.pad.buttons(r.usages[:min(int(count), len(r.usages))], at)
 	}
-	for i, a := range r.pad.axes {
-		var value uint32
-		status, _, _ := procHidGetUsageValue.Call(hidpInput, uintptr(a.page), 0, uintptr(a.usage), uintptr(unsafe.Pointer(&value)), r.data(), data, size)
-		if uint32(status) == hidpStatusSuccess {
-			events = append(events, r.pad.value(i, value, at)...)
+	for _, a := range r.arrays {
+		status, _, _ := procHidGetUsageValueArray.Call(hidpInput, uintptr(a.page), 0, uintptr(a.usage), uintptr(unsafe.Pointer(&a.buf[0])), uintptr(len(a.buf)), r.data(), data, size)
+		if uint32(status) != hidpStatusSuccess {
+			continue
+		}
+		for i := range int(a.count) {
+			events = append(events, r.pad.value(a.first+i, bitField(a.buf, i*int(a.bits), int(a.bits)), at)...)
+		}
+	}
+	if len(r.items) == 0 {
+		return events
+	}
+	count = uint32(len(r.items))
+	status, _, _ = procHidGetData.Call(hidpInput, uintptr(unsafe.Pointer(&r.items[0])), uintptr(unsafe.Pointer(&count)), r.data(), data, size)
+	if uint32(status) != hidpStatusSuccess {
+		return events
+	}
+	for _, item := range r.items[:min(int(count), len(r.items))] {
+		if i, ok := r.byIndex[item.index]; ok {
+			events = append(events, r.pad.value(i, item.value, at)...)
 		}
 	}
 	return events

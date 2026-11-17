@@ -395,3 +395,19 @@ func hatPosition(v, lo, hi int64) (x, y float64) {
 	}
 	return x, y
 }
+
+// bitField reads size bits of buf from bit number start on, the lowest bit
+// first, as the values of a HID report are laid out. size is at most 32.
+func bitField(buf []byte, start, size int) uint32 {
+	var v uint32
+	for i := range size {
+		bit := start + i
+		if bit/8 >= len(buf) {
+			break
+		}
+		if buf[bit/8]&(1<<(bit%8)) != 0 {
+			v |= 1 << i
+		}
+	}
+	return v
+}
