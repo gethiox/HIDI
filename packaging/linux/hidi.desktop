@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=HIDI
+Comment=Play keyboards and game controllers as MIDI instruments
+Exec=hidi
+Terminal=false
+Categories=AudioVideo;Audio;Midi;
+Keywords=midi;keyboard;gamepad;instrument;

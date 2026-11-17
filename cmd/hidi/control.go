@@ -4,8 +4,8 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 	"os"
 	"slices"
@@ -20,7 +20,7 @@ import (
 )
 
 // socketFlag adds the option that names the control socket.
-func socketFlag(fs *flag.FlagSet) *string {
+func socketFlag(fs *pflag.FlagSet) *string {
 	path, err := ipc.DefaultPath()
 	if err != nil {
 		path = ""
@@ -122,7 +122,7 @@ func describe(w io.Writer, s ipc.Snapshot) {
 // controlError explains why the running HIDI could not be reached.
 func controlError(stderr io.Writer, command string, err error) int {
 	if errors.Is(err, ipc.ErrNotRunning) {
-		fmt.Fprintf(stderr, "hidi %s: HIDI is not running; start it with \"hidi run\"\n", command)
+		fmt.Fprintf(stderr, "hidi %s: HIDI is not running; start it with \"hidi\"\n", command)
 	} else {
 		fmt.Fprintf(stderr, "hidi %s: %v\n", command, err)
 	}
@@ -131,7 +131,7 @@ func controlError(stderr io.Writer, command string, err error) int {
 
 // cmdControl implements status, on, off and toggle.
 func cmdControl(ctx context.Context, command string, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs := pflag.NewFlagSet(command, pflag.ContinueOnError)
 	socket := socketFlag(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
@@ -163,7 +163,7 @@ const monitorLogLines = 12
 // its log. On a terminal the view is redrawn in place; elsewhere, and
 // with colours turned off, every change is written below the last.
 func cmdMonitor(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("monitor", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("monitor", pflag.ContinueOnError)
 	socket := socketFlag(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code

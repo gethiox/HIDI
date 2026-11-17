@@ -17,25 +17,30 @@ func TestRun(t *testing.T) {
 		wantStdout string
 		wantStderr string
 	}{
-		{"no arguments", nil, 2, "", "Usage:"},
 		{"version", []string{"version"}, 0, "hidi ", ""},
 		{"help", []string{"help"}, 0, "Usage:", ""},
 		{"unknown command", []string{"bogus"}, 2, "", `unknown command "bogus"`},
-		{"run help", []string{"run", "-h"}, 0, "", "-v"},
-		{"run with an unknown option", []string{"run", "-bogus"}, 2, "", "-bogus"},
+		{"run help", []string{"run", "-h"}, 0, "", "-v, --verbose"},
+		{"help with two dashes", []string{"--help"}, 0, "Usage:", ""},
+		{"version with two dashes", []string{"--version"}, 0, "hidi ", ""},
+		{"an unknown option of the application", []string{"--bogus"}, 2, "", "unknown flag: --bogus"},
+		{"a long option with one dash", []string{"run", "-no-grab"}, 2, "", "two dashes: --no-grab"},
+		{"headless is not an option of run", []string{"run", "--headless"}, 2, "", "unknown flag: --headless"},
+		{"an option with its value attached", []string{"run", "--toggle=KEY_NOPE"}, 2, "", "unknown control"},
+		{"run with an unknown option", []string{"run", "--bogus"}, 2, "", "--bogus"},
 		{"run with an argument", []string{"run", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"devices with an argument", []string{"devices", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"profiles with an argument", []string{"profiles", "extra"}, 2, "", `unexpected argument "extra"`},
-		{"built-in profiles only", []string{"profiles", "-config", ""}, 0, `"Default keyboard"`, ""},
-		{"export without a directory", []string{"profiles", "-config", "", "-export"}, 2, "", "-export needs a directory"},
+		{"built-in profiles only", []string{"profiles", "--config", ""}, 0, `"Default keyboard"`, ""},
+		{"export without a directory", []string{"profiles", "--config", "", "--export"}, 2, "", "-export needs a directory"},
 		{"ports with an argument", []string{"ports", "extra"}, 2, "", `unexpected argument "extra"`},
-		{"empty connect", []string{"run", "-connect", " "}, 2, "", "must not be empty"},
+		{"empty connect", []string{"run", "--connect", " "}, 2, "", "must not be empty"},
 		{"status with an argument", []string{"status", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"doctor with an argument", []string{"doctor", "extra"}, 2, "", `unexpected argument "extra"`},
-		{"bad toggle key", []string{"run", "-toggle", "KEY_NOPE"}, 2, "", "unknown control"},
-		{"toggle with an axis", []string{"run", "-toggle", "ABS_X"}, 2, "", "not a key"},
-		{"grab without toggle", []string{"run", "-toggle", ""}, 2, "", "needs a toggle combination"},
-		{"off without toggle", []string{"run", "-toggle", "", "-no-grab", "-off"}, 2, "", "-off needs a toggle"},
+		{"bad toggle key", []string{"run", "--toggle", "KEY_NOPE"}, 2, "", "unknown control"},
+		{"toggle with an axis", []string{"run", "--toggle", "ABS_X"}, 2, "", "not a key"},
+		{"grab without toggle", []string{"run", "--toggle", ""}, 2, "", "needs a toggle combination"},
+		{"off without toggle", []string{"run", "--toggle", "", "--no-grab", "--off"}, 2, "", "-off needs a toggle"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,7 +81,7 @@ func TestProfilesCommand(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "profiles")
 	hidi := func(args ...string) (code int, stdout, stderr string) {
 		var out, errOut bytes.Buffer
-		code = run(context.Background(), append([]string{"profiles", "-config", "", "-profiles", dir}, args...), &out, &errOut)
+		code = run(context.Background(), append([]string{"profiles", "--config", "", "--profiles", dir}, args...), &out, &errOut)
 		return code, out.String(), errOut.String()
 	}
 
@@ -86,12 +91,12 @@ func TestProfilesCommand(t *testing.T) {
 		t.Fatalf("listing without a directory: code %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 
-	code, stdout, stderr = hidi("-export")
+	code, stdout, stderr = hidi("--export")
 	keyboard := filepath.Join(dir, "keyboard.toml")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "written  "+keyboard) {
 		t.Fatalf("export: code %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
-	if code, stdout, _ = hidi("-export"); code != 0 || !strings.Contains(stdout, "kept     "+keyboard) {
+	if code, stdout, _ = hidi("--export"); code != 0 || !strings.Contains(stdout, "kept     "+keyboard) {
 		t.Errorf("second export: code %d, stdout %q", code, stdout)
 	}
 
@@ -138,7 +143,7 @@ func TestConfigDirectory(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "HIDI")
 	hidi := func(args ...string) (code int, stdout, stderr string) {
 		var out, errOut bytes.Buffer
-		code = run(context.Background(), append(args, "-config", root), &out, &errOut)
+		code = run(context.Background(), append(args, "--config", root), &out, &errOut)
 		return code, out.String(), errOut.String()
 	}
 
@@ -198,5 +203,27 @@ func TestConfigDirectory(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(other); len(entries) != 1 {
 		t.Error("a directory of something else was written to")
+	}
+}
+
+func TestStartsHIDI(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, true},
+		{[]string{"run"}, true},
+		{[]string{"--headless"}, true},
+		{[]string{"-v"}, true},
+		{[]string{"--window", "--no-grab"}, true},
+		{[]string{"status"}, false},
+		{[]string{"--help"}, false},
+		{[]string{"-h"}, false},
+		{[]string{"--version"}, false},
+		{[]string{"bogus"}, false},
+	} {
+		if got := startsHIDI(c.args); got != c.want {
+			t.Errorf("startsHIDI(%q) = %v, want %v", c.args, got, c.want)
+		}
 	}
 }

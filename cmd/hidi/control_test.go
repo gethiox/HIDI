@@ -93,7 +93,7 @@ func TestControlCommands(t *testing.T) {
 	socket, state, mu, _ := serveFake(t)
 	hidi := func(command string) (int, string, string) {
 		var stdout, stderr bytes.Buffer
-		code := run(t.Context(), []string{command, "-socket", socket}, &stdout, &stderr)
+		code := run(t.Context(), []string{command, "--socket", socket}, &stdout, &stderr)
 		return code, stdout.String(), stderr.String()
 	}
 
@@ -122,7 +122,7 @@ func TestControlCommandsWithoutHIDI(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "control.sock")
 	for _, command := range []string{"status", "on", "off", "toggle", "monitor"} {
 		var stdout, stderr bytes.Buffer
-		code := run(t.Context(), []string{command, "-socket", socket}, &stdout, &stderr)
+		code := run(t.Context(), []string{command, "--socket", socket}, &stdout, &stderr)
 		if code != 1 || !strings.Contains(stderr.String(), "HIDI is not running") || stdout.Len() != 0 {
 			t.Errorf("%s: code %d, stdout %q, stderr %q", command, code, stdout.String(), stderr.String())
 		}
@@ -155,7 +155,7 @@ func TestMonitorPlain(t *testing.T) {
 	defer cancel()
 	var stdout, stderr lockedBuffer
 	done := make(chan int, 1)
-	go func() { done <- run(ctx, []string{"monitor", "-socket", socket}, &stdout, &stderr) }()
+	go func() { done <- run(ctx, []string{"monitor", "--socket", socket}, &stdout, &stderr) }()
 
 	waitFor := func(what string) {
 		t.Helper()
@@ -171,7 +171,7 @@ func TestMonitorPlain(t *testing.T) {
 	waitFor(" INFO instrument started")
 
 	var out, errOut bytes.Buffer
-	if code := run(t.Context(), []string{"off", "-socket", socket}, &out, &errOut); code != 0 {
+	if code := run(t.Context(), []string{"off", "--socket", socket}, &out, &errOut); code != 0 {
 		t.Fatalf("hidi off: %s", errOut.String())
 	}
 	waitFor("hidi test is off")

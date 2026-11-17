@@ -141,7 +141,7 @@ func TestRun(t *testing.T) {
 	hidi := newFakeHIDI()
 	host := &fakeHost{shown: make(chan View, 64), actions: make(chan Action)}
 	done := make(chan error, 1)
-	go func() { done <- Run(t.Context(), hidi, host, slog.New(slog.DiscardHandler)) }()
+	go func() { done <- Run(t.Context(), hidi, host, slog.New(slog.DiscardHandler), Options{}) }()
 
 	host.expect(t, LookStopped)
 	host.actions <- ActionToggle // nothing to turn on: ignored
@@ -168,5 +168,38 @@ func TestRun(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after the icon was removed")
+	}
+}
+
+// The icon of the application offers the window, and ends HIDI.
+func TestRunWithWindow(t *testing.T) {
+	hidi := newFakeHIDI()
+	host := &fakeHost{shown: make(chan View, 64), actions: make(chan Action)}
+	opened := make(chan struct{}, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(t.Context(), hidi, host, slog.New(slog.DiscardHandler), Options{
+			Open:      func() { opened <- struct{}{} },
+			QuitLabel: QuitAllLabel,
+		})
+	}()
+	v := <-host.shown
+	if v.Open != OpenLabel || v.quit() != QuitAllLabel || v.click() != ActionOpen {
+		t.Errorf("the view is %+v", v)
+	}
+	host.actions <- ActionOpen
+	select {
+	case <-opened:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window was not opened")
+	}
+	host.actions <- ActionQuit
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	if plain := ViewOf(nil); plain.click() != ActionToggle || plain.quit() != QuitLabel {
+		t.Errorf("an icon without a window clicks %v and quits with %q", plain.click(), plain.quit())
 	}
 }

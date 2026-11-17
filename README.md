@@ -119,7 +119,7 @@ with. To get it back, turn HIDI off with the toggle combination:
 **Left Ctrl + Left Shift + Left Alt**, pressed together.
 
 Pressing it again turns HIDI back on. One key can do the same with a tap,
-Caps Lock for instance: `-toggle KEY_CAPSLOCK -toggle-tap`. What the rest
+Caps Lock for instance: `--toggle KEY_CAPSLOCK --toggle-tap`. What the rest
 of the system then sees of that key differs between Windows and Linux; see
 "One key that turns HIDI off and on" in the
 [configuration reference](docs/configuration.md).
@@ -131,19 +131,19 @@ other programs.
 
 | Option | Effect |
 |---|---|
-| `-toggle KEYS` | Use another combination, such as `-toggle KEY_SCROLLLOCK` or `-toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. |
-| `-toggle-tap` | The toggle is one key and works by a tap. |
-| `-always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
-| `-no-grab` | Leave keyboards usable by the system; they type while you play. |
-| `-grab-gamepads` | Also take game controllers away from other programs. |
-| `-off` | Start turned off. |
+| `--toggle KEYS` | Use another combination, such as `--toggle KEY_SCROLLLOCK` or `--toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. |
+| `--toggle-tap` | The toggle is one key and works by a tap. |
+| `--always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
+| `--no-grab` | Leave keyboards usable by the system; they type while you play. |
+| `--grab-gamepads` | Also take game controllers away from other programs. |
+| `--off` | Start turned off. |
 | `-v` | Also log details, such as every ignored device. |
-| `-log-midi` | Also log every MIDI message sent. It is for finding faults: an instrument sends hundreds a second. |
-| `-no-status` | Write the log only, without the lines about HIDI's state at the bottom of the terminal. |
-| `-no-color` | Write the log without colours. |
-| `-config DIR` | Use another directory for HIDI's settings and profiles. |
-| `-profiles DIR` | Read profiles from another directory, beside the built-in ones. |
-| `-connect PORT` | Also send to an existing MIDI port; see below. |
+| `--log-midi` | Also log every MIDI message sent. It is for finding faults: an instrument sends hundreds a second. |
+| `--no-status` | Write the log only, without the lines about HIDI's state at the bottom of the terminal. |
+| `--no-color` | Write the log without colours. |
+| `--config DIR` | Use another directory for HIDI's settings and profiles. |
+| `--profiles DIR` | Read profiles from another directory, beside the built-in ones. |
+| `--connect PORT` | Also send to an existing MIDI port; see below. |
 
 On a terminal, the last lines show what HIDI is doing: whether it is on, and
 for every instrument its channel, octave, the notes that sound, and how many
@@ -152,11 +152,11 @@ last second. The log runs above them.
 
 ![The log of hidi run with the state of HIDI below it](docs/images/run-status.png)
 
-When the output goes to a file or a pipe, or with `-no-status`, only the log
+When the output goes to a file or a pipe, or with `--no-status`, only the log
 is written.
 
 The log is coloured when it goes to a terminal, and plain when it goes to a
-file or a pipe. Besides `-no-color`, setting the `NO_COLOR` environment
+file or a pipe. Besides `--no-color`, setting the `NO_COLOR` environment
 variable turns the colours off; `FORCE_COLOR` keeps them when the output is
 piped.
 
@@ -174,7 +174,7 @@ HIDI can show an instrument on the lights of its keyboard, through
 with its SDK server turned on:
 
 ```
-./hidi run -openrgb 127.0.0.1:6742
+./hidi run --openrgb 127.0.0.1:6742
 ```
 
 or `openrgb = true` under `[lights]` in the settings. HIDI does not come with
@@ -269,11 +269,11 @@ file.
 
 | Option | Meaning |
 | --- | --- |
-| `-settings` | Open with the settings showing. |
-| `-edit FILE` | Open with this profile, ready to be changed. |
-| `-fps N` | Draw at most N times a second. Without it the window keeps to the monitor's refresh rate. |
-| `-background-fps N` | The same limit for while another window has the focus. |
-| `-log-height N` | Open with the log pulled up N pixels. |
+| `--settings` | Open with the settings showing. |
+| `--edit FILE` | Open with this profile, ready to be changed. |
+| `--fps N` | Draw at most N times a second. Without it the window keeps to the monitor's refresh rate. |
+| `--background-fps N` | The same limit for while another window has the focus. |
+| `--log-height N` | Open with the log pulled up N pixels. |
 
 The window is drawn at the refresh rate of the monitor it is on, and only
 when something it shows has changed, so an idle window costs next to
@@ -311,10 +311,10 @@ computer without a screen needs:
 
 ```
 ./hidi ports                      # what is there
-./hidi run -connect "USB MIDI"    # send every instrument there as well
+./hidi run --connect "USB MIDI"    # send every instrument there as well
 ```
 
-`-connect` takes a part of the port's name, or its ID from the first column
+`--connect` takes a part of the port's name, or its ID from the first column
 of `hidi ports`, and may be given several times. The port does not have to
 exist yet: HIDI connects when it appears, and again after it was unplugged.
 
@@ -337,10 +337,10 @@ hidi.exe doctor
 
 It creates three MIDI devices, as HIDI makes one for every instrument, plays
 on the first, removes them, and creates one more to see that removing left
-the MIDI service working. `-devices N` changes how many. `-removal
-disconnect` and `-removal release` try other ways of giving a device up, and
-`-removal none` gives up nothing and leaves it to Windows to clear up when
-the program ends. `-wait 2s` leaves a device alone for that long before it
+the MIDI service working. `--devices N` changes how many. `--removal
+disconnect` and `--removal release` try other ways of giving a device up, and
+`--removal none` gives up nothing and leaves it to Windows to clear up when
+the program ends. `--wait 2s` leaves a device alone for that long before it
 is removed.
 
 **If Windows stops answering.** The MIDI service of Windows has a fault,
@@ -386,10 +386,10 @@ controller into an instrument, as on Linux; `hidi.exe devices` lists what it
 found. Windows cannot keep one keyboard from typing and let
 another type: while HIDI is on, no keyboard types. The toggle combination,
 Left Ctrl + Left Shift + Left Alt, turns HIDI off and gives them back. To try
-it without that, run `hidi.exe run -v -no-grab`; the keys then also type.
+it without that, run `hidi.exe run -v --no-grab`; the keys then also type.
 
 Game controllers always keep working in other programs on Windows;
-`-grab-gamepads` has no effect there. Xbox controllers, and those that
+`--grab-gamepads` has no effect there. Xbox controllers, and those that
 imitate one, are read through XInput and are all named "Xbox controller";
 Windows knows four of them at most. Every other controller is read as the
 HID device it is.

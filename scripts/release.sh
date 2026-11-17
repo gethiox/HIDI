@@ -63,7 +63,7 @@ echo "$targets" | while read -r target name; do
         -o "$work/$dir/$exe" ./cmd/hidi
 
     cp LICENSE README.md "$work/$dir/"
-    [ "$goos" = linux ] && cp packaging/linux/70-hidi.rules "$work/$dir/"
+    [ "$goos" = linux ] && cp packaging/linux/70-hidi.rules packaging/linux/hidi.desktop "$work/$dir/"
     find "$work/$dir" -exec touch -d "@$epoch" {} +
 
     if [ "$goos" = windows ]; then

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 	"time"
 
@@ -15,7 +15,7 @@ import (
 // interrupted. The window is a client of the running HIDI and does not
 // start or stop it.
 func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("gui", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("gui", pflag.ContinueOnError)
 	socket := socketFlag(fs)
 	var opts gui.Options
 	fs.IntVar(&opts.FPS, "fps", 0, "draw at most this many times a second; 0 keeps to the monitor's refresh rate")
@@ -32,7 +32,7 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 	pl := findPlace(*root, "", false)
 	pl.tell(stderr, "gui")
 	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	fs.Visit(func(f *pflag.Flag) { given[f.Name] = true })
 	if !given["fps"] {
 		opts.FPS = pl.settings.Window.FPS
 	}
@@ -44,7 +44,7 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 		opts.LogHeight = pl.settings.Window.LogHeight
 	}
 	if opts.FPS < 0 || opts.BackgroundFPS < 0 || opts.LogHeight < 0 {
-		fmt.Fprintln(stderr, "hidi gui: -fps, -background-fps and -log-height cannot be negative")
+		fmt.Fprintln(stderr, "hidi gui: --fps, --background-fps and --log-height cannot be negative")
 		return 2
 	}
 	// The window draws moving axes, so it asks for HIDI's state as often

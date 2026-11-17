@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 	"time"
 
@@ -21,7 +21,7 @@ const doctorDevice = "HIDI test device"
 // can be seen and heard in another program. Its output is meant to be
 // copied into a bug report.
 func cmdDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("doctor", pflag.ContinueOnError)
 	seconds := fs.Int("seconds", 0, "how long to keep the test device and play on it; 0 means until Ctrl+C")
 	devices := fs.Int("devices", 3, "how many MIDI devices to create in all, as HIDI makes one for each instrument")
 	removal := fs.String("removal", "session", "on Windows, how devices are given up: session, disconnect, release,\nor none, which leaves them to the end of the program")

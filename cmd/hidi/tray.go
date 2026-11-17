@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 	"log/slog"
 	"os"
@@ -17,7 +17,7 @@ import (
 // until the user removes it. It is a client of the running HIDI and does
 // not start or stop it.
 func cmdTray(ctx context.Context, args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("tray", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("tray", pflag.ContinueOnError)
 	socket := socketFlag(fs)
 	noColour := fs.Bool("no-color", false, "write the log without colours")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
@@ -37,7 +37,7 @@ func cmdTray(ctx context.Context, args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer host.Close()
-	if err := tray.Run(ctx, ipc.NewClient(*socket), host, log); err != nil {
+	if err := tray.Run(ctx, ipc.NewClient(*socket), host, log, tray.Options{}); err != nil {
 		fmt.Fprintf(stderr, "hidi tray: %v\n", err)
 		return 1
 	}

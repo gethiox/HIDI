@@ -321,7 +321,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	x := margin + width(w.title, "HIDI", sizeTitle) + 18
 
 	if state == nil {
-		text(w.sans, "HIDI is not running. Start it with \"hidi run\".", x, 27, sizeText, col(colFaint))
+		text(w.sans, "HIDI is not running. Start it with \"hidi\".", x, 27, sizeText, col(colFaint))
 		return
 	}
 	// The switch: a pill with a knob, and the state in words.

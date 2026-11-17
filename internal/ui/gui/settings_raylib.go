@@ -200,7 +200,7 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		return
 	}
 	if !v.exists {
-		text(w.sans, "HIDI's directory is not in use yet. \"hidi run\" creates it on its first start.", x, y, sizeText, col(colFaint))
+		text(w.sans, "HIDI's directory is not in use yet. HIDI creates it on its first start.", x, y, sizeText, col(colFaint))
 		y += 30
 	}
 	if v.problem != "" {

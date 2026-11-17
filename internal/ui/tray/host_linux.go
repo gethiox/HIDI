@@ -67,6 +67,7 @@ type menuItem struct {
 const (
 	idToggle  = 1
 	idQuit    = 2
+	idOpen    = 5
 	firstLine = 100
 )
 
@@ -279,10 +280,16 @@ func (h *linuxHost) layout() (uint32, menuItem) {
 	for i, line := range v.Lines {
 		children = append(children, item(firstLine+int32(i), map[string]any{"label": line, "enabled": false}))
 	}
-	if v.Toggle != "" {
-		children = append(children, separator(3), item(idToggle, map[string]any{"label": v.Toggle}))
+	if v.Open != "" || v.Toggle != "" {
+		children = append(children, separator(3))
 	}
-	children = append(children, separator(4), item(idQuit, map[string]any{"label": QuitLabel}))
+	if v.Open != "" {
+		children = append(children, item(idOpen, map[string]any{"label": v.Open}))
+	}
+	if v.Toggle != "" {
+		children = append(children, item(idToggle, map[string]any{"label": v.Toggle}))
+	}
+	children = append(children, separator(4), item(idQuit, map[string]any{"label": v.quit()}))
 	root := menuItem{ID: 0, Props: map[string]dbus.Variant{"children-display": dbus.MakeVariant("submenu")}, Children: children}
 	return revision, root
 }
@@ -292,7 +299,10 @@ type itemMethods struct{ h *linuxHost }
 
 // Activate is a click on the icon.
 func (m itemMethods) Activate(x, y int32) *dbus.Error {
-	m.h.act(ActionToggle)
+	m.h.mu.Lock()
+	action := m.h.view.click()
+	m.h.mu.Unlock()
+	m.h.act(action)
 	return nil
 }
 
@@ -367,6 +377,8 @@ func (m menuMethods) Event(id int32, event string, data dbus.Variant, timestamp 
 	switch id {
 	case idToggle:
 		m.h.act(ActionToggle)
+	case idOpen:
+		m.h.act(ActionOpen)
 	case idQuit:
 		m.h.act(ActionQuit)
 	}
