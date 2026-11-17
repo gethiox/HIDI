@@ -60,10 +60,10 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 		s.Instruments = append(s.Instruments, ipc.Instrument{
 			Buttons:     buttons,
 			Axes:        axes,
-			Name:        st.Device.Name,
+			Name:        logging.Printable(st.Device.Name),
 			Type:        st.Device.Type.String(),
 			Hardware:    st.Device.Hardware.String(),
-			Location:    st.Device.Location,
+			Location:    logging.Printable(st.Device.Location),
 			Profile:     st.Profile,
 			ProfileFile: profileFile(st.ProfileSource),
 			Octave:      st.State.Octave,

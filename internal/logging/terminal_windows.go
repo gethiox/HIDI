@@ -19,3 +19,13 @@ func enableTerminal(f *os.File) bool {
 	}
 	return windows.SetConsoleMode(h, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING) == nil
 }
+
+// TerminalRows returns how many lines the console window behind f has, or
+// 0 if f is no console.
+func TerminalRows(f *os.File) int {
+	var info windows.ConsoleScreenBufferInfo
+	if err := windows.GetConsoleScreenBufferInfo(windows.Handle(f.Fd()), &info); err != nil {
+		return 0
+	}
+	return int(info.Window.Bottom-info.Window.Top) + 1
+}

@@ -108,12 +108,14 @@ func (h *Hub) Attach(info control.DeviceInfo) *Lamp {
 // within a moment.
 func (l *Lamp) Show(s Scene) {
 	l.mu.Lock()
-	l.scene, l.dirty = s, true
+	if !l.closed {
+		l.scene, l.dirty = s, true
+	}
 	l.mu.Unlock()
 }
 
-// Close ends the lamp. Its lights stay as they are until something else
-// sets them.
+// Close ends the lamp. The hub lights its keys evenly, as while HIDI is
+// off, the next time it looks.
 func (l *Lamp) Close() {
 	l.mu.Lock()
 	l.closed = true
@@ -134,7 +136,8 @@ func (h *Hub) Run(ctx context.Context) {
 		server.Close()
 		server = nil
 		nextTry = time.Now().Add(h.opts.Retry)
-		for _, l := range h.current() {
+		open, _ := h.current()
+		for _, l := range open {
 			l.bound, l.missed = false, false
 		}
 	}
@@ -144,20 +147,27 @@ func (h *Hub) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			if server != nil {
-				for _, l := range h.current() {
-					if l.bound {
-						l.mu.Lock()
-						l.scene.Active, l.dirty = false, true
-						l.mu.Unlock()
-						h.send(server, l)
-					}
+				// Every lamp, also those that are closed already: the
+				// instruments end at the same moment and close theirs,
+				// and which comes first must not decide whether a
+				// keyboard is left in the colours of an instrument.
+				h.mu.Lock()
+				all := slices.Clone(h.lamps)
+				h.mu.Unlock()
+				for _, l := range all {
+					h.leave(server, l)
 				}
 				server.Close()
 			}
 			return
 		case <-ticker.C:
 		}
-		lamps := h.current()
+		lamps, closed := h.current()
+		if server != nil {
+			for _, l := range closed {
+				h.leave(server, l)
+			}
+		}
 		if len(lamps) == 0 {
 			continue
 		}
@@ -200,16 +210,32 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 }
 
-// current returns the lamps that are open, and forgets the closed ones.
-func (h *Hub) current() []*Lamp {
+// current returns the lamps that are open. The closed ones are forgotten
+// and returned too, once, to be left evenly lit.
+func (h *Hub) current() (open, closed []*Lamp) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.lamps = slices.DeleteFunc(h.lamps, func(l *Lamp) bool {
 		l.mu.Lock()
 		defer l.mu.Unlock()
+		if l.closed {
+			closed = append(closed, l)
+		}
 		return l.closed
 	})
-	return slices.Clone(h.lamps)
+	return slices.Clone(h.lamps), closed
+}
+
+// leave lights the keys of a lamp evenly, as while HIDI is off, and ends
+// the lamp: whatever its instrument still asks to show comes too late.
+func (h *Hub) leave(server Server, l *Lamp) {
+	l.mu.Lock()
+	l.closed = true
+	l.scene.Active, l.dirty = false, true
+	l.mu.Unlock()
+	if l.bound {
+		h.send(server, l)
+	}
 }
 
 // bind gives every lamp without lights the keyboard of the server that is

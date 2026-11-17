@@ -165,6 +165,37 @@ None of the Windows parts of this ran on Windows. To be tried there:
   "Quit HIDI", and what is seen of the console window;
 - an Xbox controller.
 
+### Review of the whole code (17 November 2026)
+
+Five independent readings of the code, each of one area and without
+hints, all findings checked before anything was changed. What was fixed
+is in the five commits that begin with "Review of". The one that
+matters most for trying HIDI on Windows: the fix for the silent grabbed
+keyboard from the fourth round had not been connected to the hook, and
+is now.
+
+Found and left as it is, by choice:
+
+- A device that is not an instrument still takes a MIDI device name, so
+  that a second device of the same name gets "... 2" though it is the
+  only instrument of that name.
+- With collisions set to "off", a note held by two keys shows as
+  sounding until the second key is let go of.
+- Buttons a controller declares outside the HID page for buttons, some
+  direction pads, are not read on Windows.
+- Every send to Windows starts a goroutine for its time limit: two
+  hand-overs between threads for each note.
+- The profile editor at the least width of the window has its last
+  stepper off the edge; with two devices on one profile only one's
+  presses choose a control.
+- With a frame limit of 30 or less a tap shorter than a frame can go
+  unseen by the window.
+- With the lights on, every event asks the lamp to show twice; the hub
+  looks for a keyboard that OpenRGB does not have every three seconds
+  without end; the router holds its lock while it lists and connects.
+- An entry of `connect` is a part of a name, so a port whose name is the
+  beginning of another's selects both.
+
 ## Done
 
 - Module layout, CI for Linux and Windows, and the architecture document.

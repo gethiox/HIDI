@@ -23,6 +23,11 @@ type Footer struct {
 	// cursor stands at the end of the last of them.
 	shown int
 	buf   []byte
+	// Rows, if set, returns how many lines the terminal has, or 0 if that
+	// is not known. A footer as tall as the terminal cannot be taken off
+	// it again, since the cursor cannot go above the first line, and
+	// would leave copies of itself behind; so it is cut to fit.
+	Rows func() int
 }
 
 // NewFooter returns a footer with no lines that writes to out.
@@ -85,14 +90,24 @@ func (f *Footer) draw(b []byte) []byte {
 	if len(f.lines) == 0 {
 		return b
 	}
+	lines := f.lines
+	if f.Rows != nil {
+		// One line stays for what is written above the footer.
+		if rows := f.Rows(); rows > 0 && len(lines) > rows-1 {
+			lines = lines[:max(rows-1, 0)]
+		}
+	}
+	if len(lines) == 0 {
+		return b
+	}
 	b = append(b, "\x1b[?7l"...)
-	for i, line := range f.lines {
+	for i, line := range lines {
 		if i > 0 {
 			b = append(b, '\n')
 		}
 		b = append(b, strings.ReplaceAll(line, "\n", " ")...)
 		b = append(b, "\x1b[0m"...)
 	}
-	f.shown = len(f.lines)
+	f.shown = len(lines)
 	return append(b, "\x1b[?7h"...)
 }

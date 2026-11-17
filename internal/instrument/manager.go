@@ -398,6 +398,10 @@ var (
 // nothing would keep the processor busy.
 var parkedPoll = 500 * time.Millisecond
 
+// parkedQuiet is how long nothing has to come from a parked device for
+// its input to count as emptied.
+const parkedQuiet = 2 * time.Millisecond
+
 // runner looks after one connected device. While a profile selects the
 // device it is an instrument, with an engine and a MIDI endpoint; otherwise
 // it is parked.
@@ -546,7 +550,14 @@ func (r *runner) run() {
 		retryWait time.Duration
 		health    <-chan time.Time
 	)
-	var regrab func()
+	var regrab, endTap, replay func()
+	// openFailed is the assignment whose MIDI device could not be made;
+	// it is tried again when retry fires, not at every wake-up.
+	var openFailed *assignment
+	// stale says that the device has been parked for a while: what it
+	// reported meanwhile is old, and must not be played when a profile
+	// takes the device after all.
+	stale := false
 	fail := func() {
 		// The MIDI device broke, which on Windows happens when the MIDI
 		// service is restarted. The instrument plays nothing until a new
@@ -560,6 +571,13 @@ func (r *runner) run() {
 			endpoint = nil
 		}
 		limit.drop()
+		// A toggle key that is being held, and passed on to the system,
+		// is let go of there; and what other programs sent to the device
+		// that is gone does not stay lit.
+		if endTap != nil {
+			endTap()
+		}
+		r.heard.clear()
 		retryWait = RetryOutput
 		retry = time.After(retryWait)
 		if regrab != nil {
@@ -627,7 +645,7 @@ func (r *runner) run() {
 		tapDown, tapLong, typed bool
 		tapTimer                <-chan time.Time
 	)
-	endTap := func() {
+	endTap = func() {
 		if typed && passer != nil {
 			passer.Type(rules.toggle[0], false)
 		}
@@ -684,7 +702,16 @@ func (r *runner) run() {
 		if a == nil {
 			return
 		}
+		// What cannot be done now is put back, unless the manager has
+		// asked for something newer meanwhile: the manager believes the
+		// device has what it assigned, and would never assign it again.
+		keep := func() { r.pending.CompareAndSwap(nil, a) }
+		if a == openFailed && retry != nil {
+			keep() // its next try has a time
+			return
+		}
 		if eng != nil && active && !r.send(endpoint, eng.Reset(out[:0])) {
+			keep()
 			fail() // the old profile's notes could not be released
 			return
 		}
@@ -708,11 +735,28 @@ func (r *runner) run() {
 			return
 		}
 		if endpoint == nil {
+			// Before the MIDI device is there for anyone to see: from then
+			// on, what the device reports counts.
+			if stale {
+				stale = false
+				r.discard()
+			}
 			e, err := r.open(r.endpointName)
 			if err != nil {
-				r.log.Error("MIDI device cannot be created", "error", err)
+				// Tried again, like for a MIDI device that broke: the
+				// MIDI service of the system may only be starting.
+				if a != openFailed {
+					r.log.Error("MIDI device cannot be created; trying again", "error", err)
+					openFailed, retryWait = a, RetryOutput
+				} else {
+					r.log.Debug("the MIDI device cannot be created yet", "error", err)
+					retryWait = min(retryWait*2, maxRetryOutput)
+				}
+				retry = time.After(retryWait)
+				keep()
 				return
 			}
+			openFailed = nil
 			endpoint = e
 			health = time.After(healthPeriod)
 			if r.lights != nil && r.info.Type == control.DeviceKeyboard {
@@ -732,6 +776,7 @@ func (r *runner) run() {
 		steady = newSteadier(profile.AxisThreshold)
 		state = eng.State()
 		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, State: state}, true)
+		replay() // where the axes stand, for the new profile
 	}
 
 	// apply brings the device to the state the manager wants.
@@ -764,15 +809,17 @@ func (r *runner) run() {
 		active = want
 		if active {
 			regrab()
+			replay() // turning off put every controller to rest
 			return
 		}
-		// Turning off: nothing may keep sounding, and the device goes
-		// back to the system.
+		// Turning off: the device goes back to the system, and nothing
+		// may keep sounding. The device first: whatever holds up the
+		// sending must not keep a keyboard from its owner.
 		limit.drop() // a position from before must not arrive after
+		regrab()
 		if !r.send(endpoint, eng.Reset(out[:0])) {
 			fail()
 		}
-		regrab()
 		r.publish(eng, &state)
 	}
 
@@ -785,6 +832,27 @@ func (r *runner) run() {
 		}
 		r.publish(eng, &state)
 		show()
+	}
+	// replay sends where every axis stands, as far as the device has
+	// said. Turning off, another profile and a new MIDI device all leave
+	// the controllers at rest, while a lever stays where it was put; and
+	// a lever that rests would not speak up by itself, since its
+	// trembling is dropped.
+	replay = func() {
+		if eng == nil || !active || failed {
+			return
+		}
+		steady = newSteadier(profile.AxisThreshold)
+		r.mu.Lock()
+		axes := r.input.axesNow()
+		r.mu.Unlock()
+		now := time.Now()
+		for _, a := range axes {
+			if failed {
+				return
+			}
+			play(control.Event{Code: a.Code, Part: a.Part, Value: a.Value, Time: now})
+		}
 	}
 	// flush plays the axis events the limiter held back long enough, and
 	// arranges to be called again for those it still holds.
@@ -809,9 +877,13 @@ loop:
 	for {
 		if eng == nil && !failed {
 			// Parked: wait for a profile, and notice the device going.
+			stale = true
 			select {
 			case <-r.wake:
 				apply()
+			case <-retry:
+				retry = nil
+				apply() // the MIDI device is tried for again
 			case <-r.quit:
 				break loop
 			case <-time.After(parkedPoll):
@@ -820,16 +892,24 @@ loop:
 				// and what is left to pile up elsewhere holds up the
 				// reading of other devices, or would be played in one
 				// burst when a profile takes the device after all.
+				// A queue behind the channel fills it again a moment after
+				// it was emptied, so the emptying ends only when nothing
+				// has come for a moment, or after a while at the most.
+				quiet, enough := time.NewTimer(parkedQuiet), time.After(parkedPoll/5)
 				for drained := false; !drained; {
 					select {
 					case _, ok := <-events:
 						if !ok {
 							break loop
 						}
-					default:
+						quiet.Reset(parkedQuiet)
+					case <-quiet.C:
+						drained = true
+					case <-enough:
 						drained = true
 					}
 				}
+				quiet.Stop()
 			}
 			continue
 		}
@@ -922,6 +1002,7 @@ loop:
 			clear(held)
 			r.log.Info("the MIDI device is back")
 			regrab()
+			replay() // the new device knows nothing of where the axes stand
 			apply()
 			if eng != nil {
 				r.publish(eng, &state)
@@ -948,6 +1029,27 @@ loop:
 	dark()
 	r.setStatus(Status{}, false)
 	r.log.Info("instrument stopped", "reason", r.device.Err())
+}
+
+// discard throws away what the device has reported and nobody took, until
+// nothing has come for a moment.
+func (r *runner) discard() {
+	events := r.device.Events()
+	quiet, enough := time.NewTimer(parkedQuiet), time.After(parkedPoll/5)
+	defer quiet.Stop()
+	for {
+		select {
+		case _, ok := <-events:
+			if !ok {
+				return // the device is gone, which the caller finds out
+			}
+			quiet.Reset(parkedQuiet)
+		case <-quiet.C:
+			return
+		case <-enough:
+			return
+		}
+	}
 }
 
 // listen takes in what other programs send to the instrument, until its

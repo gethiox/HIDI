@@ -39,11 +39,27 @@ type inputKey struct {
 	code control.Code
 }
 
-// inputTracker follows the events of a device.
+// inputTracker follows the events of a device. Both lists are kept in
+// order, by part and code, and the maps say where in them a control is: a
+// control is new once and reports thousands of times, and the lists are
+// asked for many times a second while a window is open.
 type inputTracker struct {
-	buttons map[inputKey]bool
-	axes    map[inputKey]float64
+	buttons  []Button
+	axes     []Axis
+	buttonAt map[inputKey]int
+	axisAt   map[inputKey]int
 }
+
+func byPartAndCode[T any](part func(T) string, code func(T) uint16) func(a, b T) int {
+	return func(a, b T) int {
+		return cmp.Or(cmp.Compare(part(a), part(b)), cmp.Compare(code(a), code(b)))
+	}
+}
+
+var (
+	orderButtons = byPartAndCode(func(b Button) string { return b.Part }, func(b Button) uint16 { return b.Code.Num })
+	orderAxes    = byPartAndCode(func(a Axis) string { return a.Part }, func(a Axis) uint16 { return a.Code.Num })
+)
 
 // axisStep is the smallest change of an axis worth showing: a thousandth
 // of its travel.
@@ -56,42 +72,54 @@ func (t *inputTracker) record(ev control.Event) bool {
 	key := inputKey{ev.Part, ev.Code}
 	switch ev.Code.Kind {
 	case control.KindKey:
-		if t.buttons == nil {
-			t.buttons = map[inputKey]bool{}
-		}
 		down := ev.Pressed()
-		if was, seen := t.buttons[key]; seen && was == down {
-			return false
+		if i, seen := t.buttonAt[key]; seen {
+			if t.buttons[i].Down == down {
+				return false
+			}
+			t.buttons[i].Down = down
+			return true
 		}
-		t.buttons[key] = down
+		// A new control: put in its place, and the places counted anew.
+		t.buttons = append(t.buttons, Button{Code: ev.Code, Part: ev.Part, Down: down})
+		slices.SortFunc(t.buttons, orderButtons)
+		t.buttonAt = make(map[inputKey]int, len(t.buttons))
+		for i, b := range t.buttons {
+			t.buttonAt[inputKey{b.Part, b.Code}] = i
+		}
 		return true
 	case control.KindAxis:
-		if t.axes == nil {
-			t.axes = map[inputKey]float64{}
-		}
 		value := math.Round(ev.Value/axisStep) * axisStep
-		if was, seen := t.axes[key]; seen && was == value {
-			return false
+		if i, seen := t.axisAt[key]; seen {
+			if t.axes[i].Value == value {
+				return false
+			}
+			t.axes[i].Value = value
+			return true
 		}
-		t.axes[key] = value
+		t.axes = append(t.axes, Axis{Code: ev.Code, Part: ev.Part, Value: value})
+		slices.SortFunc(t.axes, orderAxes)
+		t.axisAt = make(map[inputKey]int, len(t.axes))
+		for i, a := range t.axes {
+			t.axisAt[inputKey{a.Part, a.Code}] = i
+		}
 		return true
 	}
 	return false
 }
 
+// axesNow returns the axes with where each stands, ordered by part and
+// code.
+func (t *inputTracker) axesNow() []Axis { return slices.Clone(t.axes) }
+
 func (t *inputTracker) snapshot() Input {
-	in := Input{Buttons: make([]Button, 0, len(t.buttons)), Axes: make([]Axis, 0, len(t.axes))}
-	for key, down := range t.buttons {
-		in.Buttons = append(in.Buttons, Button{Code: key.code, Part: key.part, Down: down})
+	in := Input{Buttons: slices.Clone(t.buttons), Axes: slices.Clone(t.axes)}
+	// Never nil: whoever shows the lists tells "none yet" from "not known".
+	if in.Buttons == nil {
+		in.Buttons = []Button{}
 	}
-	for key, value := range t.axes {
-		in.Axes = append(in.Axes, Axis{Code: key.code, Part: key.part, Value: value})
+	if in.Axes == nil {
+		in.Axes = []Axis{}
 	}
-	slices.SortFunc(in.Buttons, func(a, b Button) int {
-		return cmp.Or(cmp.Compare(a.Part, b.Part), cmp.Compare(a.Code.Num, b.Code.Num))
-	})
-	slices.SortFunc(in.Axes, func(a, b Axis) int {
-		return cmp.Or(cmp.Compare(a.Part, b.Part), cmp.Compare(a.Code.Num, b.Code.Num))
-	})
 	return in
 }

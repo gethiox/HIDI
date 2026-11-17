@@ -304,6 +304,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	logOutput := stderr
 	if !*noStatus && isFile && logging.IsTerminal(file) {
 		footer = logging.NewFooter(stderr)
+		footer.Rows = func() int { return logging.TerminalRows(file) }
 		logOutput = footer
 	}
 	logs := logging.New(logging.Options{
@@ -311,7 +312,10 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		Colour:    colour,
 		Level:     level,
 		KeepLevel: level,
+		// Writing the log must never hold up an instrument.
+		Queue: 4096,
 	})
+	defer logs.Close()
 	log := logs.Logger("hidi")
 	inputLog := logs.Logger("input")
 
