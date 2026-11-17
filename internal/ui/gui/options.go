@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gethiox/HIDI/internal/ipc"
+	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
 )
 
@@ -16,6 +17,9 @@ type Controller interface {
 
 // Options change how the window behaves.
 type Options struct {
+	// FPS limits how often the window is drawn. Zero means no limit: the
+	// window keeps to the monitor's refresh rate.
+	FPS int
 	// BackgroundFPS limits how often the window is drawn while another
 	// window has the focus. Zero means no limit of its own: the window
 	// then keeps to the monitor's refresh rate, as it does in front.
@@ -32,6 +36,9 @@ type Options struct {
 	Paths settings.Paths
 	// ShowSettings opens the window with the settings showing.
 	ShowSettings bool
+	// Ports, if set, lists the MIDI ports that exist, for choosing those
+	// every instrument also sends to.
+	Ports func() ([]output.Port, error)
 	// EditProfile, if set, is a profile file the window opens with, ready
 	// to be changed.
 	EditProfile string

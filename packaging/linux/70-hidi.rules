@@ -14,9 +14,16 @@
 # Install:
 #   sudo cp 70-hidi.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload
-#   sudo udevadm trigger --subsystem-match=input
+#   sudo udevadm trigger --subsystem-match=input --subsystem-match=misc
 #
 # The number matters: the rule has to come before 73-seat-late.rules,
 # which is where the access is granted.
 
 SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"
+
+# Only needed for the setting always_grab, which hides a tapped toggle key
+# from the system: HIDI then types the other keys again on a keyboard it
+# makes through uinput. This lets whoever is logged in at the machine make
+# input devices in software, which also means typing into any program of
+# theirs. Remove the line if you do not use that setting.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

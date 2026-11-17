@@ -3,8 +3,9 @@ package gui
 import "time"
 
 // gearSpeed is how fast the gear turns while the settings are open, in
-// degrees a second: once around in twenty seconds.
-const gearSpeed = 18
+// degrees a second: once around in eight seconds. The turning goes by the
+// clock, not by the frames drawn, so it is the same at every frame rate.
+const gearSpeed = 45
 
 // gear is the wheel in the corner of the window that opens the settings.
 // It turns while they are open and stands still otherwise, keeping the

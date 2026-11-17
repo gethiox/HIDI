@@ -242,3 +242,54 @@ func TestScanCodeRoundTrip(t *testing.T) {
 		t.Error("Pause has no single scan code")
 	}
 }
+
+func TestClaims(t *testing.T) {
+	var c claims[string]
+	takes := map[string]bool{}
+	ask := func(code uint16, pressed bool) string {
+		d, ok := c.owner(code, pressed, func(d string) bool { return takes[d] })
+		if !ok {
+			return ""
+		}
+		return d
+	}
+	if got := ask(30, true); got != "" {
+		t.Fatalf("a key without any keyboard went to %q", got)
+	}
+	c.add("mouse")
+	c.add("keyboard")
+	takes["mouse"], takes["keyboard"] = true, true
+	// Nothing was seen typing: the first keyboard gets the key, and its
+	// release.
+	if got := ask(30, true); got != "mouse" {
+		t.Fatalf("the first key went to %q", got)
+	}
+	c.saw("keyboard")
+	if got := ask(30, true); got != "mouse" {
+		t.Fatalf("the repeat of a held key went to %q", got)
+	}
+	if got := ask(30, false); got != "mouse" {
+		t.Fatalf("the release went to %q", got)
+	}
+	// From now on the keyboard that typed gets them.
+	if got := ask(30, true); got != "keyboard" {
+		t.Fatalf("a key after typing went to %q", got)
+	}
+	// A keyboard that passes its keys on is not given swallowed ones while
+	// another keeps them.
+	takes["keyboard"] = false
+	if got := ask(31, true); got != "mouse" {
+		t.Fatalf("a key went to %q although it keeps none", got)
+	}
+	if got := ask(30, false); got != "keyboard" {
+		t.Fatalf("the release of a key went to %q, not to who got the press", got)
+	}
+	c.remove("mouse")
+	if got := ask(31, false); got != "keyboard" {
+		t.Fatalf("the release of a key of an unplugged keyboard went to %q", got)
+	}
+	c.remove("keyboard")
+	if got := ask(32, true); got != "" {
+		t.Fatalf("a key went to %q after every keyboard was unplugged", got)
+	}
+}

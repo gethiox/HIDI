@@ -1,8 +1,8 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 
 	"github.com/gethiox/HIDI/internal/config"
@@ -26,7 +26,7 @@ type place struct {
 }
 
 // placeFlags adds the options that say where HIDI's files are.
-func placeFlags(fs *flag.FlagSet) (root, profiles *string) {
+func placeFlags(fs *pflag.FlagSet) (root, profiles *string) {
 	dir, err := settings.DefaultRoot()
 	if err != nil {
 		dir = "" // no home directory: what HIDI comes with only
@@ -56,7 +56,7 @@ func findPlace(root, profiles string, prepare bool) place {
 		case err != nil:
 			pl.problems = append(pl.problems, fmt.Sprintf("%s cannot be made ready; using what HIDI comes with: %v", root, err))
 		case report.Unrecognised != "":
-			pl.problems = append(pl.problems, fmt.Sprintf("%s was not made by HIDI 2 (%s) and is left alone; using what HIDI comes with. Move it away, or name another directory with -config", root, report.Unrecognised))
+			pl.problems = append(pl.problems, fmt.Sprintf("%s was not made by HIDI 2 (%s) and is left alone; using what HIDI comes with. Move it away, or name another directory with --config", root, report.Unrecognised))
 		case report.Created:
 			pl.notes = append(pl.notes, fmt.Sprintf("first start: settings and profiles written to %s", root))
 		}
@@ -107,7 +107,7 @@ func (pl place) tell(w io.Writer, command string) {
 
 // cmdConfig shows where HIDI keeps its files.
 func cmdConfig(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("config", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
 	root, profiles := placeFlags(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
@@ -126,7 +126,7 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 	case settings.Managed(pl.paths):
 		fmt.Fprintf(stdout, "\nProfiles are read from %s instead, beside the built-in ones.\n", pl.profiles)
 	default:
-		fmt.Fprintln(stdout, "\nThe directory is not in use yet. \"hidi run\" fills it on its first start,\nunless something is there that HIDI did not make.")
+		fmt.Fprintln(stdout, "\nThe directory is not in use yet. HIDI fills it on its first start,\nunless something is there that HIDI did not make.")
 	}
 	pl.tell(stderr, "config")
 	if len(pl.problems) > 0 {

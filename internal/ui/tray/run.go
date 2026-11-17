@@ -22,10 +22,30 @@ const (
 	askTimeout = 2 * time.Second
 )
 
+// Options change what the icon offers.
+type Options struct {
+	// Open, if set, opens HIDI's window. The menu then has an entry for
+	// it, and a click on the icon opens the window instead of turning
+	// HIDI on or off.
+	Open func()
+	// QuitLabel is the label of the last menu entry, which makes Run
+	// return. Empty means [QuitLabel].
+	QuitLabel string
+}
+
 // Run keeps the icon in step with HIDI and carries out what the user asks
-// through it. It returns when ctx is cancelled or the user removes the
-// icon.
-func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger) error {
+// through it. It returns when ctx is cancelled or the user chooses the
+// last menu entry.
+func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger, opts Options) error {
+	view := func(s *ipc.Snapshot) View {
+		v := ViewOf(s)
+		if opts.Open != nil {
+			v.Open = OpenLabel
+		}
+		v.Quit = opts.QuitLabel
+		return v
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -58,7 +78,7 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger) erro
 		}
 	}()
 
-	if err := host.Show(ViewOf(nil)); err != nil {
+	if err := host.Show(view(nil)); err != nil {
 		return err
 	}
 	running := false
@@ -68,7 +88,7 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger) erro
 			return nil
 		case s := <-states:
 			running = s != nil
-			if err := host.Show(ViewOf(s)); err != nil {
+			if err := host.Show(view(s)); err != nil {
 				log.Warn("the icon could not be updated", "error", err)
 			}
 		case action, ok := <-host.Actions():
@@ -78,6 +98,10 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger) erro
 			switch action {
 			case ActionQuit:
 				return nil
+			case ActionOpen:
+				if opts.Open != nil {
+					opts.Open()
+				}
 			case ActionToggle:
 				if !running {
 					continue

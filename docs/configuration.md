@@ -13,11 +13,11 @@ HIDI/
   profiles/        how each kind of device plays, one file for each profile
 ```
 
-`hidi config` prints these places. The `-config DIR` option of every command
-names another directory, and `-config ""` uses no directory at all: HIDI then
+`hidi config` prints these places. The `--config DIR` option of every command
+names another directory, and `--config ""` uses no directory at all: HIDI then
 runs with what it comes with.
 
-On its first start, `hidi run` creates the directory and fills it: the
+On its first start HIDI creates the directory and fills it: the
 settings with their defaults, and the profiles HIDI comes with, as files to
 change. From then on the directory is what counts.
 
@@ -38,8 +38,12 @@ defaults.
 
 A running HIDI notices within about two seconds when the file changes, and
 takes over the toggle combination and what is grabbed: a keyboard that
-should type again does so at once. `start_on`, `connect` and `[lights]`
-matter when HIDI starts. A changed file with a mistake is reported and changes nothing.
+should type again does so at once. `start_on`, `connect`, `[lights]` and
+`show_at_start` matter when HIDI starts. A changed file with a mistake is
+reported and changes nothing.
+
+The switches and the frame limits can also be changed in the window, on the
+sheet the gear opens.
 
 ```toml
 schema = 1
@@ -60,23 +64,27 @@ openrgb = false
 address = "127.0.0.1:6742"
 
 [window]
+show_at_start = false
+fps = 0
 background_fps = 0
 log_height = 0
 ```
 
 | Setting | Meaning | Option |
 |---|---|---|
-| `input.toggle` | The keys that, pressed together on one device, turn HIDI off and on. An empty list means no combination. | `-toggle` |
-| `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. Needs a toggle combination. | `-no-grab` |
-| `input.grab_gamepads` | Also keep game controllers from other programs. | `-grab-gamepads` |
-| `input.start_on` | Whether HIDI is on when it starts. | `-off` |
-| `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `-toggle-tap` |
-| `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `-always-grab` |
-| `output.connect` | Existing MIDI ports every instrument also sends to. | `-connect` |
-| `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `-openrgb` |
-| `lights.address` | Where that server listens. | `-openrgb ADDRESS` |
-| `window.background_fps` | The most the window is drawn per second while not in front; 0 keeps to the monitor. | `-background-fps` |
-| `window.log_height` | The height of the log when the window opens. | `-log-height` |
+| `input.toggle` | The keys that, pressed together on one device, turn HIDI off and on. An empty list means no combination. | `--toggle` |
+| `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. Needs a toggle combination. | `--no-grab` |
+| `input.grab_gamepads` | Also keep game controllers from other programs. | `--grab-gamepads` |
+| `input.start_on` | Whether HIDI is on when it starts. | `--off` |
+| `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `--toggle-tap` |
+| `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
+| `output.connect` | Existing MIDI ports every instrument also sends to. | `--connect` |
+| `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `--openrgb` |
+| `lights.address` | Where that server listens. | `--openrgb ADDRESS` |
+| `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
+| `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
+| `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
+| `window.log_height` | The height of the log when the window opens. | `--log-height` |
 
 #### One key that turns HIDI off and on
 
@@ -108,7 +116,7 @@ of its own, named after yours with "(through HIDI)". Everything you type then
 passes through HIDI for as long as it runs. If HIDI were ever to hang, the
 keyboard would do nothing until HIDI is ended from elsewhere; when HIDI ends
 or is killed, the keyboard is yours again at once. It needs write access to
-`/dev/uinput`. A part of a keyboard that has a wheel or a pointer stays with
+`/dev/uinput`, which the udev rule that comes with HIDI gives. A part of a keyboard that has a wheel or a pointer stays with
 the system and is not held.
 
 Without `toggle_tap`, `always_grab` does nothing.
@@ -134,13 +142,13 @@ directory.
 
 ```
 hidi profiles            list the profiles and check the files
-hidi profiles -export    write the profiles HIDI comes with into the directory
+hidi profiles --export    write the profiles HIDI comes with into the directory
 ```
 
-`hidi profiles -export` brings back profiles you removed. It never overwrites
+`hidi profiles --export` brings back profiles you removed. It never overwrites
 a file that is already there.
 
-The `-profiles DIR` option reads profiles from another directory instead.
+The `--profiles DIR` option reads profiles from another directory instead.
 Those are used beside the profiles inside HIDI, not in place of them, and
 win over them.
 

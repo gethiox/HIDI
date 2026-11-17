@@ -54,8 +54,12 @@ const (
 	RoleNote
 	RoleCommand
 	// RoleOther: something the window shows and does not change, a
-	// controller or a program change for one.
+	// program change for one.
 	RoleOther
+	// RoleController: the control sends a controller.
+	RoleController
+	// RoleBend: the control bends the pitch.
+	RoleBend
 )
 
 // Role is what a control does when it is used alone, and where in the
@@ -66,22 +70,63 @@ type Role struct {
 	Text    string
 	Note    midi.Note
 	Command engine.Command
+	// Controller is the number of the controller sent.
+	Controller uint8
+	// Shape is how the position of an axis is read.
+	Shape Shape
+	// Split says that the two halves of an axis are bound apart, as
+	// "ABS_X+" and "ABS_X-", which the window shows and does not change.
+	Split bool
 	// Section is where the binding is, or where a new one would go.
 	Section config.Section
+}
+
+// Shape is how the position of an axis is read before it is sent.
+type Shape struct {
+	// Centered is for an axis that rests in the middle, such as a stick.
+	Centered bool
+	// Invert reverses the direction.
+	Invert bool
+	// Deadzone is the fraction of travel next to the rest position that
+	// is ignored, from 0 to below 1.
+	Deadzone float64
+}
+
+// text writes the options as they stand in a binding, each led by a comma.
+func (s Shape) text() string {
+	out := ""
+	if s.Centered {
+		out += ", centered = true"
+	}
+	if s.Invert {
+		out += ", invert = true"
+	}
+	if s.Deadzone > 0 {
+		out += ", deadzone = " + strconv.FormatFloat(s.Deadzone, 'f', -1, 64)
+	}
+	return out
 }
 
 // Role returns what a control of the main part does in a layout: by the
 // layout's own binding, or else by one that applies in every layout.
 func (d *ProfileDoc) Role(layout string, code control.Code) Role {
-	find := func(bindings []engine.Binding) (engine.Action, bool) {
-		for _, b := range bindings {
-			if b.Source.Code == code && b.Source.Part == "" && len(b.Source.Modifiers) == 0 && b.Source.Range == engine.RangeWhole {
-				return b.Action, true
-			}
-		}
-		return nil, false
-	}
 	role := Role{Section: config.Bindings(layout)}
+	find := func(bindings []engine.Binding) (engine.Action, bool) {
+		var action engine.Action
+		found := false
+		for _, b := range bindings {
+			if b.Source.Code != code || b.Source.Part != "" || len(b.Source.Modifiers) != 0 {
+				continue
+			}
+			if b.Source.Range != engine.RangeWhole {
+				role.Split = true
+				continue
+			}
+			action, found = b.Action, true
+			role.Shape = Shape{Centered: b.Source.Centered, Invert: b.Source.Invert, Deadzone: b.Source.Deadzone}
+		}
+		return action, found
+	}
 	var action engine.Action
 	found := false
 	for _, l := range d.Profile.Engine.Layouts {
@@ -100,11 +145,11 @@ func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 	case engine.Command:
 		role.Kind, role.Command, role.Text = RoleCommand, a, a.String()
 	case engine.ControlChange:
-		role.Kind, role.Text = RoleOther, fmt.Sprintf("cc %d", a.Controller)
+		role.Kind, role.Controller, role.Text = RoleController, a.Controller, fmt.Sprintf("cc %d", a.Controller)
 	case engine.ProgramChange:
 		role.Kind, role.Text = RoleOther, fmt.Sprintf("program %d", a.Program)
 	case engine.PitchBend:
-		role.Kind, role.Text = RoleOther, "pitch bend"
+		role.Kind, role.Text = RoleBend, "pitch bend"
 	}
 	return role
 }
@@ -120,6 +165,27 @@ func (d *ProfileDoc) SetNote(layout string, code control.Code, note midi.Note) e
 func (d *ProfileDoc) SetCommand(layout string, code control.Code, command engine.Command) error {
 	return d.change(func(text []byte) ([]byte, error) {
 		return config.Set(text, d.Role(layout, code).Section, code.String(), strconv.Quote(command.String()))
+	})
+}
+
+// SetController makes a control send a controller: an axis its position,
+// read as shape says, and a key 127 while it is held.
+func (d *ProfileDoc) SetController(layout string, code control.Code, controller uint8, shape Shape) error {
+	if controller > 127 {
+		return fmt.Errorf("there is no controller %d; they go from 0 to 127", controller)
+	}
+	return d.change(func(text []byte) ([]byte, error) {
+		value := fmt.Sprintf("{ cc = %d%s }", controller, shape.text())
+		return config.Set(text, d.Role(layout, code).Section, code.String(), value)
+	})
+}
+
+// SetBend makes a control bend the pitch: both ways for a centered axis,
+// upwards otherwise.
+func (d *ProfileDoc) SetBend(layout string, code control.Code, shape Shape) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		value := fmt.Sprintf("{ pitch_bend = true%s }", shape.text())
+		return config.Set(text, d.Role(layout, code).Section, code.String(), value)
 	})
 }
 

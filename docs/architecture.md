@@ -131,6 +131,17 @@ is connected when it appears.
 Network and Bluetooth MIDI outputs are planned after 2.0 and will be further
 implementations of the same interface.
 
+An output can break while HIDI runs: on Windows, a virtual device lives in
+the MIDI service and is gone when that service's process ends. An
+instrument whose send fails lets go of its output, gives its keys back to
+the system and tries for a new output, after two seconds and then after
+twice as long each time, up to thirty. An output may also say that it is
+lost without anything being sent (`output.Checker`), and an instrument asks
+every two seconds; the Windows output answers from the process the MIDI
+service runs in, which it looks at once a second. A call into Windows that
+does not return is given up after a time, and nothing more is asked of the
+service for a while that grows from ten seconds to five minutes.
+
 ### Lights and MIDI input
 
 `light.Paint` turns the state of an instrument into a colour for every key:
@@ -158,9 +169,12 @@ While an instrument is active its device does not type or click.
 
 - Linux: the device is grabbed exclusively through evdev.
 - Windows: there is no per-device grab. While HIDI is active, all keyboard
-  input is suppressed with a low-level hook and read per device through
-  Raw Input. Windows has no way to keep a game controller from other
-  programs, so `-grab-gamepads` has no effect there.
+  input is suppressed with a low-level hook. Keys that pass are read per
+  device through Raw Input. A key the hook swallows is not reported there,
+  so the hook hands it to HIDI itself; the hook does not know the keyboard,
+  and the key goes to the keyboard that Raw Input last saw typing
+  (`rawinput.claims`). Windows has no way to keep a game controller from
+  other programs, so `--grab-gamepads` has no effect there.
 
 Game controllers on Windows are read in two ways, because no single
 interface serves all of them well:
@@ -174,7 +188,9 @@ interface serves all of them well:
 - Every other controller, old ones included, through Raw Input
   (`input/rawinput`), which hands over the HID reports exactly as the
   controller sends them; `hid.dll` takes the buttons and axes out of a
-  report. Raw Input also reads Xbox controllers, with the shared trigger
+  report. Values are told apart by the index Windows gives each, not by
+  their usage, since a stick with four hats has four values of one usage.
+  Raw Input also reads Xbox controllers, with the shared trigger
   axis split in two, should XInput be missing.
 
 The newer interfaces of Windows for controllers were not chosen: they
@@ -241,7 +257,7 @@ separate levels: an interface can keep debug lines while the terminal stays
 quiet.
 
 A line is `date time LEVEL [component] message key='value' ...`, coloured
-when the output is a terminal. `-no-color`, `NO_COLOR` and `FORCE_COLOR`
+when the output is a terminal. `--no-color`, `NO_COLOR` and `FORCE_COLOR`
 override that; plain output is always available.
 The names devices report end up in the log, so everything that is not
 printable text is escaped: a device cannot forge a log line or send escape
@@ -267,21 +283,34 @@ stays usable and can be stopped.
 
 ### Processes
 
-`hidi run` runs the instruments in the foreground. The terminal views
-(`hidi status`, `hidi monitor`) and the graphical UI connect to it over a
-local control socket, so closing a window never stops the instruments.
+`hidi` without a command is the application: one process runs the
+instruments and shows the icon in the tray, and starts the window as a
+second process when it is asked for. `hidi --headless`, or `hidi run`, is
+the same process without icon and window. The terminal views (`hidi
+status`, `hidi monitor`) and the window connect to it over a local control
+socket, so closing a window never stops the instruments.
+
+The window is a process of its own for two reasons: whatever a graphics
+driver does stays away from the instruments, and a closed window gives all
+its memory back. Started while HIDI runs, `hidi` finds the socket answered
+and opens the window of the HIDI that runs. Where the desktop shows no
+icons, the window is opened in place of the icon and closing it ends HIDI.
+On Windows the program is a console program, so that its commands work in a
+terminal; started by a double click it leaves the console Windows gave it.
 
 The socket is a Unix domain socket, which Windows has as well, in a directory
 only the user can enter: `$XDG_RUNTIME_DIR/hidi/control.sock` on Linux. The
 protocol is one JSON object per line and is described in the `ipc` package. A
 client asks for the state once, switches HIDI on or off, or watches: it then
-receives a snapshot after every change, at most twenty a second, and the log
-lines as they are written.
+receives a snapshot after every change, at most twenty a second unless it
+asks for another pace, and the log lines as they are written. The window
+asks for one every four milliseconds, so that an axis moves as smoothly as
+the monitor can show.
 
-`hidi tray` is such a client too: a small program of its own that shows an
-icon in the notification area. Keeping it out of `hidi run` means that HIDI
-on a machine without a desktop carries nothing of it, and that the icon can
-say "not running". On Linux it speaks the StatusNotifierItem protocol and
+The icon is the same code in two places. In the application it follows the
+HIDI of its own process, offers the window and ends HIDI. `hidi tray` is a
+client like the others: an icon for a HIDI that runs headless, which can
+say "not running" and whose removal leaves HIDI running. On Linux it speaks the StatusNotifierItem protocol and
 offers its menu as a `com.canonical.dbusmenu` object, both over D-Bus, with
 the pure Go library `godbus`. On Windows it uses `Shell_NotifyIcon`. The
 icon is drawn by the program in every size asked for, so there are no image
@@ -298,8 +327,10 @@ The window follows the decisions on the roadmap:
 
 - It is drawn in step with the monitor it is on, at whatever rate that
   refreshes, and only when something it shows has changed: the state or
-  log of HIDI, or the pointer. A limit for a window that is not in front
-  can be set.
+  log of HIDI, or the pointer. A lower limit can be set, and another for
+  a window that is not in front.
+- The settings are a sheet over the instruments, which stay in view and
+  take no input while it is open.
 - Nothing in it asks the system to stay awake.
 - Text is set in DejaVu Sans, embedded in the program. Everything that
   changes while one looks at it, the numbers of an instrument and the log,
@@ -325,5 +356,6 @@ so. The result is parsed as a profile before it is written, so the window
 cannot write a file HIDI would refuse. The running HIDI learns of the
 change like of any other, by watching the directory.
 
-The socket also makes HIDI a single instance. A second `hidi run` finds the
-first one answering and stops before it opens any device.
+The socket also makes HIDI a single instance. A second HIDI finds the first
+one answering and stops before it opens any device, or opens the first
+one's window.

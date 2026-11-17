@@ -26,6 +26,9 @@ func TestStructSizes(t *testing.T) {
 		{"HIDP_VALUE_CAPS", unsafe.Sizeof(hidpValueCaps{}), 72},
 		{"HIDP_VALUE_CAPS.logicalMin", unsafe.Offsetof(hidpValueCaps{}.logicalMin), 40},
 		{"HIDP_VALUE_CAPS.usageMin", unsafe.Offsetof(hidpValueCaps{}.usageMin), 56},
+		{"HIDP_VALUE_CAPS.dataIndexMin", unsafe.Offsetof(hidpValueCaps{}.dataIndexMin), 68},
+		{"HIDP_VALUE_CAPS.reportCount", unsafe.Offsetof(hidpValueCaps{}.reportCount), 20},
+		{"HIDP_DATA", unsafe.Sizeof(hidpData{}), 8},
 		{"HIDP_CAPS.inputValueCaps", unsafe.Offsetof(hidpCaps{}.inputValueCaps), 48},
 	} {
 		if s.got != s.want {

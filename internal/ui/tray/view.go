@@ -29,6 +29,12 @@ type View struct {
 	// Toggle is the label of the menu entry that turns HIDI on or off. It
 	// is empty while HIDI is not running.
 	Toggle string
+	// Open is the label of the menu entry that opens HIDI's window. It is
+	// empty where the icon has no window to open; where it has one, a
+	// click on the icon opens it instead of turning HIDI on or off.
+	Open string
+	// Quit is the label of the last menu entry.
+	Quit string
 }
 
 // maxInstruments is how many instruments the menu lists by name.
@@ -70,12 +76,38 @@ type Action uint8
 const (
 	// ActionToggle: turn HIDI on if it is off, and off if it is on.
 	ActionToggle Action = iota + 1
-	// ActionQuit: remove the icon. HIDI keeps running.
+	// ActionQuit: the last menu entry. For an icon that runs beside HIDI
+	// it removes the icon; for the icon of the application it ends HIDI.
 	ActionQuit
+	// ActionOpen: open HIDI's window.
+	ActionOpen
 )
 
-// QuitLabel is the menu entry that removes the icon.
-const QuitLabel = "Remove this icon"
+// The labels of the menu entries beside the one that toggles.
+const (
+	// QuitLabel removes an icon that runs beside HIDI.
+	QuitLabel = "Remove this icon"
+	// QuitAllLabel ends HIDI, for the icon that is part of it.
+	QuitAllLabel = "Quit HIDI"
+	// OpenLabel opens the window.
+	OpenLabel = "Open the window"
+)
+
+// click is what a click on the icon does.
+func (v View) click() Action {
+	if v.Open != "" {
+		return ActionOpen
+	}
+	return ActionToggle
+}
+
+// quit is the label of the last menu entry.
+func (v View) quit() string {
+	if v.Quit != "" {
+		return v.Quit
+	}
+	return QuitLabel
+}
 
 // Host is the notification area of one desktop system.
 type Host interface {

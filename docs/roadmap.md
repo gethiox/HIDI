@@ -1,28 +1,28 @@
 # HIDI 2.0 roadmap
 
 This file records what was agreed for HIDI 2.0, what is done, and what
-remains, in the order it is planned. Update it in the pull request that
+remains, in the order it is planned. Update it in the commit that
 completes or changes an item.
 
 ## How the work is organised
 
 - `main` holds the released 1.x code and is not touched until 2.0 is ready.
-- `dev` is the integration branch. Nothing is committed to it directly.
-- Work happens on a feature branch per change, merged into `dev` through a
-  pull request with a merge commit, so that the commits and their messages
-  are preserved. The pull request description becomes the merge commit
-  message.
-- One pull request is open at a time. The next stage starts when the
-  previous one is merged.
-- Every pull request for 2.0 carries the label `v2.0`.
-- A pull request is a whole area that can be tried in one go, not a small
-  step towards one: the remaining work is planned as about six of them
-  (see "Remaining"). While one is being written, pictures of the state so
-  far go to the maintainer before it is opened.
-- A pull request holds one topic. A fix for something else, found while
-  it is open, goes into a pull request of its own, also when that means
-  two are open at once. Whatever a pull request contains is described in
-  its text.
+- `dev` is the integration branch. Since 17 November 2026 work is
+  committed to it directly: no feature branches and no pull requests any
+  more. Only one pull request remains, the final one from `dev` into
+  `main`.
+- A commit on `dev` is treated as a pull request was before. It is a
+  whole area that can be tried in one go, or one topic of fixes, and its
+  message is written as the text of a pull request was: a title, and a
+  description that says everything the commit contains and what could
+  not be tried. Before it is pushed, the same checks pass that CI runs.
+- Pictures of an interface that changed go to the maintainer with the
+  commit.
+- For as long as the rule of the repository that asks for pull requests
+  covers `dev`, such commits wait on the branch `v2/docs`, in order, to
+  be pushed to `dev` as they are once the rule allows it.
+- Up to pull request 49 the work went through feature branches and pull
+  requests with merge commits, each labelled `v2.0`.
 - `dev` does not have to be usable at every commit, but CI must pass.
 
 ## Decisions
@@ -59,7 +59,7 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
 
 ### What works there
 
-- `hidi run -v -no-grab` after a fresh start of Windows: seven input
+- `hidi run -v --no-grab` after a fresh start of Windows: seven input
   devices became instruments within a second (a HyperX keyboard, a Razer
   mouse that presents a keyboard, two VKB joysticks, a Saitek throttle,
   vJoy, a device called "gamepad"). Their MIDI devices were created one
@@ -102,7 +102,7 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
 3. **An axis that does not rest still flooded**: done, see `axis_threshold`
    in the profile reference.
 4. **Logging**: done. Single MIDI messages are logged only with
-   `-log-midi`; `hidi run` keeps lines about its state at the bottom of
+   `--log-midi`; `hidi run` keeps lines about its state at the bottom of
    the terminal; every interface shows input events and MIDI messages a
    second.
 
@@ -113,9 +113,8 @@ package beside `hidi.exe`), with `dev` at 24c54ff.
    `always_grab`, which keeps keyboards grabbed while HIDI is off and
    types their keys again through uinput; the maintainer chose to leave
    that off by default, and the default toggle stays the three keys.
-   Untried on Windows and on a real Linux desktop. The udev rule of the
-   release (pull request 48) still has to give access to `/dev/uinput`
-   for it.
+   Untried on Windows and on a real Linux desktop. The udev rule gives
+   access to `/dev/uinput` for it.
 6. The buttons of a joystick play notes in the default profile, and two
    instruments of one name in one place keep their order.
 
@@ -123,14 +122,48 @@ Still open there:
 
 - A mouse that presents a keyboard interface (Razer Basilisk V3) is an
   instrument. Still no sure way to tell.
-- `hidi run` with grabbing (without `-no-grab`), an Xbox controller
+- `hidi run` with grabbing (without `--no-grab`), an Xbox controller
   through XInput, and what a HIDI that was killed leaves behind, are
   still untried.
-- The lines at the bottom of the terminal are untried in the Windows
-  terminal.
+- The lines at the bottom of the terminal work in the Windows terminal.
+- The one-key toggle (`toggle_tap`) is untried on Windows.
 
-After the Windows round, "Release" is next: packaging, the udev rule, the
-release workflow.
+### Fourth round (17 November 2026): what was reported, and what was done
+
+Reported from the maintainer's machine, with `hidi run` and `hidi gui`:
+
+| Reported | Done |
+|---|---|
+| With the keyboard grabbed, neither the combination nor a tapped key turned HIDI off, and the window showed no key until HIDI was turned off by its switch. | Windows does not report a key through Raw Input once the hook swallowed it. The hook now hands such keys to HIDI. It does not know the keyboard, so they go to the keyboard that typed last while keys passed. |
+| Of the four hats of a VKB Gladiator only the first worked, and it moved all four. | Values are read by the index Windows gives each (`HidP_GetData`), not by usage, which four hats share. |
+| HIDI did not recover when the MIDI service was ended with `taskkill`. | An instrument whose MIDI device breaks gets a new one. HIDI watches the service's process and declares its devices lost when it ends. |
+| At 120 Hz with no frame limit the window looked like 60. | The window was drawn fast enough, but got HIDI's state only twenty times a second. It now asks for it every 4 ms. |
+| No setting for a frame limit while the window is unfocused. | There was one, under a name that did not say so. Now two: "Frame limit" and "Frame limit while the window is unfocused". |
+| Scrolling past the end of the settings flickered for a frame. | The page is held to its length before it is drawn. |
+| The settings should be a sheet over the main view, a little transparent. | Done; what lies under it takes no input, a click beside it closes it. |
+| The gear has too many teeth too close together, and turns too slowly. | Six teeth instead of eight, once around in eight seconds. More precise wishes are to come. |
+| Axes should stand upright, or need less width. | Upright bars with name and value below. |
+
+Also done, as asked for the same day:
+
+- **`hidi` alone starts the application**: instruments and icon in one
+  process, the window as a second one started from the icon, by
+  `--window`, or by the setting `window.show_at_start`. `--headless`, or
+  `hidi run`, runs the instruments only.
+- **Options with two dashes**, through `github.com/spf13/pflag`.
+- **The README rewritten for users**, with the preview status of Windows
+  and the way out of a hung MIDI service.
+
+None of the Windows parts of this ran on Windows. To be tried there:
+
+- a grabbed keyboard playing and toggling, with the combination and with
+  `--toggle=KEY_CAPSLOCK --toggle-tap`;
+- the four hats, and whether the buttons of the Gladiator play;
+- `taskkill /F /IM midisrv.exe` while HIDI runs: do the instruments come
+  back, and does the DAW find them;
+- `hidi.exe` by double click: the icon, its menu, the window from it,
+  "Quit HIDI", and what is seen of the console window;
+- an Xbox controller.
 
 ## Done
 
@@ -152,7 +185,7 @@ release workflow.
   running instruments when a file changes, and `hidi profiles` to list,
   check and export them.
 - Connecting instruments to existing MIDI ports on Linux, with `hidi ports`
-  and `hidi run -connect`.
+  and `hidi run --connect`.
 - The control interface: a local socket to the running HIDI, with
   `hidi status`, `hidi on`, `hidi off`, `hidi toggle` and `hidi monitor`.
 - Axis settings in a profile: the rate at which an axis is passed on,
@@ -199,7 +232,8 @@ release workflow.
 
 ## Remaining
 
-In planned order. Each item is roughly one pull request.
+In planned order. Each item is roughly one commit on `dev`, as it was one
+pull request before.
 
 ### Windows
 
@@ -222,13 +256,17 @@ In planned order. Each item is roughly one pull request.
 ### Interfaces
 
 6. **The rest of configuring in the graphical interface**:
-    - The toggle combination, by pressing the keys, and the MIDI ports to
-      connect to, from the list of those that exist. The settings page
-      shows them and points to the file. Changed ports need the router to
-      drop connections too.
-    - In a profile: axes, controllers, program changes, pitch bend, keys
-      with modifiers, and the options of a note; adding and removing
-      layouts; making a new profile and saying which devices it is for.
+    - Done: the toggle combination, by pressing the keys, and the MIDI
+      ports to connect to, from the list of those that exist. Still open:
+      a running HIDI follows changed ports only when it starts again,
+      since the router cannot drop connections yet; and the lights are
+      not on the page.
+    - Done in a profile: an axis sends a controller or bends the pitch,
+      with centred, reversed and dead zone; a key sends a controller.
+      Still open there: the two halves of an axis bound apart, program
+      changes, keys with modifiers, and the options of a note; adding
+      and removing layouts; making a new profile and saying which
+      devices it is for.
 
 ### Features
 
@@ -247,7 +285,9 @@ In planned order. Each item is roughly one pull request.
     on immutable releases in the repository settings, and decide how
     `Windows.Devices.Midi2.dll` reaches Windows users (it is not in the
     archive).
-12. Rewriting the README and the user documentation.
+12. Done: the README is written for users. The configuration reference
+    and the description of the architecture were kept up with each
+    change and are as they were otherwise.
 13. Merging `dev` into `main`.
 
 ### After 2.0
@@ -279,7 +319,7 @@ rest on assumptions about real devices and should be checked first:
 - That a mouse which also presents a keyboard is left alone.
 - Which axes of the Saitek X56 stick and throttle return to their centre;
   the built-in profiles guess.
-- That `hidi run -connect` reaches a real USB MIDI interface, and
+- That `hidi run --connect` reaches a real USB MIDI interface, and
   reconnects after it was unplugged.
 - That the window of `hidi gui` opens and is sharp on a real display, also a
   dense one, on Wayland and on Windows; that it keeps to the refresh rate
@@ -323,9 +363,20 @@ rest on assumptions about real devices and should be checked first:
 - The built-in game controller profiles bind neither `chord` nor `learn`;
   1.x had learning on the left shoulder button, which is a note now.
 
-- The icon is a program the user has to start. Whether HIDI should put it
-  among the programs started at login, and whether `hidi run` should start
-  it, is to be decided with packaging.
+- HIDI is not started at login. A switch for that, an entry among the
+  desktop's autostart programs on Linux and in the registry on Windows,
+  can follow.
+- On Windows `hidi.exe` is a console program, so that its commands write
+  to a terminal. Started by a double click it leaves its console at once,
+  which may still show for a moment. If that disturbs, the alternative is
+  a second program file without a console for the application.
+- The window cannot be brought to the front from the icon when it is open
+  already but covered.
+- With two keyboards grabbed on Windows, both play the instrument of the
+  one that typed last before HIDI was turned on. Telling them apart while
+  grabbed needs a driver.
+- `spf13/pflag` is held at 1.0.10, because 1.1.0 writes "[=true|false]"
+  after every switch in the help.
 
 - `axis_on_change` is one setting for a profile. Whether single bindings
   need to differ from it will show in use.
@@ -361,7 +412,7 @@ rest on assumptions about real devices and should be checked first:
   which controls a device has.
 - The icons of `hidi tray` are drawn placeholders, and the window has no
   icon of its own; the maintainer will supply the art.
-- `-connect` applies to every instrument. Choosing ports for each
+- `--connect` applies to every instrument. Choosing ports for each
   instrument separately needs those settings, and belongs with them.
 - The udev rule tags every input device with `uaccess`, so the person at
   the machine can read all of them. Narrowing it to keyboards and game

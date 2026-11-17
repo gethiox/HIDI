@@ -141,6 +141,7 @@ func TestStuckStageIsAbandoned(t *testing.T) {
 	old := stepTimeout
 	stepTimeout = 50 * time.Millisecond
 	defer func() { stepTimeout = old }()
+	defer stuck.clear()
 
 	var out strings.Builder
 	tr := &tracer{w: &out}

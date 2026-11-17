@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 
 	"github.com/gethiox/HIDI/internal/config"
+	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/ipc"
+	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
 )
 
@@ -27,15 +31,36 @@ type settingsView struct {
 	broken   []config.Problem
 	message  string // the outcome of the last thing the user did here
 	scroll   float32
+	content  float32 // the height of the page when it was last drawn
+	// capture is the toggle combination being taken from the keys the
+	// user presses, or nil.
+	capture *capture
+	// ports are the MIDI ports that exist, and portsErr why they cannot
+	// be listed.
+	ports    []output.Port
+	portsErr string
 }
 
 const settingsRefresh = 2 * time.Second
 
-func (v *settingsView) refresh(p settings.Paths, now time.Time, force bool) {
+func (v *settingsView) refresh(p settings.Paths, list func() ([]output.Port, error), now time.Time, force bool) {
 	if !force && now.Sub(v.loaded) < settingsRefresh {
 		return
 	}
 	v.loaded = now
+	v.ports, v.portsErr = nil, ""
+	if list != nil {
+		ports, err := list()
+		if err != nil {
+			v.portsErr = err.Error()
+		}
+		for _, port := range ports {
+			// HIDI's own instruments are not somewhere to send to.
+			if !strings.HasPrefix(port.Name, "HIDI ") {
+				v.ports = append(v.ports, port)
+			}
+		}
+	}
 	v.exists = p.Root != "" && settings.Managed(p)
 	v.problem, v.profiles, v.broken = "", nil, nil
 	if !v.exists {
@@ -64,8 +89,8 @@ func (w *window) drawGear(sw float32) {
 	if clicked(area) {
 		w.gear.set(!w.gear.open, now)
 		if w.gear.open {
-			w.settings.message = ""
-			w.settings.refresh(w.opts.Paths, now, true)
+			w.settings.message, w.settings.capture = "", nil
+			w.settings.refresh(w.opts.Paths, w.opts.Ports, now, true)
 		}
 	}
 	angle := float32(w.gear.advance(now))
@@ -78,14 +103,14 @@ func (w *window) drawGear(sw float32) {
 		ink = col(colFaint)
 	}
 	cx, cy := area.X+size/2, area.Y+size/2
-	// Eight teeth: four bars through the middle, each turned an eighth
-	// of a circle further. raylib turns clockwise for growing angles.
-	for i := range 4 {
-		bar := rl.NewRectangle(cx, cy, 24, 6)
-		rl.DrawRectanglePro(bar, rl.NewVector2(12, 3), angle+float32(i)*45, ink)
+	// Six teeth: three bars through the middle, each turned a sixth of a
+	// circle further. raylib turns clockwise for growing angles.
+	for i := range 3 {
+		bar := rl.NewRectangle(cx, cy, 26, 7)
+		rl.DrawRectanglePro(bar, rl.NewVector2(13, 3.5), angle+float32(i)*60, ink)
 	}
-	rl.DrawCircle(int32(cx), int32(cy), 8.5, ink)
-	rl.DrawCircle(int32(cx), int32(cy), 4, col(colBackground))
+	rl.DrawCircleV(rl.NewVector2(cx, cy), 9, ink)
+	rl.DrawCircleV(rl.NewVector2(cx, cy), 4, col(colBackground))
 }
 
 // button draws a button and reports a click on it.
@@ -133,7 +158,7 @@ func (w *window) save(s settings.Settings, note string) {
 		return
 	}
 	w.settings.message = note
-	w.settings.refresh(w.opts.Paths, time.Now(), true)
+	w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
 }
 
 // What the page says after a change, by when a running HIDI follows it.
@@ -142,21 +167,42 @@ const (
 	restartNote = "Saved. A running HIDI takes this over when it is started again."
 )
 
-// drawSettings draws the settings page in place of the instruments.
-func (w *window) drawSettings(area rl.Rectangle) {
+// drawOverlay draws the settings as a sheet over the body of the window:
+// smaller than it, so that the instruments show around it, and not quite
+// opaque, so that they show through. A click beside the sheet closes it.
+func (w *window) drawOverlay(state *ipc.Snapshot, body rl.Rectangle) {
+	inset := min(max(body.Width*0.05, 14), 60)
+	sheet := rl.NewRectangle(body.X+inset, body.Y+6, body.Width-2*inset, body.Height-18)
+	if sheet.Height < 60 {
+		sheet = rl.NewRectangle(body.X, body.Y, body.Width, body.Height)
+	}
+	rl.DrawRectangleRec(body, rl.NewColor(0, 0, 0, 70))
+	roundness := 20 / min(sheet.Width, sheet.Height)
+	rl.DrawRectangleRounded(sheet, roundness, 8, colA(colBar, 238))
+	rl.DrawRectangleRoundedLinesEx(sheet, roundness, 8, 1, col(colPanelEdge))
+	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) && hovered(body) && !hovered(sheet) {
+		w.gear.set(false, time.Now())
+		return
+	}
+	w.drawSettings(state, rl.NewRectangle(sheet.X+2, sheet.Y+2, sheet.Width-4, sheet.Height-4))
+}
+
+// drawSettings draws the settings page.
+func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	v := &w.settings
 	p := w.opts.Paths
-	v.refresh(p, time.Now(), false)
+	v.refresh(p, w.opts.Ports, time.Now(), false)
 
-	if hovered(area) {
-		v.scroll -= rl.GetMouseWheelMove() * 40
-	}
-	v.scroll = max(v.scroll, 0)
+	// The page is as long as it was when last drawn, which is what the
+	// scrolling is held to before anything is drawn.
+	v.scroll -= wheel(area) * 40
+	v.scroll = min(max(v.scroll, 0), max(v.content-area.Height, 0))
 	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
 	defer rl.EndScissorMode()
 
-	x, y := float32(margin), area.Y+4-v.scroll
-	right := area.Width - margin
+	x, y := area.X+margin, area.Y+12-v.scroll
+	right := area.X + area.Width - margin
+	defer func() { v.content = y + v.scroll - area.Y + 14 }()
 	heading := func(s string) {
 		text(w.bold, s, x, y, sizeName, col(colText))
 		y += 30
@@ -178,7 +224,7 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		return
 	}
 	if !v.exists {
-		text(w.sans, "HIDI's directory is not in use yet. \"hidi run\" creates it on its first start.", x, y, sizeText, col(colFaint))
+		text(w.sans, "HIDI's directory is not in use yet. HIDI creates it on its first start.", x, y, sizeText, col(colFaint))
 		y += 30
 	}
 	if v.problem != "" {
@@ -200,12 +246,50 @@ func (w *window) drawSettings(area rl.Rectangle) {
 	for i, c := range s.Input.Toggle {
 		toggleNames[i] = strings.TrimPrefix(c.String(), "KEY_")
 	}
-	vx := row("Toggle combination", "turns HIDI off and on; change it in settings.toml, HIDI follows")
+	vx := row("Toggle combination", "turns HIDI off and on")
 	combination := strings.Join(toggleNames, " + ")
 	if combination == "" {
 		combination = "none"
 	}
-	text(w.mono, combination, vx, y+3, sizeMono, col(colText))
+	switch {
+	case v.capture != nil:
+		// The keys are taken from what the keyboards of the running HIDI
+		// report, which is what the combination will be looked for in.
+		if v.capture.step(keysDown(state)) {
+			s.Input.Toggle = nil
+			for _, name := range v.capture.keys {
+				if code, err := control.ParseCode(name); err == nil {
+					s.Input.Toggle = append(s.Input.Toggle, code)
+				}
+			}
+			if len(s.Input.Toggle) != 1 {
+				s.Input.ToggleTap = false // a tap is of one key
+			}
+			v.capture = nil
+			w.save(s, soonNote)
+			break
+		}
+		pressed := "Press the keys together, then let go"
+		if len(v.capture.keys) > 0 {
+			names := make([]string, len(v.capture.keys))
+			for i, name := range v.capture.keys {
+				names[i] = strings.TrimPrefix(name, "KEY_")
+			}
+			pressed = strings.Join(names, " + ") + " …"
+		}
+		text(w.mono, pressed, vx, y+3, sizeMono, col(AnsiColour(93)))
+		if hit, _ := w.button("Cancel", vx+width(w.mono, pressed, sizeMono)+14, y-2); hit {
+			v.capture = nil
+		}
+	case state == nil:
+		text(w.mono, combination, vx, y+3, sizeMono, col(colText))
+		text(w.sans, "start HIDI to change it here", vx+width(w.mono, combination, sizeMono)+14, y+3, sizeText-2, col(colFaint))
+	default:
+		text(w.mono, combination, vx, y+3, sizeMono, col(colText))
+		if hit, _ := w.button("Change", vx+width(w.mono, combination, sizeMono)+14, y-2); hit && editable {
+			v.capture, v.message = &capture{}, ""
+		}
+	}
 	y += 46
 
 	for _, item := range []struct {
@@ -217,12 +301,13 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		{"HIDI is on when it starts", "", &s.Input.StartOn},
 		{"The toggle is one key, tapped", "held longer, the key does what it normally does", &s.Input.ToggleTap},
 		{"Keyboards stay grabbed while HIDI is off", "Linux; hides the tapped key from the system", &s.Input.AlwaysGrab},
+		{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &s.Window.ShowAtStart},
 	} {
 		vx := row(item.name, item.about)
 		if w.pill(*item.value, vx, y) && editable {
 			*item.value = !*item.value
 			note := soonNote
-			if item.value == &s.Input.StartOn {
+			if item.value == &s.Input.StartOn || item.value == &s.Window.ShowAtStart {
 				note = restartNote
 			}
 			w.save(s, note)
@@ -233,39 +318,92 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		}
 	}
 
-	vx = row("Also send to MIDI ports", "change it in settings.toml and start HIDI again")
-	ports := strings.Join(s.Output.Connect, ", ")
-	if ports == "" {
-		ports = "none"
-	}
-	text(w.mono, ports, vx, y+3, sizeMono, col(colText))
-	y += 46
-
-	vx = row("Frame limit behind other windows", "0 keeps to the monitor's refresh rate")
-	for _, fps := range []int{0, 15, 30, 60} {
-		label := fmt.Sprintf("%d", fps)
-		if fps == 0 {
-			label = "none"
+	// The MIDI ports that exist, and those the settings name that do not:
+	// a click adds or removes one.
+	vx = row("Also send to MIDI ports", "every instrument; HIDI follows when it starts again")
+	px, py := vx, y
+	portChip := func(label string, on bool) bool {
+		cw := w.chipWidth(label)
+		if px > vx && px+cw > right {
+			px, py = vx, py+chipH+6
 		}
-		chip := rl.NewRectangle(vx, y, w.chipWidth(label), chipH)
+		chip := rl.NewRectangle(px, py, cw, chipH)
 		if hovered(chip) {
 			rl.SetMouseCursor(rl.MouseCursorPointingHand)
 		}
-		if s.Window.BackgroundFPS == fps {
+		if on {
 			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
-			text(w.mono, label, vx+7, y+3, sizeMono, col(colBar))
+			text(w.mono, label, px+7, py+3, sizeMono, col(colBar))
 		} else {
 			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
-			text(w.mono, label, vx+7, y+3, sizeMono, col(colFaint))
+			text(w.mono, label, px+7, py+3, sizeMono, col(colFaint))
 		}
-		if clicked(chip) && editable && s.Window.BackgroundFPS != fps {
-			s.Window.BackgroundFPS = fps
-			w.pace.background = fps // this window follows at once
-			w.save(s, "Saved.")
-		}
-		vx += chip.Width + 6
+		px += cw + 6
+		return clicked(chip) && editable
 	}
-	y += 46
+	for _, port := range v.ports {
+		if portChip(port.Name, portChosen(s.Output.Connect, port)) {
+			s.Output.Connect = togglePort(s.Output.Connect, port)
+			w.save(s, restartNote)
+		}
+	}
+	for _, pattern := range absentPorts(s.Output.Connect, v.ports) {
+		if portChip(pattern+" (not there now)", true) {
+			s.Output.Connect = slices.DeleteFunc(slices.Clone(s.Output.Connect), func(p string) bool { return p == pattern })
+			w.save(s, restartNote)
+		}
+	}
+	switch {
+	case px > vx:
+	case v.portsErr != "":
+		// The reason may be long; its start says most.
+		reason := []rune(v.portsErr)
+		for len(reason) > 1 && width(w.sans, string(reason), sizeText-2) > right-vx {
+			reason = append(reason[:len(reason)-2], '…')
+		}
+		text(w.sans, string(reason), vx, y+3, sizeText-2, col(colFaint))
+	default:
+		text(w.mono, "no MIDI ports found", vx, y+3, sizeMono, col(colFaint))
+	}
+	y = max(py+chipH+26, y+46)
+
+	// The two frame limits: one for always, one for while another window
+	// is the one in use.
+	for _, limit := range []struct {
+		name, about string
+		value       *int
+		live        *int
+		choices     []int
+	}{
+		{"Frame limit", "none keeps to the monitor's refresh rate", &s.Window.FPS, &w.pace.limit, []int{0, 30, 60, 120, 144, 240}},
+		{"Frame limit while the window is unfocused", "for less work while another window is in use", &s.Window.BackgroundFPS, &w.pace.background, []int{0, 15, 30, 60}},
+	} {
+		vx = row(limit.name, limit.about)
+		for _, fps := range limit.choices {
+			label := fmt.Sprintf("%d", fps)
+			if fps == 0 {
+				label = "none"
+			}
+			chip := rl.NewRectangle(vx, y, w.chipWidth(label), chipH)
+			if hovered(chip) {
+				rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			}
+			if *limit.value == fps {
+				rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
+				text(w.mono, label, vx+7, y+3, sizeMono, col(colBar))
+			} else {
+				rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
+				text(w.mono, label, vx+7, y+3, sizeMono, col(colFaint))
+			}
+			if clicked(chip) && editable && *limit.value != fps {
+				*limit.value = fps
+				*limit.live = fps // this window follows at once
+				w.save(s, "Saved.")
+			}
+			vx += chip.Width + 6
+		}
+		y += 46
+	}
 
 	vx = row("Height of the log when the window opens", "")
 	text(w.mono, fmt.Sprintf("%d", s.Window.LogHeight), vx, y+3, sizeMono, col(colText))
@@ -330,12 +468,6 @@ func (w *window) drawSettings(area rl.Rectangle) {
 			y += 18
 		}
 		y += 8
-	}
-	// What lies below the page limits the scrolling.
-	if content := y + v.scroll - area.Y + 12; content > area.Height {
-		v.scroll = min(v.scroll, content-area.Height)
-	} else {
-		v.scroll = 0
 	}
 }
 

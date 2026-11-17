@@ -254,3 +254,39 @@ func TestIsGameController(t *testing.T) {
 		t.Error("a keyboard or a consumer control is a game controller")
 	}
 }
+
+func TestBitField(t *testing.T) {
+	// Four hats of four bits each, then a value of twelve bits.
+	buf := []byte{0x21, 0x43, 0xbc, 0x0a}
+	for i, want := range []uint32{1, 2, 3, 4} {
+		if got := bitField(buf, i*4, 4); got != want {
+			t.Errorf("hat %d = %d, want %d", i, got, want)
+		}
+	}
+	if got := bitField(buf, 16, 12); got != 0xabc {
+		t.Errorf("the value of twelve bits = %#x, want 0xabc", got)
+	}
+	if got := bitField(buf, 28, 8); got != 0 {
+		t.Errorf("a value past the end = %d, want 0", got)
+	}
+}
+
+// A stick with four hats gets a pair of axes for each, as on Linux.
+func TestFourHats(t *testing.T) {
+	p := newPad(layoutGeneric, true)
+	for range 4 {
+		if !p.addAxis(pageDesktop, usageHat, 4, 0, 7) {
+			t.Fatal("a hat was not taken in")
+		}
+	}
+	for i, a := range p.axes {
+		if want := uint16(absHat0X + 2*i); a.code != want {
+			t.Errorf("hat %d has the code %#x, want %#x", i, a.code, want)
+		}
+	}
+	// Only the third hat is pushed, to the right.
+	got := describe(p.value(2, 2, time.Time{}))
+	if len(got) != 2 || got[0] != "ABS_HAT2X=1" || got[1] != "ABS_HAT2Y=0.5" {
+		t.Errorf("pushing the third hat gave %v", got)
+	}
+}

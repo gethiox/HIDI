@@ -119,7 +119,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		w.logHeight, w.savedHeight = float32(opts.LogHeight), float32(opts.LogHeight)
 	}
 
-	pace := newPacer(opts.BackgroundFPS)
+	pace := newPacer(opts.FPS, opts.BackgroundFPS)
 	w.pace = pace
 	if opts.ShowSettings {
 		w.gear.set(true, time.Now())
@@ -184,13 +184,14 @@ func userActive() bool {
 // display without one, the same rate is kept by sleeping. Behind another
 // window the rate may be held lower.
 type pacer struct {
-	background int
+	limit      int // 0 for none
+	background int // the limit behind another window, 0 for none of its own
 	target     int32
 	checked    time.Time
 	refresh    int32
 }
 
-func newPacer(background int) *pacer { return &pacer{background: background} }
+func newPacer(limit, background int) *pacer { return &pacer{limit: limit, background: background} }
 
 func (p *pacer) frame() {
 	// The window may have been moved to another monitor.
@@ -204,6 +205,9 @@ func (p *pacer) frame() {
 	// A little above the monitor's rate, so that the sleeping never
 	// makes a frame miss the monitor it would have caught.
 	want := p.refresh + p.refresh/20 + 1
+	if p.limit > 0 && int32(p.limit) < want {
+		want = int32(p.limit)
+	}
 	if p.background > 0 && !rl.IsWindowFocused() && int32(p.background) < want {
 		want = int32(p.background)
 	}
@@ -259,11 +263,26 @@ func width(font rl.Font, s string, size float32) float32 {
 	return rl.MeasureTextEx(font, s, size, 0).X
 }
 
+// inputOff makes what is drawn deaf to the pointer: it is set while the
+// part of the window that lies under the settings is drawn. The window is
+// drawn by one goroutine.
+var inputOff bool
+
 func clicked(r rl.Rectangle) bool {
-	return rl.IsMouseButtonPressed(rl.MouseButtonLeft) && rl.CheckCollisionPointRec(rl.GetMousePosition(), r)
+	return !inputOff && rl.IsMouseButtonPressed(rl.MouseButtonLeft) && rl.CheckCollisionPointRec(rl.GetMousePosition(), r)
 }
 
-func hovered(r rl.Rectangle) bool { return rl.CheckCollisionPointRec(rl.GetMousePosition(), r) }
+func hovered(r rl.Rectangle) bool {
+	return !inputOff && rl.CheckCollisionPointRec(rl.GetMousePosition(), r)
+}
+
+// wheel returns how far the mouse wheel was turned over r.
+func wheel(r rl.Rectangle) float32 {
+	if !hovered(r) {
+		return 0
+	}
+	return rl.GetMouseWheelMove()
+}
 
 func (w *window) draw() {
 	sw, sh := float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight())
@@ -285,7 +304,12 @@ func (w *window) draw() {
 	if body := rl.NewRectangle(0, headerH, sw, logTop-headerH); w.edit != nil {
 		w.drawEditor(state, body)
 	} else if w.gear.open {
-		w.drawSettings(body)
+		// The settings lie over the instruments, which stay in view
+		// beside and faintly through them, and take no clicks meanwhile.
+		inputOff = true
+		w.drawInstruments(state, body)
+		inputOff = false
+		w.drawOverlay(state, body)
 	} else {
 		w.drawInstruments(state, body)
 	}
@@ -297,7 +321,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	x := margin + width(w.title, "HIDI", sizeTitle) + 18
 
 	if state == nil {
-		text(w.sans, "HIDI is not running. Start it with \"hidi run\".", x, 27, sizeText, col(colFaint))
+		text(w.sans, "HIDI is not running. Start it with \"hidi\".", x, 27, sizeText, col(colFaint))
 		return
 	}
 	// The switch: a pill with a knob, and the state in words.
@@ -366,9 +390,7 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 		heights[i] = cardTop + w.inputHeight(in, cardW-2*cardPad) + 10 + pianoH + 12
 		total += heights[i] + cardGap
 	}
-	if hovered(area) {
-		w.cardScroll -= rl.GetMouseWheelMove() * 40
-	}
+	w.cardScroll -= wheel(area) * 40
 	w.cardScroll = min(max(w.cardScroll, 0), max(total-area.Height, 0))
 
 	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
@@ -489,8 +511,34 @@ func (w *window) chipRows(in ipc.Instrument, inner float32) int {
 	return rows
 }
 
+// An axis is drawn as an upright bar with its name and its value below.
+const (
+	axisBarH  = 40
+	axisBarW  = 8
+	axisSize  = 10 // of the lettering
+	axisCellH = axisBarH + 4 + 2*(axisSize+2) + 6
+)
+
+// axisLabel is the name of an axis as it stands under its bar: without
+// the "ABS_" every one of them begins with.
+func axisLabel(part, name string) string {
+	return controlName(part, strings.TrimPrefix(name, "ABS_"))
+}
+
+// axisCell is the width every axis of an instrument gets: that of the
+// longest name among them.
+func (w *window) axisCell(in ipc.Instrument) float32 {
+	cell := width(w.mono, "0.00", axisSize)
+	for _, a := range in.Axes {
+		cell = max(cell, width(w.mono, axisLabel(a.Part, a.Name), axisSize))
+	}
+	return cell + 10
+}
+
 // axisColumns is how many axes fit beside each other.
-func axisColumns(inner float32) int { return max(int(inner/380), 1) }
+func (w *window) axisColumns(in ipc.Instrument, inner float32) int {
+	return max(int(inner/w.axisCell(in)), 1)
+}
 
 // inputHeight is the height the raw input of a device takes.
 func (w *window) inputHeight(in ipc.Instrument, inner float32) float32 {
@@ -503,8 +551,8 @@ func (w *window) inputHeight(in ipc.Instrument, inner float32) float32 {
 	}
 	h := float32(w.chipRows(in, inner)) * (chipH + 6)
 	if n := len(in.Axes); n > 0 {
-		cols := axisColumns(inner)
-		h += float32((n+cols-1)/cols) * axisRowH
+		cols := w.axisColumns(in, inner)
+		h += float32((n+cols-1)/cols) * axisCellH
 	}
 	return h
 }
@@ -539,25 +587,25 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 	if len(in.Buttons) > 0 {
 		cy += chipH + 6
 	}
-	// The axes: name, a bar for the position, and the number.
-	cols := axisColumns(inner)
-	colW := inner / float32(cols)
-	nameW := float32(0)
-	for _, a := range in.Axes {
-		nameW = max(nameW, width(w.mono, controlName(a.Part, a.Name), sizeMono))
-	}
-	valueW := width(w.mono, "0.000", sizeMono)
+	// The axes: an upright bar for the position, the name and the number.
+	cell := w.axisCell(in)
+	cols := w.axisColumns(in, inner)
 	for i, a := range in.Axes {
-		ax := x + float32(i%cols)*colW
-		ay := cy + float32(i/cols)*axisRowH
-		text(w.mono, controlName(a.Part, a.Name), ax, ay+2, sizeMono, col(colFaint))
-		bar := rl.NewRectangle(ax+nameW+10, ay+6, colW-nameW-valueW-44, 8)
+		ax := x + float32(i%cols)*cell
+		ay := cy + float32(i/cols)*axisCellH
+		bar := rl.NewRectangle(float32(int(ax+(cell-10-axisBarW)/2)), ay, axisBarW, axisBarH)
 		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
 		value := float32(min(max(a.Value, 0), 1))
-		rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, bar.Width*value, bar.Height), 1, 4, col(colAccent))
+		if filled := bar.Height * value; filled >= 1 {
+			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y+bar.Height-filled, bar.Width, filled), 1, 4, col(colAccent))
+		}
 		// A mark in the middle, where a stick rests.
-		rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
-		text(w.mono, fmt.Sprintf("%.3f", a.Value), bar.X+bar.Width+10, ay+2, sizeMono, col(colText))
+		rl.DrawRectangleRec(rl.NewRectangle(bar.X-2, bar.Y+bar.Height/2, bar.Width+4, 1), col(colOff))
+		label := axisLabel(a.Part, a.Name)
+		ly := ay + axisBarH + 4
+		text(w.mono, label, ax+(cell-10-width(w.mono, label, axisSize))/2, ly, axisSize, col(colFaint))
+		number := fmt.Sprintf("%.2f", a.Value)
+		text(w.mono, number, ax+(cell-10-width(w.mono, number, axisSize))/2, ly+axisSize+2, axisSize, col(colText))
 	}
 }
 
@@ -668,9 +716,7 @@ func (w *window) drawLog(area rl.Rectangle) {
 		return
 	}
 	visible := int(body.Height / lineH)
-	if hovered(body) {
-		w.logScroll += rl.GetMouseWheelMove() * 3
-	}
+	w.logScroll += wheel(body) * 3
 	w.logScroll = min(max(w.logScroll, 0), float32(max(len(lines)-visible, 0)))
 
 	rl.BeginScissorMode(int32(body.X), int32(body.Y), int32(body.Width), int32(body.Height))

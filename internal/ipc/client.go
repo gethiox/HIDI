@@ -19,6 +19,10 @@ var ErrNotRunning = errors.New("HIDI is not running")
 // Client talks to a running HIDI.
 type Client struct {
 	path string
+	// SnapshotEvery is the least time between two snapshots [Client.Watch]
+	// asks for. Zero leaves it to HIDI, which then sends twenty a second
+	// at most.
+	SnapshotEvery time.Duration
 }
 
 // NewClient returns a client for the HIDI that listens at path. Nothing is
@@ -90,7 +94,7 @@ func (c *Client) Watch(ctx context.Context, logs int, onSnapshot func(Snapshot),
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 
-	if err := json.NewEncoder(conn).Encode(request{Op: "watch", Logs: logs}); err != nil {
+	if err := json.NewEncoder(conn).Encode(request{Op: "watch", Logs: logs, EveryMS: int(c.SnapshotEvery / time.Millisecond)}); err != nil {
 		return fmt.Errorf("asking HIDI: %w", err)
 	}
 	in := json.NewDecoder(bufio.NewReader(conn))

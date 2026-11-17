@@ -66,6 +66,7 @@ const (
 
 	cmdToggle = 1
 	cmdQuit   = 2
+	cmdOpen   = 3
 )
 
 // Structures from the Windows headers, as laid out on 64-bit Windows.
@@ -246,7 +247,7 @@ func trayWindowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		case wmTray:
 			switch uint32(lParam) {
 			case wmLButtonUp:
-				h.act(ActionToggle)
+				h.act(h.shown.click())
 			case wmRButtonUp:
 				h.menu()
 			}
@@ -348,12 +349,17 @@ func (h *windowsHost) menu() {
 	for _, line := range h.shown.Lines {
 		add(mfString|mfGrayed, 0, line)
 	}
-	if h.shown.Toggle != "" {
+	if h.shown.Open != "" || h.shown.Toggle != "" {
 		add(mfSeparator, 0, "")
+	}
+	if h.shown.Open != "" {
+		add(mfString, cmdOpen, h.shown.Open)
+	}
+	if h.shown.Toggle != "" {
 		add(mfString, cmdToggle, h.shown.Toggle)
 	}
 	add(mfSeparator, 0, "")
-	add(mfString, cmdQuit, QuitLabel)
+	add(mfString, cmdQuit, h.shown.quit())
 
 	var pt [2]int32
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
@@ -365,6 +371,8 @@ func (h *windowsHost) menu() {
 	switch chosen {
 	case cmdToggle:
 		h.act(ActionToggle)
+	case cmdOpen:
+		h.act(ActionOpen)
 	case cmdQuit:
 		h.act(ActionQuit)
 	}

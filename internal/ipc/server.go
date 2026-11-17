@@ -34,13 +34,25 @@ func DefaultPath() (string, error) {
 var ErrRunning = errors.New("HIDI is already running")
 
 // These intervals pace what a watching client is sent. Snapshots change
-// with every note; a client needs them at the rate a person can read. The
-// log has no way to announce a new line, so it is looked at while someone
-// watches.
+// with every note; a client needs them at the rate a person can read,
+// unless it asks for another: a window that draws moving axes wants them
+// as often as its monitor shows a picture. The log has no way to announce
+// a new line, so it is looked at while someone watches.
 const (
-	snapshotInterval = 50 * time.Millisecond
-	logInterval      = 100 * time.Millisecond
+	snapshotInterval    = 50 * time.Millisecond
+	minSnapshotInterval = 2 * time.Millisecond
+	maxSnapshotInterval = 5 * time.Second
+	logInterval         = 100 * time.Millisecond
 )
+
+// snapshotPace is the time between two snapshots for a client that asked
+// for one every so many milliseconds.
+func snapshotPace(everyMS int) time.Duration {
+	if everyMS <= 0 {
+		return snapshotInterval
+	}
+	return min(max(time.Duration(everyMS)*time.Millisecond, minSnapshotInterval), maxSnapshotInterval)
+}
 
 // maxRequest bounds a request line, so that a confused client cannot make
 // the server buffer without end.
@@ -153,14 +165,14 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 		host.SetActive(!host.Snapshot().Active)
 		snapshot()
 	case "watch":
-		watch(ctx, conn, out, host, req.Logs)
+		watch(ctx, conn, out, host, req.Logs, snapshotPace(req.EveryMS))
 	default:
 		out.Encode(response{Error: fmt.Sprintf("unknown operation %q", req.Op)})
 	}
 }
 
 // watch sends snapshots and log lines until the client goes away.
-func watch(ctx context.Context, conn net.Conn, out *json.Encoder, host Host, logs int) {
+func watch(ctx context.Context, conn net.Conn, out *json.Encoder, host Host, logs int, pace time.Duration) {
 	changes, stop := host.Changes.Listen()
 	defer stop()
 
@@ -221,7 +233,7 @@ func watch(ctx context.Context, conn net.Conn, out *json.Encoder, host Host, log
 			}
 			// Let further changes gather before the next snapshot.
 			select {
-			case <-time.After(snapshotInterval):
+			case <-time.After(pace):
 			case <-ctx.Done():
 				return
 			case <-gone:

@@ -67,6 +67,12 @@ type Output struct {
 
 // Window holds what the window remembers.
 type Window struct {
+	// ShowAtStart opens the window when HIDI starts as an application.
+	// Without it HIDI starts as an icon in the tray only.
+	ShowAtStart bool
+	// FPS limits how often the window is drawn; 0 keeps to the monitor's
+	// refresh rate, which is also the most it is ever drawn.
+	FPS int
 	// BackgroundFPS limits how often the window is drawn while it is not
 	// in front; 0 keeps to the monitor's refresh rate.
 	BackgroundFPS int
@@ -106,8 +112,10 @@ type file struct {
 		Address *string `toml:"address"`
 	} `toml:"lights"`
 	Window struct {
-		BackgroundFPS *int `toml:"background_fps"`
-		LogHeight     *int `toml:"log_height"`
+		ShowAtStart   *bool `toml:"show_at_start"`
+		FPS           *int  `toml:"fps"`
+		BackgroundFPS *int  `toml:"background_fps"`
+		LogHeight     *int  `toml:"log_height"`
 	} `toml:"window"`
 }
 
@@ -157,10 +165,12 @@ func Parse(data []byte) (Settings, error) {
 	if _, _, err := net.SplitHostPort(s.Lights.Address); err != nil {
 		problems = append(problems, fmt.Sprintf("lights.address: %q is not a host and a port, such as %q", s.Lights.Address, DefaultOpenRGBAddress))
 	}
+	set(&s.Window.ShowAtStart, f.Window.ShowAtStart)
+	set(&s.Window.FPS, f.Window.FPS)
 	set(&s.Window.BackgroundFPS, f.Window.BackgroundFPS)
 	set(&s.Window.LogHeight, f.Window.LogHeight)
-	if s.Window.BackgroundFPS < 0 || s.Window.LogHeight < 0 {
-		problems = append(problems, "window: background_fps and log_height cannot be negative")
+	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 || s.Window.LogHeight < 0 {
+		problems = append(problems, "window: fps, background_fps and log_height cannot be negative")
 	}
 	if len(problems) == 0 {
 		problems = append(problems, s.Check()...)
@@ -276,15 +286,24 @@ openrgb = %t
 address = %q
 
 [window]
-# Draw the window at most this many times a second while another window is
-# in front. 0 keeps to the monitor's refresh rate.
+# Open the window when HIDI starts. Without this HIDI starts as an icon in
+# the tray, and the window is opened from there.
+show_at_start = %t
+
+# Draw the window at most this many times a second. 0 sets no limit: the
+# window then keeps to the refresh rate of the monitor it is on, which is
+# also the most it is ever drawn.
+fps = %d
+
+# The same limit for while the window is not the one in use: another
+# window has the focus. 0 sets no limit of its own.
 background_fps = %d
 
 # The height of the log when the window opens, in pixels. 0 shows only its
 # last line.
 log_height = %d
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab,
-		list(s.Output.Connect), s.Lights.OpenRGB, s.Lights.Address, s.Window.BackgroundFPS, s.Window.LogHeight)
+		list(s.Output.Connect), s.Lights.OpenRGB, s.Lights.Address, s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight)
 	return []byte(b.String())
 }
 

@@ -4,8 +4,8 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"io"
 	"log/slog"
 	"os"
@@ -35,17 +35,21 @@ import (
 const usage = `HIDI turns keyboards and game controllers into MIDI instruments.
 
 Usage:
+  hidi [options]            start HIDI: the instruments run, and an icon in
+                            the tray opens the window and turns HIDI on and off
+  hidi --headless [options] run the instruments only, in the terminal
   hidi <command> [options]
 
 Commands:
-  run       run the instruments until interrupted
+  run       the same as "hidi --headless"
   devices   list the connected input devices and the profile each would use
   status    show what the running HIDI is doing
   monitor   keep showing it, with the log, until interrupted
   on, off, toggle
             turn the running HIDI on or off
-  gui       open the window: the instruments, what is played, and the log
-  tray      show an icon in the notification area that turns HIDI on and off
+  gui       open the window of the running HIDI: the instruments, what is
+            played, the log and the settings
+  tray      show an icon for the running HIDI in the tray
   ports     list the MIDI ports an instrument can be connected to
   config    show where HIDI keeps its settings and profiles
   profiles  list the profiles, check them, or write the built-in ones out
@@ -53,7 +57,9 @@ Commands:
   version   print version information
   help      show this help
 
-Run "hidi <command> -h" for the options of a command.
+Options are written with two dashes, as in --no-grab or --toggle=KEY_CAPSLOCK;
+those of one letter take one, as in -v. "hidi run --help" lists the options
+of HIDI itself, and "hidi <command> --help" those of a command.
 `
 
 func main() {
@@ -75,7 +81,7 @@ func main() {
 // so. A crash needs no cleaning up after: the system takes back a grabbed
 // keyboard and removes the MIDI devices of a program that has ended.
 func guarded(ctx context.Context, args []string) (code int) {
-	if len(args) == 0 || (args[0] != "run" && args[0] != "doctor") {
+	if !startsHIDI(args) && args[0] != "doctor" {
 		return run(ctx, args, os.Stdout, os.Stderr)
 	}
 	dir, err := crashlog.Dir()
@@ -101,15 +107,28 @@ func guarded(ctx context.Context, args []string) (code int) {
 	return run(ctx, args, os.Stdout, os.Stderr)
 }
 
-// run executes the command line and returns the process exit code.
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
-		return 2
+// startsHIDI reports whether the command line starts HIDI itself: as the
+// application, which is what no command means, or with "run".
+func startsHIDI(args []string) bool {
+	if len(args) == 0 || args[0] == "run" {
+		return true
 	}
 	switch args[0] {
-	case "run":
-		return cmdRun(ctx, args[1:], stderr)
+	case "-h", "--help", "--version":
+		return false
+	}
+	return strings.HasPrefix(args[0], "-")
+}
+
+// run executes the command line and returns the process exit code.
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if startsHIDI(args) {
+		if len(args) > 0 && args[0] == "run" {
+			return cmdRun(ctx, args[1:], stderr, false)
+		}
+		return cmdRun(ctx, args, stderr, true)
+	}
+	switch args[0] {
 	case "devices":
 		return cmdDevices(args[1:], stdout, stderr)
 	case "status", "on", "off", "toggle":
@@ -128,10 +147,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdConfig(args[1:], stdout, stderr)
 	case "profiles":
 		return cmdProfiles(args[1:], stdout, stderr)
-	case "version", "-version", "--version":
+	case "version", "--version":
 		fmt.Fprintln(stdout, buildinfo.Get())
 		return 0
-	case "help", "-h", "-help", "--help":
+	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
 	default:
@@ -142,23 +161,65 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 // parseFlags parses the options of a command. It returns false if the
 // command should not run, with the exit code to use.
-func parseFlags(fs *flag.FlagSet, args []string, stderr io.Writer) (ok bool, code int) {
+func parseFlags(fs *pflag.FlagSet, args []string, stderr io.Writer) (ok bool, code int) {
 	fs.SetOutput(stderr)
+	who := "hidi " + fs.Name()
+	if fs.Name() == "hidi" {
+		who = "hidi"
+	}
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Options of %q:\n%s", who, fs.FlagUsages())
+	}
 	switch err := fs.Parse(args); {
-	case err == flag.ErrHelp:
+	case err == pflag.ErrHelp:
 		return false, 0
 	case err != nil:
+		fmt.Fprintf(stderr, "%s: %v\n", who, err)
+		if long := oneDashLong(args); long != "" {
+			fmt.Fprintf(stderr, "Options of more than one letter take two dashes: -%s\n", long)
+		}
+		fmt.Fprintf(stderr, "Run \"%s --help\" for the options.\n", who)
 		return false, 2
 	case fs.NArg() > 0:
-		fmt.Fprintf(stderr, "hidi %s: unexpected argument %q\n", fs.Name(), fs.Arg(0))
+		fmt.Fprintf(stderr, "%s: unexpected argument %q\n", who, fs.Arg(0))
 		return false, 2
 	}
 	return true, 0
 }
 
-func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	verbose := fs.Bool("v", false, "also log details, such as every ignored device")
+// oneDashLong returns the first argument that looks like an option of
+// several letters written with one dash, as Go's own tools take them, or
+// an empty string.
+func oneDashLong(args []string) string {
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		name, _, _ := strings.Cut(arg, "=")
+		if len(name) > 2 && name[0] == '-' && name[1] != '-' {
+			return arg
+		}
+	}
+	return ""
+}
+
+// cmdRun runs the instruments. As the application it also shows the icon
+// in the tray and opens the window; see [desktop].
+func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int {
+	ctx, quit := context.WithCancel(ctx)
+	defer quit()
+	who, name := "hidi run", "run"
+	if app {
+		who, name = "hidi", "hidi"
+	}
+	fs := pflag.NewFlagSet(name, pflag.ContinueOnError)
+	headless, showWindow := new(bool), new(bool)
+	*headless = !app
+	if app {
+		fs.BoolVar(headless, "headless", false, "run the instruments only, without the icon in the tray and the window")
+		fs.BoolVar(showWindow, "window", false, "open the window at once, whatever the settings say")
+	}
+	verbose := fs.BoolP("verbose", "v", false, "also log details, such as every ignored device")
 	logMIDI := fs.Bool("log-midi", false, "also log every MIDI message sent, for finding faults; implies -v")
 	noStatus := fs.Bool("no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
 	toggleFlag := fs.String("toggle", defaultToggle,
@@ -177,18 +238,23 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
+	if !*headless {
+		// Started by a double click on Windows, HIDI has a console
+		// window of its own that nobody asked for.
+		leaveOwnConsole()
+	}
 
 	// The settings file gives what the command line leaves open. Nothing
 	// is written yet: a HIDI that stops over its options, or because one
 	// is running already, leaves the directory as it is.
 	pl := findPlace(*root, *profilesDir, false)
 	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	fs.Visit(func(f *pflag.Flag) { given[f.Name] = true })
 	toggle := pl.settings.Input.Toggle
 	if given["toggle"] {
 		var err error
 		if toggle, err = parseToggle(*toggleFlag); err != nil {
-			fmt.Fprintf(stderr, "hidi run: -toggle: %v\n", err)
+			fmt.Fprintf(stderr, "%s: --toggle: %v\n", who, err)
 			return 2
 		}
 	}
@@ -208,7 +274,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		*alwaysGrab = pl.settings.Input.AlwaysGrab
 	}
 	if *toggleTap && len(toggle) != 1 {
-		fmt.Fprintln(stderr, "hidi run: -toggle-tap needs a toggle of exactly one key, such as -toggle KEY_CAPSLOCK")
+		fmt.Fprintln(stderr, who+": --toggle-tap needs a toggle of exactly one key, such as --toggle=KEY_CAPSLOCK")
 		return 2
 	}
 	if !given["connect"] {
@@ -218,11 +284,11 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	if len(toggle) == 0 && !*noGrab {
 		// A grabbed keyboard cannot type Ctrl+C, so without the combination
 		// a user with one keyboard could not get it back.
-		fmt.Fprintln(stderr, "hidi run: grabbing keyboards needs a toggle combination to release them; set -toggle or pass -no-grab")
+		fmt.Fprintln(stderr, who+": grabbing keyboards needs a toggle combination to release them; set --toggle or pass --no-grab")
 		return 2
 	}
 	if len(toggle) == 0 && *startOff {
-		fmt.Fprintln(stderr, "hidi run: -off needs a toggle combination to turn HIDI on")
+		fmt.Fprintln(stderr, who+": --off needs a toggle combination to turn HIDI on")
 		return 2
 	}
 
@@ -255,6 +321,13 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	if *socket != "" {
 		server, err = ipc.Listen(*socket)
 		switch {
+		case errors.Is(err, ipc.ErrRunning) && !*headless:
+			// Starting the application again shows the one that runs.
+			windowArgs := []string{"--socket", *socket}
+			if given["config"] {
+				windowArgs = append(windowArgs, "--config", *root)
+			}
+			return cmdGui(ctx, windowArgs, stderr)
 		case errors.Is(err, ipc.ErrRunning):
 			log.Error("HIDI is already running; see \"hidi status\"", "socket", *socket)
 			return 1
@@ -408,13 +481,30 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 		close(footerDone)
 	}
 	served := make(chan struct{})
+	host := controlHost(manager, logs, &changes)
 	if server != nil {
 		go func() {
 			defer close(served)
-			server.Serve(ctx, controlHost(manager, logs, &changes))
+			server.Serve(ctx, host)
 		}()
 	} else {
 		close(served)
+	}
+	desktopDone := make(chan struct{})
+	if *headless {
+		close(desktopDone)
+	} else {
+		d := desktop{show: *showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
+		if server != nil {
+			d.windowArgs = []string{"--socket", *socket}
+			if given["config"] {
+				d.windowArgs = append(d.windowArgs, "--config", *root)
+			}
+		}
+		go func() {
+			defer close(desktopDone)
+			d.run(ctx)
+		}()
 	}
 	if pl.profiles != "" {
 		go config.Watch(ctx, pl.profiles, time.Second, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
@@ -470,6 +560,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer) int {
 	stopFooter() // also when the manager ended by itself
 	<-footerDone
 	<-served
+	<-desktopDone
 	<-lightsDone // the lights are left evenly lit
 	log.Info("HIDI stopped")
 	return 0
@@ -528,6 +619,9 @@ type listFlag []string
 
 func (l *listFlag) String() string { return strings.Join(*l, ", ") }
 
+// Type names the value in the help.
+func (l *listFlag) Type() string { return "port" }
+
 func (l *listFlag) Set(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return errors.New("must not be empty")
@@ -538,7 +632,7 @@ func (l *listFlag) Set(value string) error {
 
 // cmdPorts lists the MIDI ports that exist on the system and accept input.
 func cmdPorts(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("ports", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("ports", pflag.ContinueOnError)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}
@@ -559,7 +653,7 @@ func cmdPorts(args []string, stdout, stderr io.Writer) int {
 // cmdProfiles lists the profiles and what is wrong with the files that
 // cannot be used, or writes the built-in profiles out as files to edit.
 func cmdProfiles(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("profiles", pflag.ContinueOnError)
 	root, profilesDir := placeFlags(fs)
 	export := fs.Bool("export", false, "write the built-in profiles into the directory of profiles, as files to start from;\nfiles that are there are kept")
 	if ok, code := parseFlags(fs, args, stderr); !ok {
@@ -574,7 +668,7 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 
 	if *export {
 		if *dir == "" {
-			fmt.Fprintln(stderr, "hidi profiles: -export needs a directory; set -profiles")
+			fmt.Fprintln(stderr, "hidi profiles: --export needs a directory; set --profiles")
 			return 2
 		}
 		written, skipped, err := config.WriteBuiltin(*dir)
@@ -618,7 +712,7 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdDevices(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("devices", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("devices", pflag.ContinueOnError)
 	root, profilesDir := placeFlags(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code

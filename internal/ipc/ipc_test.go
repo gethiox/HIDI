@@ -403,3 +403,20 @@ func TestDefaultPath(t *testing.T) {
 		t.Errorf("DefaultPath without a runtime directory = %q", path)
 	}
 }
+
+func TestSnapshotPace(t *testing.T) {
+	for _, c := range []struct {
+		ms   int
+		want time.Duration
+	}{
+		{0, snapshotInterval},
+		{-3, snapshotInterval},
+		{1, minSnapshotInterval},
+		{4, 4 * time.Millisecond},
+		{1000000, maxSnapshotInterval},
+	} {
+		if got := snapshotPace(c.ms); got != c.want {
+			t.Errorf("snapshotPace(%d) = %v, want %v", c.ms, got, c.want)
+		}
+	}
+}
