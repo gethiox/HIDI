@@ -17,7 +17,7 @@ HIDI/
 names another directory, and `--config ""` uses no directory at all: HIDI then
 runs with what it comes with.
 
-On its first start, `hidi run` creates the directory and fills it: the
+On its first start HIDI creates the directory and fills it: the
 settings with their defaults, and the profiles HIDI comes with, as files to
 change. From then on the directory is what counts.
 
@@ -38,8 +38,12 @@ defaults.
 
 A running HIDI notices within about two seconds when the file changes, and
 takes over the toggle combination and what is grabbed: a keyboard that
-should type again does so at once. `start_on`, `connect` and `[lights]`
-matter when HIDI starts. A changed file with a mistake is reported and changes nothing.
+should type again does so at once. `start_on`, `connect`, `[lights]` and
+`show_at_start` matter when HIDI starts. A changed file with a mistake is
+reported and changes nothing.
+
+The switches and the frame limits can also be changed in the window, on the
+sheet the gear opens.
 
 ```toml
 schema = 1
