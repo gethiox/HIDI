@@ -16,6 +16,9 @@ type Controller interface {
 
 // Options change how the window behaves.
 type Options struct {
+	// FPS limits how often the window is drawn. Zero means no limit: the
+	// window keeps to the monitor's refresh rate.
+	FPS int
 	// BackgroundFPS limits how often the window is drawn while another
 	// window has the focus. Zero means no limit of its own: the window
 	// then keeps to the monitor's refresh rate, as it does in front.

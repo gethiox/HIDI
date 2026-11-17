@@ -60,6 +60,8 @@ openrgb = false
 address = "127.0.0.1:6742"
 
 [window]
+show_at_start = false
+fps = 0
 background_fps = 0
 log_height = 0
 ```
@@ -75,7 +77,9 @@ log_height = 0
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `-connect` |
 | `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `-openrgb` |
 | `lights.address` | Where that server listens. | `-openrgb ADDRESS` |
-| `window.background_fps` | The most the window is drawn per second while not in front; 0 keeps to the monitor. | `-background-fps` |
+| `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
+| `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `-fps` |
+| `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `-background-fps` |
 | `window.log_height` | The height of the log when the window opens. | `-log-height` |
 
 #### One key that turns HIDI off and on

@@ -96,6 +96,9 @@ type request struct {
 	// Logs, for "watch", asks for the log: this many of the lines already
 	// logged, then every new one. Zero asks for no log.
 	Logs int `json:"logs,omitempty"`
+	// EveryMS, for "watch", is the least time between two snapshots, in
+	// milliseconds. Zero leaves it to HIDI.
+	EveryMS int `json:"every_ms,omitempty"`
 }
 
 // response is one answer. Exactly one field is set.

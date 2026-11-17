@@ -34,7 +34,7 @@ func TestDefaultRoundTrip(t *testing.T) {
 	changed.Input.GrabGamepads = true
 	changed.Input.StartOn = false
 	changed.Output.Connect = []string{"USB MIDI", `odd "name"`}
-	changed.Window = Window{BackgroundFPS: 30, LogHeight: 200}
+	changed.Window = Window{ShowAtStart: true, FPS: 120, BackgroundFPS: 30, LogHeight: 200}
 	got, err = Parse(changed.Text())
 	if err != nil {
 		t.Fatalf("changed settings do not parse: %v", err)

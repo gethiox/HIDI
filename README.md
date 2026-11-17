@@ -271,7 +271,8 @@ file.
 | --- | --- |
 | `-settings` | Open with the settings showing. |
 | `-edit FILE` | Open with this profile, ready to be changed. |
-| `-background-fps N` | Draw at most N times a second while another window has the focus. Without it the window keeps to the monitor's refresh rate. |
+| `-fps N` | Draw at most N times a second. Without it the window keeps to the monitor's refresh rate. |
+| `-background-fps N` | The same limit for while another window has the focus. |
 | `-log-height N` | Open with the log pulled up N pixels. |
 
 The window is drawn at the refresh rate of the monitor it is on, and only

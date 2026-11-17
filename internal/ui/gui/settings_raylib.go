@@ -27,6 +27,7 @@ type settingsView struct {
 	broken   []config.Problem
 	message  string // the outcome of the last thing the user did here
 	scroll   float32
+	content  float32 // the height of the page when it was last drawn
 }
 
 const settingsRefresh = 2 * time.Second
@@ -78,14 +79,14 @@ func (w *window) drawGear(sw float32) {
 		ink = col(colFaint)
 	}
 	cx, cy := area.X+size/2, area.Y+size/2
-	// Eight teeth: four bars through the middle, each turned an eighth
-	// of a circle further. raylib turns clockwise for growing angles.
-	for i := range 4 {
-		bar := rl.NewRectangle(cx, cy, 24, 6)
-		rl.DrawRectanglePro(bar, rl.NewVector2(12, 3), angle+float32(i)*45, ink)
+	// Six teeth: three bars through the middle, each turned a sixth of a
+	// circle further. raylib turns clockwise for growing angles.
+	for i := range 3 {
+		bar := rl.NewRectangle(cx, cy, 26, 7)
+		rl.DrawRectanglePro(bar, rl.NewVector2(13, 3.5), angle+float32(i)*60, ink)
 	}
-	rl.DrawCircle(int32(cx), int32(cy), 8.5, ink)
-	rl.DrawCircle(int32(cx), int32(cy), 4, col(colBackground))
+	rl.DrawCircleV(rl.NewVector2(cx, cy), 9, ink)
+	rl.DrawCircleV(rl.NewVector2(cx, cy), 4, col(colBackground))
 }
 
 // button draws a button and reports a click on it.
@@ -142,21 +143,42 @@ const (
 	restartNote = "Saved. A running HIDI takes this over when it is started again."
 )
 
-// drawSettings draws the settings page in place of the instruments.
+// drawOverlay draws the settings as a sheet over the body of the window:
+// smaller than it, so that the instruments show around it, and not quite
+// opaque, so that they show through. A click beside the sheet closes it.
+func (w *window) drawOverlay(body rl.Rectangle) {
+	inset := min(max(body.Width*0.05, 14), 60)
+	sheet := rl.NewRectangle(body.X+inset, body.Y+6, body.Width-2*inset, body.Height-18)
+	if sheet.Height < 60 {
+		sheet = rl.NewRectangle(body.X, body.Y, body.Width, body.Height)
+	}
+	rl.DrawRectangleRec(body, rl.NewColor(0, 0, 0, 70))
+	roundness := 20 / min(sheet.Width, sheet.Height)
+	rl.DrawRectangleRounded(sheet, roundness, 8, colA(colBar, 226))
+	rl.DrawRectangleRoundedLinesEx(sheet, roundness, 8, 1, col(colPanelEdge))
+	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) && hovered(body) && !hovered(sheet) {
+		w.gear.set(false, time.Now())
+		return
+	}
+	w.drawSettings(rl.NewRectangle(sheet.X+2, sheet.Y+2, sheet.Width-4, sheet.Height-4))
+}
+
+// drawSettings draws the settings page.
 func (w *window) drawSettings(area rl.Rectangle) {
 	v := &w.settings
 	p := w.opts.Paths
 	v.refresh(p, time.Now(), false)
 
-	if hovered(area) {
-		v.scroll -= rl.GetMouseWheelMove() * 40
-	}
-	v.scroll = max(v.scroll, 0)
+	// The page is as long as it was when last drawn, which is what the
+	// scrolling is held to before anything is drawn.
+	v.scroll -= wheel(area) * 40
+	v.scroll = min(max(v.scroll, 0), max(v.content-area.Height, 0))
 	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
 	defer rl.EndScissorMode()
 
-	x, y := float32(margin), area.Y+4-v.scroll
-	right := area.Width - margin
+	x, y := area.X+margin, area.Y+12-v.scroll
+	right := area.X + area.Width - margin
+	defer func() { v.content = y + v.scroll - area.Y + 14 }()
 	heading := func(s string) {
 		text(w.bold, s, x, y, sizeName, col(colText))
 		y += 30
@@ -217,12 +239,13 @@ func (w *window) drawSettings(area rl.Rectangle) {
 		{"HIDI is on when it starts", "", &s.Input.StartOn},
 		{"The toggle is one key, tapped", "held longer, the key does what it normally does", &s.Input.ToggleTap},
 		{"Keyboards stay grabbed while HIDI is off", "Linux; hides the tapped key from the system", &s.Input.AlwaysGrab},
+		{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &s.Window.ShowAtStart},
 	} {
 		vx := row(item.name, item.about)
 		if w.pill(*item.value, vx, y) && editable {
 			*item.value = !*item.value
 			note := soonNote
-			if item.value == &s.Input.StartOn {
+			if item.value == &s.Input.StartOn || item.value == &s.Window.ShowAtStart {
 				note = restartNote
 			}
 			w.save(s, note)
@@ -241,31 +264,43 @@ func (w *window) drawSettings(area rl.Rectangle) {
 	text(w.mono, ports, vx, y+3, sizeMono, col(colText))
 	y += 46
 
-	vx = row("Frame limit behind other windows", "0 keeps to the monitor's refresh rate")
-	for _, fps := range []int{0, 15, 30, 60} {
-		label := fmt.Sprintf("%d", fps)
-		if fps == 0 {
-			label = "none"
+	// The two frame limits: one for always, one for while another window
+	// is the one in use.
+	for _, limit := range []struct {
+		name, about string
+		value       *int
+		live        *int
+		choices     []int
+	}{
+		{"Frame limit", "none keeps to the monitor's refresh rate", &s.Window.FPS, &w.pace.limit, []int{0, 30, 60, 120, 144, 240}},
+		{"Frame limit while the window is unfocused", "for less work while another window is in use", &s.Window.BackgroundFPS, &w.pace.background, []int{0, 15, 30, 60}},
+	} {
+		vx = row(limit.name, limit.about)
+		for _, fps := range limit.choices {
+			label := fmt.Sprintf("%d", fps)
+			if fps == 0 {
+				label = "none"
+			}
+			chip := rl.NewRectangle(vx, y, w.chipWidth(label), chipH)
+			if hovered(chip) {
+				rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			}
+			if *limit.value == fps {
+				rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
+				text(w.mono, label, vx+7, y+3, sizeMono, col(colBar))
+			} else {
+				rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
+				text(w.mono, label, vx+7, y+3, sizeMono, col(colFaint))
+			}
+			if clicked(chip) && editable && *limit.value != fps {
+				*limit.value = fps
+				*limit.live = fps // this window follows at once
+				w.save(s, "Saved.")
+			}
+			vx += chip.Width + 6
 		}
-		chip := rl.NewRectangle(vx, y, w.chipWidth(label), chipH)
-		if hovered(chip) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
-		}
-		if s.Window.BackgroundFPS == fps {
-			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
-			text(w.mono, label, vx+7, y+3, sizeMono, col(colBar))
-		} else {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
-			text(w.mono, label, vx+7, y+3, sizeMono, col(colFaint))
-		}
-		if clicked(chip) && editable && s.Window.BackgroundFPS != fps {
-			s.Window.BackgroundFPS = fps
-			w.pace.background = fps // this window follows at once
-			w.save(s, "Saved.")
-		}
-		vx += chip.Width + 6
+		y += 46
 	}
-	y += 46
 
 	vx = row("Height of the log when the window opens", "")
 	text(w.mono, fmt.Sprintf("%d", s.Window.LogHeight), vx, y+3, sizeMono, col(colText))
@@ -330,12 +365,6 @@ func (w *window) drawSettings(area rl.Rectangle) {
 			y += 18
 		}
 		y += 8
-	}
-	// What lies below the page limits the scrolling.
-	if content := y + v.scroll - area.Y + 12; content > area.Height {
-		v.scroll = min(v.scroll, content-area.Height)
-	} else {
-		v.scroll = 0
 	}
 }
 
