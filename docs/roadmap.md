@@ -7,22 +7,19 @@ completes or changes an item.
 ## How the work is organised
 
 - `main` holds the released 1.x code and is not touched until 2.0 is ready.
-- `dev` is the integration branch. Nothing is committed to it directly.
-- Work happens on a feature branch per change, merged into `dev` through a
-  pull request with a merge commit, so that the commits and their messages
-  are preserved. The pull request description becomes the merge commit
-  message.
-- One pull request is open at a time. The next stage starts when the
-  previous one is merged.
-- Every pull request for 2.0 carries the label `v2.0`.
-- A pull request is a whole area that can be tried in one go, not a small
-  step towards one: the remaining work is planned as about six of them
-  (see "Remaining"). While one is being written, pictures of the state so
-  far go to the maintainer before it is opened.
-- A pull request holds one topic. A fix for something else, found while
-  it is open, goes into a pull request of its own, also when that means
-  two are open at once. Whatever a pull request contains is described in
-  its text.
+- `dev` is the integration branch. Since 17 November 2026 work is
+  committed to it directly: no feature branches and no pull requests any
+  more. Only one pull request remains, the final one from `dev` into
+  `main`.
+- A commit on `dev` is treated as a pull request was before. It is a
+  whole area that can be tried in one go, or one topic of fixes, and its
+  message is written as the text of a pull request was: a title, and a
+  description that says everything the commit contains and what could
+  not be tried. Before it is pushed, the same checks pass that CI runs.
+- Pictures of an interface that changed go to the maintainer with the
+  commit.
+- Up to pull request 49 the work went through feature branches and pull
+  requests with merge commits, each labelled `v2.0`.
 - `dev` does not have to be usable at every commit, but CI must pass.
 
 ## Decisions
@@ -125,11 +122,31 @@ Still open there:
 - `hidi run` with grabbing (without `-no-grab`), an Xbox controller
   through XInput, and what a HIDI that was killed leaves behind, are
   still untried.
-- The lines at the bottom of the terminal are untried in the Windows
-  terminal.
+- The lines at the bottom of the terminal work in the Windows terminal.
+- The one-key toggle (`toggle_tap`) is untried on Windows.
 
-After the Windows round, "Release" is next: packaging, the udev rule, the
-release workflow.
+### Asked for next (17 November 2026)
+
+1. **Starting HIDI without a command starts the application**: `hidi`
+   alone (`hidi.exe` by a double click) runs the instruments and puts the
+   icon into the notification area. The window does not open by itself;
+   a setting makes it open at every start. Running without any interface,
+   as `hidi run` does today, becomes something asked for: `--headless`
+   or a command. Today `hidi` alone prints the help, and the instruments,
+   the tray and the window are three programs talking over the control
+   socket; whether they become one process or `hidi` starts the others
+   is to be decided when it is built.
+2. **Options with two dashes**: one dash for one-letter options, which
+   can be combined, and two for words, `--headless`, `--some-option=12`.
+   Go's own `flag` package takes `-word`. To be replaced by
+   `github.com/spf13/pflag`, which Kubernetes, Docker and most Go
+   command-line programs use and which keeps the calls of `flag`. Every
+   option in the README, the documentation and the messages changes with
+   it.
+3. Changes to the interfaces and fixes that the maintainer will list.
+
+Then, as before: the rewrite of the documentation, the rest of
+configuring in the window, and `dev` into `main`.
 
 ## Done
 
@@ -198,7 +215,8 @@ release workflow.
 
 ## Remaining
 
-In planned order. Each item is roughly one pull request.
+In planned order. Each item is roughly one commit on `dev`, as it was one
+pull request before.
 
 ### Windows
 
