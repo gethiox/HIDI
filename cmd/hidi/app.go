@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -27,6 +28,15 @@ type windowProcess struct {
 	mu      sync.Mutex
 	running bool
 	done    chan struct{} // closed when the window that runs has closed
+	failed  bool          // the last window ended with an error
+}
+
+// broke reports whether the last window ended with an error, as it does
+// when there is no display to open it on.
+func (w *windowProcess) broke() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.failed
 }
 
 // start is what runs the window; tests replace it.
@@ -36,9 +46,9 @@ var startWindow = func(ctx context.Context, args []string) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, exe, append([]string{"gui"}, args...)...)
-	hideConsole(cmd)
-	// Ending the window the way a user would lets it close properly.
-	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	prepareWindow(cmd)
+	// Why a window could not be opened is said by the window.
+	cmd.Stderr = os.Stderr
 	cmd.WaitDelay = 2 * time.Second
 	return cmd.Run()
 }
@@ -59,7 +69,7 @@ func (w *windowProcess) open() <-chan struct{} {
 			w.log.Error("the window could not be opened, or did not close properly", "error", err)
 		}
 		w.mu.Lock()
-		w.running = false
+		w.running, w.failed = false, err != nil && w.ctx.Err() == nil
 		w.mu.Unlock()
 		close(done)
 	}()
@@ -108,6 +118,10 @@ func (l localHIDI) Toggle(ctx context.Context) (ipc.Snapshot, error) {
 // newTrayHost shows the icon; tests replace it.
 var newTrayHost = tray.NewHost
 
+// trayWait is how long a desktop is given to show the icon before HIDI
+// takes it for a desktop without icons.
+var trayWait = 2 * time.Second
+
 // desktop is what the application has beside the instruments.
 type desktop struct {
 	// windowArgs are the options of the window, or nil if there cannot
@@ -119,6 +133,17 @@ type desktop struct {
 	log  *slog.Logger
 	// quit ends HIDI.
 	quit func()
+	// failed, if set, is told when HIDI ends because it had nothing to
+	// show itself with: no icon, and a window that could not be opened.
+	failed func()
+}
+
+// fail ends HIDI after the window that stood in for the icon has closed.
+func (d desktop) fail(w *windowProcess) {
+	if w.broke() && d.failed != nil {
+		d.failed()
+	}
+	d.quit()
 }
 
 // run shows the icon and opens the window when asked to, until ctx ends.
@@ -128,6 +153,16 @@ type desktop struct {
 func (d desktop) run(ctx context.Context) {
 	window := &windowProcess{ctx: ctx, args: d.windowArgs, log: d.log}
 	host, err := newTrayHost()
+	if err == nil {
+		defer host.Close()
+		// A desktop that is still starting gets a moment to show icons.
+		for wait := trayWait; !tray.Shown(host) && wait > 0 && ctx.Err() == nil; wait -= trayWait / 20 {
+			time.Sleep(trayWait / 20)
+		}
+		if !tray.Shown(host) {
+			err = errors.New("this desktop shows no icons of programs; on GNOME, the AppIndicator extension adds that")
+		}
+	}
 	if err != nil {
 		if d.windowArgs == nil {
 			d.log.Warn("no icon in the tray, and no window without the control socket; HIDI runs as with --headless", "error", err)
@@ -135,11 +170,21 @@ func (d desktop) run(ctx context.Context) {
 			return
 		}
 		d.log.Warn("no icon in the tray; the window is opened instead, and closing it ends HIDI", "error", err)
-		<-window.open()
-		d.quit()
-		return
+		closed := window.open()
+		if host == nil {
+			<-closed
+			d.fail(window)
+			return
+		}
+		// The icon may still come, with a panel that starts late. If it
+		// has not by the time the window is closed, HIDI ends.
+		go func() {
+			<-closed
+			if !tray.Shown(host) {
+				d.fail(window)
+			}
+		}()
 	}
-	defer host.Close()
 	opts := tray.Options{QuitLabel: tray.QuitAllLabel}
 	if d.windowArgs != nil {
 		opts.Open = func() { window.open() }

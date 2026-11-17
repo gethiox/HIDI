@@ -20,6 +20,11 @@ type queue struct {
 	wake    chan struct{}
 }
 
+// maxPending is how many events a queue keeps for a reader that does not
+// take them. A reader that plays is never that far behind; this is the
+// last limit for one that has stopped reading altogether.
+const maxPending = 1 << 16
+
 func newQueue() *queue {
 	q := &queue{out: make(chan control.Event, 64), wake: make(chan struct{}, 1)}
 	go q.pump()
@@ -29,7 +34,9 @@ func newQueue() *queue {
 // put adds an event. It never blocks. Events put after close are dropped.
 func (q *queue) put(ev control.Event) {
 	q.mu.Lock()
-	if !q.closed {
+	// What nobody takes is not kept without end: a device whose input is
+	// of no interest at the moment would fill the memory otherwise.
+	if !q.closed && len(q.pending) < maxPending {
 		q.pending = append(q.pending, ev)
 	}
 	q.mu.Unlock()

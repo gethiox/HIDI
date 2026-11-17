@@ -301,7 +301,14 @@ func (h *windowsHost) update() {
 			h.icon = icon
 		}
 	}
+	// The menu is made from the view when it is asked for. Windows is
+	// told only of what the icon itself shows: a view arrives with every
+	// note that is played.
+	unchanged := h.added && v.Look == h.shown.Look && v.Title == h.shown.Title
 	h.shown = v
+	if unchanged {
+		return
+	}
 
 	data := h.data()
 	data.flags = nifMessage | nifIcon | nifTip

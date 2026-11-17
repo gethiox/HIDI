@@ -7,20 +7,20 @@ completes or changes an item.
 ## How the work is organised
 
 - `main` holds the released 1.x code and is not touched until 2.0 is ready.
-- `dev` is the integration branch. Since 17 November 2026 work is
-  committed to it directly: no feature branches and no pull requests any
-  more. Only one pull request remains, the final one from `dev` into
-  `main`.
-- A commit on `dev` is treated as a pull request was before. It is a
-  whole area that can be tried in one go, or one topic of fixes, and its
-  message is written as the text of a pull request was: a title, and a
-  description that says everything the commit contains and what could
-  not be tried. Before it is pushed, the same checks pass that CI runs.
+- `dev` is the integration branch. A rule of the repository lets changes
+  reach it through pull requests only, so every change comes as one: a
+  branch `v2/<topic>`, a pull request into `dev` labelled `v2.0`, merged
+  by the maintainer with a merge commit, never squashed.
+- A commit is written as a pull request would be: it is a whole area that
+  can be tried in one go, or one topic of fixes, and its message has a
+  title and a description that says everything the commit contains and
+  what could not be tried. A pull request gathers such commits and says
+  what they are together. Before anything is pushed, the checks that CI
+  runs pass.
 - Pictures of an interface that changed go to the maintainer with the
-  commit.
-- For as long as the rule of the repository that asks for pull requests
-  covers `dev`, such commits wait on the branch `v2/docs`, in order, to
-  be pushed to `dev` as they are once the rule allows it.
+  change.
+- Nothing is written on GitHub beyond the pull requests themselves, and
+  to nobody but the maintainer.
 - Up to pull request 49 the work went through feature branches and pull
   requests with merge commits, each labelled `v2.0`.
 - `dev` does not have to be usable at every commit, but CI must pass.
@@ -50,6 +50,63 @@ completes or changes an item.
 | Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. Output without colours is always available. HIDI logs little, since the interfaces show its state; what it logs has a fitting level and its context as fields. |
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
+
+## Where things stand (17 November 2026, evening)
+
+Two pull requests carry everything since pull request 49, to be merged
+in this order:
+
+1. `v2/round4`: the fourth round. The udev rule for `/dev/uinput`, the
+   Windows input fixes and the recovery of MIDI devices, the window
+   (settings as a sheet, upright axes, two frame limits), `hidi` as the
+   application with icon and window, options with two dashes, the README
+   for users, and configuring in the window (the toggle by key press,
+   MIDI ports from a list, axes and controllers in the profile editor).
+2. `v2/review`: the review of the whole code, five commits of fixes, on
+   top of the first. The fix for the silent grabbed keyboard on Windows
+   is only complete with this one.
+
+### Waiting for the maintainer
+
+To be tried on Windows, none of which has run there:
+
+- `hidi.exe` by double click: the icon, its menu, the window opened from
+  it, "Quit HIDI", and how much of a console window is seen.
+- A grabbed keyboard: playing, the three-key toggle, and
+  `hidi.exe --toggle=KEY_CAPSLOCK --toggle-tap`.
+- The four hats of the Gladiator, and whether its buttons play.
+- `taskkill /F /IM midisrv.exe` while HIDI runs: do the instruments come
+  back, and does the DAW find them again.
+- An Xbox controller.
+- The window at 120 Hz: is motion smooth now.
+
+To be decided:
+
+- The exact shape of the gear.
+- Whether Microsoft's `Windows.Devices.Midi2.dll` goes into the Windows
+  archive, or users fetch it from Microsoft's package.
+- The text of a release: a fixed template, or the generated draft that
+  is edited each time.
+- The art of the icon, or the drawn placeholder for the beta.
+- Whether the rest of the profile editor belongs in the beta.
+- If the console window that flashes on a double click disturbs: a
+  second program file without a console.
+- The branches `v2/docs` and `v2/windows-round3` on GitHub are left over
+  and can be deleted; `v2/docs` holds what the two pull requests hold.
+
+### Left to do
+
+- The rest of configuring in the window: the two halves of an axis bound
+  apart, program changes, keys with modifiers, the options of a note,
+  adding and removing layouts, a new profile for a device, and the
+  lights on the settings sheet.
+- A running HIDI follows changed `connect` ports only at its next start.
+- No start at login yet.
+- What the review found and left as it is; see below.
+- What comes back from the Windows tests above.
+- Turning on immutable releases, the first tag (which is also the first
+  run of the release workflow), and the pull request from `dev` into
+  `main`.
 
 ## Current focus
 
@@ -164,6 +221,37 @@ None of the Windows parts of this ran on Windows. To be tried there:
 - `hidi.exe` by double click: the icon, its menu, the window from it,
   "Quit HIDI", and what is seen of the console window;
 - an Xbox controller.
+
+### Review of the whole code (17 November 2026)
+
+Five independent readings of the code, each of one area and without
+hints, all findings checked before anything was changed. What was fixed
+is in the five commits that begin with "Review of". The one that
+matters most for trying HIDI on Windows: the fix for the silent grabbed
+keyboard from the fourth round had not been connected to the hook, and
+is now.
+
+Found and left as it is, by choice:
+
+- A device that is not an instrument still takes a MIDI device name, so
+  that a second device of the same name gets "... 2" though it is the
+  only instrument of that name.
+- With collisions set to "off", a note held by two keys shows as
+  sounding until the second key is let go of.
+- Buttons a controller declares outside the HID page for buttons, some
+  direction pads, are not read on Windows.
+- Every send to Windows starts a goroutine for its time limit: two
+  hand-overs between threads for each note.
+- The profile editor at the least width of the window has its last
+  stepper off the edge; with two devices on one profile only one's
+  presses choose a control.
+- With a frame limit of 30 or less a tap shorter than a frame can go
+  unseen by the window.
+- With the lights on, every event asks the lamp to show twice; the hub
+  looks for a keyboard that OpenRGB does not have every three seconds
+  without end; the router holds its lock while it lists and connects.
+- An entry of `connect` is a part of a name, so a port whose name is the
+  beginning of another's selects both.
 
 ## Done
 

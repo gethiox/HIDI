@@ -43,6 +43,11 @@ type target struct {
 // targetState is the last value sent to a target and the value it rests at.
 type targetState struct {
 	value, rest uint32
+	// owner is the source that last moved the target away from rest, nil
+	// while it rests. Two sources may drive one target, the two halves
+	// of an axis that bend the pitch up and down for one; the one that
+	// rests must not put the target back while the other holds it.
+	owner *sourceState
 }
 
 // noteRef is a note the engine turned on.
@@ -73,6 +78,12 @@ type sourceState struct {
 	driving   bool
 	target    target
 	centering bool
+
+	// heldBack is the binding whose position was last kept back because
+	// the learn command was held, with that position; nil when the last
+	// position got through.
+	heldBack  *Binding
+	heldBackX float64
 }
 
 // State is a snapshot of an instrument, for display. It is comparable, so a
@@ -385,8 +396,23 @@ func (e *Engine) release(st *sourceState, out []midi.Message) []midi.Message {
 		if e.held[a] > 0 {
 			e.held[a]--
 		}
+		if a == CommandLearn && e.held[a] == 0 {
+			out = e.catchUp(out)
+		}
 	}
 	st.pressed, st.latched = false, nil
+	return out
+}
+
+// catchUp sends the positions that were kept back while the learn command
+// was held, now that it is not.
+func (e *Engine) catchUp(out []midi.Message) []midi.Message {
+	for _, st := range e.stateOrder {
+		if b := st.heldBack; b != nil {
+			st.heldBack = nil
+			out = e.drive(st, b, st.heldBackX, out)
+		}
+	}
 	return out
 }
 
@@ -464,8 +490,13 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 	// A key that drives a controller is deliberate and always gets
 	// through; so does its release.
 	if e.held[CommandLearn] > 0 && b.Source.Code.Kind == control.KindAxis && math.Abs(x) <= learnThreshold {
+		// Kept back, and remembered: when the command is let go of, the
+		// target must end where the axis is. A stick that was pushed out
+		// and came back to rest meanwhile would leave the pitch bent.
+		st.heldBack, st.heldBackX = b, x
 		return out
 	}
+	st.heldBack = nil
 	var t target
 	var value, rest uint32
 	switch a := b.Action.(type) {
@@ -488,7 +519,20 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 		out = e.abandon(st, out)
 	}
 	st.driving, st.target, st.centering = true, t, b.Source.selfCentering()
-	return e.send(t, value, rest, out)
+	atRest := t.sameOnWire(value, rest)
+	if ts := e.targets[t]; ts != nil && atRest {
+		if o := ts.owner; o != nil && o != st && o.driving && o.target == t {
+			return out // another source holds the target away from rest
+		}
+	}
+	out = e.send(t, value, rest, out)
+	switch ts := e.targets[t]; {
+	case !atRest:
+		ts.owner = st
+	case ts.owner == st:
+		ts.owner = nil
+	}
+	return out
 }
 
 // send emits a new value for a target unless it would encode the same as the
@@ -720,10 +764,11 @@ func (e *Engine) Reset(out []midi.Message) []midi.Message {
 		if st.pressed {
 			out = e.release(st, out)
 		}
-		st.driving = false
+		st.driving, st.heldBack = false, nil
 	}
 	for _, t := range e.targetOrder {
 		out = e.rest(t, out)
+		e.targets[t].owner = nil
 	}
 	clear(e.down)
 	e.held = [commandCount]uint8{}

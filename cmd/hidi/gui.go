@@ -50,9 +50,9 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 		return 2
 	}
 	// The window draws moving axes, so it asks for HIDI's state as often
-	// as a fast monitor shows a picture.
+	// as its monitor shows a picture.
 	client := ipc.NewClient(*socket)
-	client.SnapshotEvery = 4 * time.Millisecond
+	opts.SnapshotPace = func(every time.Duration) { client.SnapshotEvery = every }
 	if err := gui.Run(ctx, client, opts); err != nil {
 		fmt.Fprintf(stderr, "hidi gui: %v\n", err)
 		return 1

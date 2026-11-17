@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 
@@ -27,13 +28,19 @@ type editor struct {
 	// held are the controls that were down at the last look, to notice a
 	// new press: pressing a control of the device chooses it.
 	held map[string]bool
+	// looked is when the file was last compared with what is shown.
+	looked time.Time
 }
 
 // editProfile opens the page for a profile file.
 func (w *window) editProfile(path string) {
 	doc, err := OpenProfile(path)
 	if err != nil {
+		// Said on the settings sheet, which is opened for it: the page
+		// that would say it does not open.
 		w.settings.message = fmt.Sprintf("%s cannot be changed here: %v", path, strings.ReplaceAll(err.Error(), "\n", " "))
+		w.gear.set(true, time.Now())
+		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
 		return
 	}
 	w.edit = &editor{doc: doc, layout: doc.Profile.Engine.Defaults.Layout, held: map[string]bool{}}
@@ -90,10 +97,22 @@ func roleColour(r Role) RGB {
 func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	e := w.edit
 	doc := e.doc
+	// The file may be changed in an editor meanwhile; the page follows.
+	if now := time.Now(); now.Sub(e.looked) > settingsRefresh {
+		e.looked = now
+		if changed, err := doc.Reload(); err != nil {
+			e.message = strings.ReplaceAll(err.Error(), "\n", " ")
+		} else if changed {
+			e.message = "The file was changed elsewhere; this is how it is now."
+			if !slices.Contains(doc.Layouts(), e.layout) {
+				e.layout = doc.Layouts()[0]
+			}
+		}
+	}
 	e.scroll -= wheel(area) * 40
 	e.scroll = min(max(e.scroll, 0), max(e.content-area.Height, 0))
-	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
-	defer rl.EndScissorMode()
+	beginClip(area)
+	defer endClip()
 	x, y := float32(margin), area.Y+4-e.scroll
 	right := area.Width - margin
 

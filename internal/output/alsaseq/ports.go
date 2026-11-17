@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -29,13 +30,37 @@ func Sources() ([]output.Port, error) { return listPorts(offersConnections) }
 
 // listPorts returns the ports of all other clients whose capabilities pass
 // the filter.
+//
+// One client is kept for listing for as long as the program runs. HIDI
+// lists once a second while it keeps instruments connected to ports, and
+// a client that came and went each time had the kernel announce both to
+// every program that follows such news.
 func listPorts(wanted func(capability uint32) bool) ([]output.Port, error) {
-	c, err := openClient("HIDI", unix.O_WRONLY)
-	if err != nil {
-		return nil, err
+	lister.mu.Lock()
+	defer lister.mu.Unlock()
+	if lister.client == nil {
+		c, err := openClient("HIDI", unix.O_WRONLY)
+		if err != nil {
+			return nil, err
+		}
+		lister.client = c
 	}
-	defer c.close()
+	ports, err := lister.client.ports(wanted)
+	if err != nil {
+		// Whatever is wrong with the client, the next listing starts anew.
+		lister.client.close()
+		lister.client = nil
+	}
+	return ports, err
+}
 
+// lister is the client that lists ports.
+var lister struct {
+	mu     sync.Mutex
+	client *client
+}
+
+func (c *client) ports(wanted func(capability uint32) bool) ([]output.Port, error) {
 	var ports []output.Port
 	client := clientInfo{Client: -1}
 	for {

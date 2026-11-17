@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,6 +75,13 @@ type Role struct {
 	Controller uint8
 	// Shape is how the position of an axis is read.
 	Shape Shape
+	// What the window does not show and must keep when it writes the
+	// binding anew: the channel a binding is moved by, the velocity and
+	// the touch of a note, and a pitch bend that goes down.
+	Offset   uint8
+	Velocity uint8
+	Touch    bool
+	Down     bool
 	// Split says that the two halves of an axis are bound apart, as
 	// "ABS_X+" and "ABS_X-", which the window shows and does not change.
 	Split bool
@@ -142,22 +150,46 @@ func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 	switch a := action.(type) {
 	case engine.Note:
 		role.Kind, role.Note, role.Text = RoleNote, a.Note, a.Note.String()
+		role.Offset, role.Velocity, role.Touch = a.ChannelOffset, a.Velocity, a.Touch
 	case engine.Command:
 		role.Kind, role.Command, role.Text = RoleCommand, a, a.String()
 	case engine.ControlChange:
 		role.Kind, role.Controller, role.Text = RoleController, a.Controller, fmt.Sprintf("cc %d", a.Controller)
+		role.Offset = a.ChannelOffset
 	case engine.ProgramChange:
 		role.Kind, role.Text = RoleOther, fmt.Sprintf("program %d", a.Program)
 	case engine.PitchBend:
 		role.Kind, role.Text = RoleBend, "pitch bend"
+		role.Offset, role.Down = a.ChannelOffset, a.Down
 	}
 	return role
 }
 
-// SetNote makes a control play a note.
+// offset writes the channel a binding is moved by, if it is.
+func offset(n uint8) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", channel_offset = %d", n)
+}
+
+// SetNote makes a control play a note. A control that plays a note
+// already keeps what else its line says about the note.
 func (d *ProfileDoc) SetNote(layout string, code control.Code, note midi.Note) error {
 	return d.change(func(text []byte) ([]byte, error) {
-		return config.Set(text, d.Role(layout, code).Section, code.String(), strconv.Quote(note.String()))
+		was := d.Role(layout, code)
+		value := strconv.Quote(note.String())
+		if was.Kind == RoleNote && (was.Offset != 0 || was.Velocity != 0 || was.Touch || was.Shape != (Shape{})) {
+			value = "{ note = " + value
+			if was.Velocity != 0 {
+				value += fmt.Sprintf(", velocity = %d", was.Velocity)
+			}
+			if was.Touch {
+				value += ", touch = true"
+			}
+			value += offset(was.Offset) + was.Shape.text() + " }"
+		}
+		return config.Set(text, was.Section, code.String(), value)
 	})
 }
 
@@ -175,8 +207,13 @@ func (d *ProfileDoc) SetController(layout string, code control.Code, controller 
 		return fmt.Errorf("there is no controller %d; they go from 0 to 127", controller)
 	}
 	return d.change(func(text []byte) ([]byte, error) {
-		value := fmt.Sprintf("{ cc = %d%s }", controller, shape.text())
-		return config.Set(text, d.Role(layout, code).Section, code.String(), value)
+		was := d.Role(layout, code)
+		moved := ""
+		if was.Kind == RoleController {
+			moved = offset(was.Offset)
+		}
+		value := fmt.Sprintf("{ cc = %d%s%s }", controller, moved, shape.text())
+		return config.Set(text, was.Section, code.String(), value)
 	})
 }
 
@@ -184,8 +221,16 @@ func (d *ProfileDoc) SetController(layout string, code control.Code, controller 
 // upwards otherwise.
 func (d *ProfileDoc) SetBend(layout string, code control.Code, shape Shape) error {
 	return d.change(func(text []byte) ([]byte, error) {
-		value := fmt.Sprintf("{ pitch_bend = true%s }", shape.text())
-		return config.Set(text, d.Role(layout, code).Section, code.String(), value)
+		was := d.Role(layout, code)
+		way, moved := "true", ""
+		if was.Kind == RoleBend {
+			moved = offset(was.Offset)
+			if was.Down {
+				way = `"down"`
+			}
+		}
+		value := fmt.Sprintf("{ pitch_bend = %s%s%s }", way, moved, shape.text())
+		return config.Set(text, was.Section, code.String(), value)
 	})
 }
 
@@ -193,8 +238,29 @@ func (d *ProfileDoc) SetBend(layout string, code control.Code, shape Shape) erro
 // has in the layout, or the one that applies in every layout.
 func (d *ProfileDoc) Clear(layout string, code control.Code) error {
 	return d.change(func(text []byte) ([]byte, error) {
-		return config.Remove(text, d.Role(layout, code).Section, code.String())
+		out, err := config.Remove(text, d.Role(layout, code).Section, code.String())
+		if err == nil && bytes.Equal(out, text) {
+			return nil, fmt.Errorf("the line of %s was not found; %w", code, config.ErrNotEditable)
+		}
+		return out, err
 	})
+}
+
+// Reload reads the file anew if it was changed by other hands since the
+// window last read or wrote it. It reports whether it did. A file that
+// has mistakes now is not taken over, and the mistakes are returned.
+func (d *ProfileDoc) Reload() (bool, error) {
+	fresh, err := os.ReadFile(d.Path)
+	if err != nil || bytes.Equal(fresh, d.text) {
+		return false, err
+	}
+	p, err := config.Parse(fresh)
+	if err != nil {
+		return false, fmt.Errorf("the file was changed meanwhile and has mistakes now:\n%w", err)
+	}
+	p.Source = d.Path
+	d.text, d.Profile = fresh, p
+	return true, nil
 }
 
 // SetDefault sets one of the numbers an instrument starts with: "octave",
@@ -207,7 +273,14 @@ func (d *ProfileDoc) SetDefault(key string, value int) error {
 
 // change applies a change to the text, writes the file, and reads the
 // profile anew. On an error nothing is written and nothing changes.
+//
+// The change is made to the file as it is now. Whoever edits it in an
+// editor beside the window, as the window itself tells to for what it
+// cannot change, must not lose that to the next click here.
 func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
+	if _, err := d.Reload(); err != nil {
+		return err
+	}
 	text, err := edit(d.text)
 	if err != nil {
 		return err

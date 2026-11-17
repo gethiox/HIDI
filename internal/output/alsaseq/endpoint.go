@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 
@@ -114,19 +113,15 @@ func (e *Endpoint) Receive(out []midi.Message) ([]midi.Message, error) {
 			continue
 		}
 		n, err := unix.Read(c.fd, e.inbuf)
-		if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
+		// ENOSPC says that more arrived than the kernel kept for this
+		// client; it has thrown the lot away and goes on from here.
+		if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.ENOSPC) {
 			continue
 		}
 		if err != nil {
 			return out, fmt.Errorf("reading from the ALSA sequencer: %w", err)
 		}
-		for off := 0; off+eventSize <= n; off += eventSize {
-			ev := (*event)(unsafe.Pointer(&e.inbuf[off]))
-			if m, ok := decode(*ev); ok {
-				out = append(out, m)
-			}
-		}
-		return out, nil
+		return decodeAll(e.inbuf[:n], out), nil
 	}
 }
 

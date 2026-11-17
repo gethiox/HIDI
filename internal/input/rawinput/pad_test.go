@@ -290,3 +290,45 @@ func TestFourHats(t *testing.T) {
 		t.Errorf("pushing the third hat gave %v", got)
 	}
 }
+
+// A button past the end of a controller's table must not share a code
+// with one in the table.
+func TestExtraButtonsDoNotCollide(t *testing.T) {
+	for _, l := range []layout{layoutXbox, layoutSony} {
+		seen := map[uint16]uint16{}
+		for n := uint16(1); n <= 24; n++ {
+			code, ok := l.button(n, false)
+			if !ok {
+				t.Fatalf("layout %d: button %d has no code", l, n)
+			}
+			if other, dup := seen[code]; dup {
+				t.Errorf("layout %d: buttons %d and %d are both %#x", l, other, n, code)
+			}
+			seen[code] = n
+		}
+	}
+	// The click of a DualShock's touchpad is the first extra button.
+	if code, _ := layoutSony.button(14, false); code != btnTriggerHappy {
+		t.Errorf("Sony button 14 = %#x, want %#x", code, btnTriggerHappy)
+	}
+}
+
+// The triggers of an Xbox controller take ABS_Z and ABS_RZ, and leave the
+// right stick its own axes whatever order the controller declares them in.
+func TestXboxTriggersLeaveTheStick(t *testing.T) {
+	p := newPad(layoutXbox, false)
+	for _, usage := range []uint16{usageX, usageY, usageZ, usageRx, usageRy} {
+		if !p.addAxis(pageDesktop, usage, 16, 0, 0) {
+			t.Fatalf("usage %#x was not taken in", usage)
+		}
+	}
+	want := []uint16{absX, absY, absZ, absRX, absRY}
+	for i, a := range p.axes {
+		if a.code != want[i] {
+			t.Errorf("axis %d has the code %#x, want %#x", i, a.code, want[i])
+		}
+	}
+	if !p.used[absRZ] {
+		t.Error("ABS_RZ is free although the triggers use it")
+	}
+}

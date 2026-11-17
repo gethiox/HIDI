@@ -304,6 +304,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	logOutput := stderr
 	if !*noStatus && isFile && logging.IsTerminal(file) {
 		footer = logging.NewFooter(stderr)
+		footer.Rows = func() int { return logging.TerminalRows(file) }
 		logOutput = footer
 	}
 	logs := logging.New(logging.Options{
@@ -311,7 +312,10 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		Colour:    colour,
 		Level:     level,
 		KeepLevel: level,
+		// Writing the log must never hold up an instrument.
+		Queue: 4096,
 	})
+	defer logs.Close()
 	log := logs.Logger("hidi")
 	inputLog := logs.Logger("input")
 
@@ -491,10 +495,12 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		close(served)
 	}
 	desktopDone := make(chan struct{})
+	var nothingToShow atomic.Bool
 	if *headless {
 		close(desktopDone)
 	} else {
 		d := desktop{show: *showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
+		d.failed = func() { nothingToShow.Store(true) }
 		if server != nil {
 			d.windowArgs = []string{"--socket", *socket}
 			if given["config"] {
@@ -513,12 +519,12 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 			manager.SetProfiles(profiles)
 		})
 	}
-	if pl.managed {
+	if pl.settingsFile != "" {
 		// Settings changed in the file, by hand or from the window, are
 		// taken over while HIDI runs, as far as they can be: the toggle
 		// combination and what is grabbed. What the command line set
 		// stays as it was set there.
-		settingsFile := pl.paths.Settings
+		settingsFile := pl.settingsFile
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
 				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
@@ -557,11 +563,16 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		})
 	}
 	manager.Run(ctx, source.Devices)
-	stopFooter() // also when the manager ended by itself
+	quit() // also when the manager ended by itself
+	stopFooter()
 	<-footerDone
 	<-served
 	<-desktopDone
 	<-lightsDone // the lights are left evenly lit
+	if nothingToShow.Load() {
+		log.Error("HIDI stopped: it had neither an icon nor a window to show itself with; run it with --headless where there is no desktop")
+		return 1
+	}
 	log.Info("HIDI stopped")
 	return 0
 }

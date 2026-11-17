@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -106,6 +107,8 @@ type portSubscribe struct {
 type client struct {
 	fd int
 	id uint8
+	// dropped counts the events a listener had no room for; see write.
+	dropped atomic.Uint64
 }
 
 // openClient connects to the sequencer and names the client. flags is
@@ -181,6 +184,13 @@ func (c *client) subscribe(sender, dest addr) error {
 
 // write sends events. The kernel accepts any number of whole events per
 // write and may accept fewer than offered.
+//
+// An event goes to every program that listens, and the kernel reports as
+// the failure of the write what is the failure of one listener: a program
+// that stopped reading, whose queue is full, makes the write stop at that
+// event with EAGAIN, after the event has reached every other listener.
+// That event is passed over, and the ones after it are still sent. One
+// frozen program must not silence an instrument for all the others.
 func (c *client) write(events []event) error {
 	if len(events) == 0 {
 		return nil
@@ -189,6 +199,11 @@ func (c *client) write(events []event) error {
 	for len(buf) > 0 {
 		n, err := unix.Write(c.fd, buf)
 		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.ENOMEM) || errors.Is(err, unix.ENOSPC) {
+			c.dropped.Add(1)
+			buf = buf[min(eventSize, len(buf)):]
 			continue
 		}
 		if err != nil {

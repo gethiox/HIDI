@@ -63,6 +63,14 @@ func (o object) isNil() bool { return o.ptr == nil }
 // call invokes the method in the given slot of the interface's table. Slots
 // 0 to 2 are IUnknown's, 3 to 5 IInspectable's; an interface's own methods
 // start at 6, or at 3 for an interface that is not a WinRT one.
+//
+// Arguments are often the addresses of variables of the caller, turned
+// into numbers. The line below makes the compiler keep those variables in
+// place for the length of the call, as it does for the calls of the
+// syscall package; without it a stack that grows in between would leave
+// Windows writing where the variable was.
+//
+//go:uintptrescapes
 func (o object) call(slot int, args ...uintptr) hresult {
 	vtable := *(*unsafe.Pointer)(o.ptr)
 	fn := *(*uintptr)(unsafe.Add(vtable, uintptr(slot)*unsafe.Sizeof(uintptr(0))))

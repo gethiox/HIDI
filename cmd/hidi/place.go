@@ -20,6 +20,9 @@ type place struct {
 	// the built-in ones only.
 	profiles string
 	settings settings.Settings
+	// settingsFile is the file the settings were read from; empty when
+	// they are the defaults for lack of a directory.
+	settingsFile string
 	// notes are things to tell the user, and problems things that are
 	// wrong, in the order found.
 	notes, problems []string
@@ -80,6 +83,7 @@ func findPlace(root, profiles string, prepare bool) place {
 		pl.problems = append(pl.problems, fmt.Sprintf("%s has mistakes; using the default settings:\n%v", pl.paths.Settings, err))
 	}
 	pl.settings = s
+	pl.settingsFile = pl.paths.Settings
 	if pl.profiles == "" {
 		pl.profiles = pl.paths.Profiles
 	} else {

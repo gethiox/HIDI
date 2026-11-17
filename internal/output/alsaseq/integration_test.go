@@ -503,3 +503,46 @@ func TestDuplexEndpoint(t *testing.T) {
 		t.Errorf("Receive on an endpoint that only sends = %v", err)
 	}
 }
+
+// A program that listens and stops reading, a DAW frozen while it loads a
+// project for instance, fills up. Sending must go on for everyone else,
+// and the instrument must not take that for its own failure.
+func TestFrozenListenerDoesNotStopSending(t *testing.T) {
+	requireSequencer(t)
+
+	ep, err := Open("HIDI test instrument")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ep.Close()
+	frozen := newReceiver(t, ep.port) // never reads
+	_ = frozen
+
+	// More than the kernel keeps for one listener, one note at a time and
+	// in one piece.
+	note := []midi.Message{midi.NoteOn(0, 60, midi.From7(100))}
+	for i := range 300 {
+		if err := ep.Send(note); err != nil {
+			t.Fatalf("Send %d with a frozen listener: %v", i, err)
+		}
+	}
+	batch := make([]midi.Message, 300)
+	for i := range batch {
+		batch[i] = note[0]
+	}
+	if err := ep.Send(batch); err != nil {
+		t.Fatalf("Send of a batch with a frozen listener: %v", err)
+	}
+	if ep.client.dropped.Load() == 0 {
+		t.Fatal("600 notes fitted into a listener that never reads; the test shows nothing")
+	}
+
+	// A listener that reads still gets what is sent now.
+	alive := newReceiver(t, ep.port)
+	if err := ep.Send([]midi.Message{midi.NoteOn(1, 62, midi.From7(90))}); err != nil {
+		t.Fatalf("Send with a frozen and a reading listener: %v", err)
+	}
+	if got := decodeEvent(alive.read(1)[0]); got.typ != eventNoteOn || got.channel != 1 || got.note != 62 {
+		t.Errorf("the reading listener received %+v", got)
+	}
+}

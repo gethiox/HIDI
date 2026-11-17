@@ -32,10 +32,25 @@ fi
 epoch=$(git log -1 --format=%ct)
 export SOURCE_DATE_EPOCH=$epoch TZ=UTC LC_ALL=C
 export CGO_ENABLED=0 GOFLAGS=-mod=readonly
+# The toolchain go.mod names, whatever Go the builder has installed, and
+# none of the builder's own choices for the processors built for.
+export GOTOOLCHAIN=$(sed -n 's/^toolchain //p' go.mod)
+unset GOAMD64 GOARM64 GOEXPERIMENT
 
 rm -rf "$out"
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
+# Archives written into the checkout would make it one with changes for
+# every build after the first, and the builds differ by that. A directory
+# git ignores, such as dist, does not count.
+case "$out/" in
+"$PWD"/*)
+    if ! git check-ignore -q "$out"; then
+        echo "release.sh: $out is inside the checkout and not ignored by git; name a directory outside it, or dist" >&2
+        exit 1
+    fi
+    ;;
+esac
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -62,8 +77,11 @@ echo "$targets" | while read -r target name; do
         -ldflags "-s -w -buildid= -X github.com/gethiox/HIDI/internal/buildinfo.Version=$version" \
         -o "$work/$dir/$exe" ./cmd/hidi
 
-    cp LICENSE README.md "$work/$dir/"
-    [ "$goos" = linux ] && cp packaging/linux/70-hidi.rules packaging/linux/hidi.desktop "$work/$dir/"
+    # With modes of their own: those of the checkout depend on how it
+    # was made.
+    install -m 0644 LICENSE README.md "$work/$dir/"
+    [ "$goos" = linux ] && install -m 0644 packaging/linux/70-hidi.rules packaging/linux/hidi.desktop "$work/$dir/"
+    chmod 0755 "$work/$dir" "$work/$dir/$exe"
     find "$work/$dir" -exec touch -d "@$epoch" {} +
 
     if [ "$goos" = windows ]; then

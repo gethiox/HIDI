@@ -171,10 +171,11 @@ func TestGate(t *testing.T) {
 	step("b pressed again", b, false, false)
 	step("b released", b, true, false)
 
-	// A release nobody saw the press of follows the present state.
+	// A release nobody saw the press of passes: the key went down before
+	// HIDI looked, and the other programs must not take it for held.
 	step("an unknown release without a grab", a, true, false)
 	g.grabs.Add(1)
-	step("an unknown release during a grab", a, true, true)
+	step("an unknown release during a grab", a, true, false)
 }
 
 func TestInstanceID(t *testing.T) {

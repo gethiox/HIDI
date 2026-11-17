@@ -237,3 +237,23 @@ func TestWatch(t *testing.T) {
 		t.Fatal("Watch did not return after its context was cancelled")
 	}
 }
+
+// A profile that is a link to a file elsewhere is followed too: the link
+// does not change when the file does.
+func TestFingerprintFollowsLinks(t *testing.T) {
+	dir, elsewhere := t.TempDir(), t.TempDir()
+	target := filepath.Join(elsewhere, "mine.toml")
+	if err := os.WriteFile(target, []byte("schema = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "mine.toml")); err != nil {
+		t.Skip("no links here:", err)
+	}
+	before := fingerprint(dir)
+	if err := os.WriteFile(target, []byte("schema = 1\n# changed, and longer\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fingerprint(dir) == before {
+		t.Error("a change to the file behind a link was not noticed")
+	}
+}

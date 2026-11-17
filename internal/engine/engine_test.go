@@ -791,3 +791,36 @@ func TestTouchVelocityScale(t *testing.T) {
 		t.Error("the ends of the scale are off")
 	}
 }
+
+// The two halves of one axis may drive one target: up bends up, down
+// bends down. The half that rests must not undo what the other does.
+func TestHalvesShareATarget(t *testing.T) {
+	r := newRig(t, baseProfile(
+		Binding{Source: Source{Code: stickX, Range: RangeUpper}, Action: PitchBend{}},
+		Binding{Source: Source{Code: stickX, Range: RangeLower}, Action: PitchBend{Down: true}},
+	))
+	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
+	r.set(stickX, 0.75, "PitchBend ch=1 bend=+4096")
+	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
+	r.set(stickX, 0.25, "PitchBend ch=1 bend=+0; PitchBend ch=1 bend=-4096")
+	r.set(stickX, 0, "PitchBend ch=1 bend=-8192")
+	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
+	r.reset("")
+}
+
+// A position kept back while learn is held arrives when learn is let go
+// of: a stick that went out and came back must not leave the pitch bent.
+func TestLearnCatchesUp(t *testing.T) {
+	r := newRig(t, baseProfile(
+		key(keyUp, CommandLearn),
+		Binding{Source: Source{Code: stickX, Centered: true}, Action: PitchBend{}},
+	))
+	r.press(keyUp, "")
+	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
+	r.set(stickX, 0.6, "") // on its way back: kept
+	r.set(stickX, 0.5, "") // at rest: kept
+	r.release(keyUp, "PitchBend ch=1 bend=+0")
+	// Nothing is owed after that.
+	r.press(keyUp, "")
+	r.release(keyUp, "")
+}

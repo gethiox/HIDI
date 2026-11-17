@@ -420,3 +420,41 @@ func TestSnapshotPace(t *testing.T) {
 		}
 	}
 }
+
+// Of two HIDIs that start at the same moment, one gets the socket and the
+// other is told that HIDI runs.
+func TestListenAtTheSameMoment(t *testing.T) {
+	for round := range 200 {
+		path := filepath.Join(t.TempDir(), "control.sock")
+		results := make(chan error, 2)
+		start := make(chan struct{})
+		var servers [2]*Server
+		for i := range 2 {
+			go func() {
+				<-start
+				var err error
+				servers[i], err = Listen(path)
+				results <- err
+			}()
+		}
+		close(start)
+		a, b := <-results, <-results
+		won := 0
+		for _, err := range []error{a, b} {
+			switch {
+			case err == nil:
+				won++
+			case !errors.Is(err, ErrRunning):
+				t.Fatalf("round %d: Listen failed with %v", round, err)
+			}
+		}
+		if won != 1 {
+			t.Fatalf("round %d: %d of two got the socket", round, won)
+		}
+		for _, s := range servers {
+			if s != nil {
+				s.Close()
+			}
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -66,8 +67,9 @@ func testDesktop(t *testing.T, host tray.Host, hostErr error, show bool) (d desk
 			SetActive: func(a bool) { active = a; changes.Notify() },
 			Changes:   &changes,
 		},
-		log:  slog.New(slog.DiscardHandler),
-		quit: func() { close(quitCh); cancel() },
+		log: slog.New(slog.DiscardHandler),
+		// Ending HIDI is asked for more than once, as cancelling is.
+		quit: sync.OnceFunc(func() { close(quitCh); cancel() }),
 	}
 	go func() {
 		defer close(doneCh)
@@ -178,4 +180,53 @@ func TestLocalHIDI(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Errorf("Watch = %v", err)
 	}
+}
+
+// absentTray is a tray whose icon no desktop shows.
+type absentTray struct{ fakeTray }
+
+func (*absentTray) Present() bool { return false }
+
+// A desktop that takes no icons, GNOME as it comes: the window stands in,
+// and closing it ends HIDI.
+func TestDesktopWhereNoIconShows(t *testing.T) {
+	old := trayWait
+	trayWait = 20 * time.Millisecond
+	t.Cleanup(func() { trayWait = old })
+
+	windows := &fakeWindows{close: make(chan struct{})}
+	windows.install(t)
+	host := &absentTray{fakeTray{shown: make(chan tray.View, 16), actions: make(chan tray.Action)}}
+	_, quit, done := testDesktop(t, host, nil, false)
+	eventually(t, "the window", func() bool { return windows.opened.Load() == 1 })
+	select {
+	case <-quit:
+		t.Fatal("HIDI ended while its window was open")
+	case <-time.After(50 * time.Millisecond):
+	}
+	windows.close <- struct{}{}
+	within(t, "HIDI to end with its window", quit)
+	within(t, "the desktop to finish", done)
+}
+
+// Neither an icon nor a window that opens: HIDI ends and says that it
+// failed.
+func TestDesktopWithNothingToShow(t *testing.T) {
+	old := startWindow
+	startWindow = func(ctx context.Context, args []string) error { return errors.New("no display") }
+	t.Cleanup(func() { startWindow = old })
+	oldHost := newTrayHost
+	newTrayHost = func() (tray.Host, error) { return nil, errors.New("no session bus") }
+	t.Cleanup(func() { newTrayHost = oldHost })
+
+	failed, quit := make(chan struct{}), make(chan struct{})
+	d := desktop{
+		windowArgs: []string{"--socket", "x"},
+		log:        slog.New(slog.DiscardHandler),
+		quit:       func() { close(quit) },
+		failed:     func() { close(failed) },
+	}
+	go d.run(t.Context())
+	within(t, "the failure to be told", failed)
+	within(t, "HIDI to be ended", quit)
 }

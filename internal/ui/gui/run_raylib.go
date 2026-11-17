@@ -96,7 +96,6 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	defer cancel()
 	model := &Model{}
 	model.SetMinLevel(1) // from INFO up
-	go Follow(ctx, hidi, model)
 
 	rl.SetTraceLogLevel(rl.LogError)
 	// Drawing waits for the monitor, whatever its refresh rate is. The
@@ -110,6 +109,20 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	defer rl.CloseWindow()
 	rl.SetWindowMinSize(minW, minH)
 	rl.SetExitKey(0) // Escape is a key of the instrument, not a way out
+
+	// HIDI's state is asked for as often as this monitor can show it, and
+	// no more often: every state costs both sides some work.
+	if opts.SnapshotPace != nil {
+		rate := rl.GetMonitorRefreshRate(rl.GetCurrentMonitor())
+		if rate <= 0 {
+			rate = 60
+		}
+		if opts.FPS > 0 && opts.FPS < rate {
+			rate = opts.FPS
+		}
+		opts.SnapshotPace(max(time.Second/time.Duration(rate), 2*time.Millisecond))
+	}
+	go Follow(ctx, hidi, model)
 
 	w := &window{hidi: hidi, model: model, opts: opts, ctx: ctx, toggling: make(chan struct{}, 1)}
 	w.loadFonts()
@@ -149,8 +162,13 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 			settle = 1 // the picture is taken of a frame drawn now
 		}
 		if settle == 0 {
+			// Nothing to draw: look at the pointer and the keys, and
+			// sleep. The sleep is the system's, which costs nothing; the
+			// library's own waits by spinning for part of the time. It is
+			// short whatever the frame limit, since a click that begins
+			// and ends between two looks is not seen.
 			rl.PollInputEvents()
-			rl.WaitTime(1 / float64(pace.target))
+			time.Sleep(min(time.Second/time.Duration(pace.target), idlePoll))
 			continue
 		}
 		settle--
@@ -164,6 +182,10 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	}
 	return nil
 }
+
+// idlePoll is the longest the idle window goes without looking at the
+// pointer.
+const idlePoll = 10 * time.Millisecond
 
 // userActive reports whether the user is doing something with the window.
 func userActive() bool {
@@ -269,11 +291,39 @@ func width(font rl.Font, s string, size float32) float32 {
 var inputOff bool
 
 func clicked(r rl.Rectangle) bool {
-	return !inputOff && rl.IsMouseButtonPressed(rl.MouseButtonLeft) && rl.CheckCollisionPointRec(rl.GetMousePosition(), r)
+	return rl.IsMouseButtonPressed(rl.MouseButtonLeft) && hovered(r)
 }
 
 func hovered(r rl.Rectangle) bool {
-	return !inputOff && rl.CheckCollisionPointRec(rl.GetMousePosition(), r)
+	if inputOff {
+		return false
+	}
+	p := rl.GetMousePosition()
+	// What is cut off from view is not there for the pointer either: a
+	// button scrolled under the log or the header must not take a click
+	// meant for what covers it.
+	if clipped && !rl.CheckCollisionPointRec(p, clip) {
+		return false
+	}
+	return rl.CheckCollisionPointRec(p, r)
+}
+
+// clip is the part of the window that drawing is held to at the moment,
+// if clipped is set.
+var (
+	clip    rl.Rectangle
+	clipped bool
+)
+
+// beginClip holds drawing, and the pointer, to r until endClip.
+func beginClip(r rl.Rectangle) {
+	rl.BeginScissorMode(int32(r.X), int32(r.Y), int32(r.Width), int32(r.Height))
+	clip, clipped = r, true
+}
+
+func endClip() {
+	rl.EndScissorMode()
+	clipped = false
 }
 
 // wheel returns how far the mouse wheel was turned over r.
@@ -393,8 +443,8 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 	w.cardScroll -= wheel(area) * 40
 	w.cardScroll = min(max(w.cardScroll, 0), max(total-area.Height, 0))
 
-	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
-	defer rl.EndScissorMode()
+	beginClip(area)
+	defer endClip()
 	y := area.Y - w.cardScroll
 	for i, in := range state.Instruments {
 		if y+heights[i] >= area.Y && y <= area.Y+area.Height {
@@ -719,8 +769,8 @@ func (w *window) drawLog(area rl.Rectangle) {
 	w.logScroll += wheel(body) * 3
 	w.logScroll = min(max(w.logScroll, 0), float32(max(len(lines)-visible, 0)))
 
-	rl.BeginScissorMode(int32(body.X), int32(body.Y), int32(body.Width), int32(body.Height))
-	defer rl.EndScissorMode()
+	beginClip(body)
+	defer endClip()
 	// The newest line sits at the bottom.
 	last := len(lines) - int(w.logScroll)
 	y := body.Y + body.Height - lineH - 4

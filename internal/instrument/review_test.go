@@ -1,0 +1,250 @@
+package instrument
+
+import (
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gethiox/HIDI/internal/config"
+	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/light"
+	"github.com/gethiox/HIDI/internal/midi"
+)
+
+func shortRetry(t *testing.T) {
+	old := RetryOutput
+	RetryOutput = 20 * time.Millisecond
+	t.Cleanup(func() { RetryOutput = old })
+}
+
+// Found in review: a profile change that arrives while the endpoint is broken and a note
+// is held is lost.
+func TestProfileChangeSurvivesABrokenDevice(t *testing.T) {
+	shortRetry(t)
+	r := newRigWith(t, Options{Grab: GrabKeyboards}, profile(t, "Mine", `type = "keyboard"`, "C3"))
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+
+	// The MIDI device breaks; nothing is sent yet so nobody noticed.
+	e.mu.Lock()
+	e.sendErr = errors.New("broken")
+	e.mu.Unlock()
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Mine", `type = "keyboard"`, "D3")))
+
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(e.name) != e })
+	time.Sleep(100 * time.Millisecond)
+	e2 := r.endpoint(e.name)
+	kbd.set(keyZ, 0)
+	kbd.set(keyZ, 1)
+	var sent string
+	eventually(t, "a note on the new endpoint", func() bool { sent, _ = e2.state(); return sent != "" })
+	t.Logf("after recovery the instrument plays: %s", sent)
+	if !strings.Contains(sent, "note=D3") {
+		t.Errorf("the profile change was lost: got %q, want D3", sent)
+	}
+}
+
+// A2: a profile removal in the same situation leaves the instrument running.
+func TestProfileRemovalSurvivesABrokenDevice(t *testing.T) {
+	shortRetry(t)
+	r := newRigWith(t, Options{Grab: func(control.DeviceInfo) bool { return true }},
+		profile(t, "Pedal", "vendor = 0x1234\nproduct = 1", "C3"))
+	pedal := newFakeDevice("Pedal", control.DeviceUnknown)
+	pedal.info.Hardware = control.HardwareID{Vendor: 0x1234, Product: 1}
+	e := r.plug(pedal)
+	pedal.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+	e.mu.Lock()
+	e.sendErr = errors.New("broken")
+	e.mu.Unlock()
+	r.manager.SetProfiles(builtin(t)) // nothing selects the pedal any more
+
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(e.name) != e })
+	time.Sleep(200 * time.Millisecond)
+	if st := r.manager.Status(); len(st) != 0 {
+		t.Errorf("the pedal is still an instrument with profile %q, grabbed=%v", st[0].Profile, pedal.isGrabbed())
+	}
+}
+
+// Found in review: the first attempt to create the MIDI device fails; nothing ever tries again.
+func TestFirstOpenIsTriedAgain(t *testing.T) {
+	shortRetry(t)
+	r := newRig(t)
+	r.mu.Lock()
+	r.openErr = errors.New("the MIDI service is not up yet")
+	r.mu.Unlock()
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.devices <- kbd
+	eventually(t, "the attempt", func() bool { return r.openFailures() == 1 })
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	time.Sleep(300 * time.Millisecond)
+	r.manager.SetProfiles(builtin(t)) // the profile directory is read again
+	r.manager.SetActive(false)
+	r.manager.SetActive(true)
+	time.Sleep(300 * time.Millisecond)
+	if len(r.manager.Status()) != 1 {
+		t.Errorf("after the MIDI service came up: %d instruments, %d failed attempts in all", len(r.manager.Status()), r.openFailures())
+	}
+}
+
+// Found in review: a toggle key that was down when the endpoint broke.
+func TestTapAcrossABrokenDevice(t *testing.T) {
+	shortRetry(t)
+	old := TapHold
+	TapHold = 40 * time.Millisecond
+	t.Cleanup(func() { TapHold = old })
+	keyX := control.Key(45)
+
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true})
+	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
+	r.devices <- kbd
+	name := EndpointPrefix + "Test Keyboard"
+	eventually(t, "endpoint", func() bool { return r.endpoint(name) != nil })
+	e := r.endpoint(name)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+
+	// The toggle key is held long: it is typed for the system.
+	kbd.set(keyZ, 1)
+	eventually(t, "the long press to be passed on", func() bool { return kbd.typedKeys() == keyZ.String()+"=true" })
+	// The endpoint breaks while it is down.
+	r.mu.Lock()
+	r.openErr = errors.New("away")
+	r.mu.Unlock()
+	e.mu.Lock()
+	e.sendErr = errors.New("broken")
+	e.mu.Unlock()
+	kbd.set(keyX, 1)
+	eventually(t, "the keyboard to be given back", func() bool { return !kbd.isGrabbed() })
+	kbd.set(keyZ, 0) // released while there is no MIDI device
+	kbd.set(keyX, 0)
+	kbd.drain(t)
+	time.Sleep(100 * time.Millisecond)
+	t.Logf("typed for the system while failed: %q", kbd.typedKeys())
+	if !strings.HasSuffix(kbd.typedKeys(), "=false") {
+		t.Errorf("the system never saw the toggle key come up: %q", kbd.typedKeys())
+	}
+
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(name) != e })
+	eventually(t, "the keyboard to be grabbed again", kbd.isGrabbed)
+	time.Sleep(50 * time.Millisecond)
+
+	// One tap should turn HIDI off and give the keyboard back.
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+	time.Sleep(100 * time.Millisecond)
+	if r.manager.Active() || kbd.isGrabbed() {
+		t.Errorf("first tap after recovery: active=%v grabbed=%v typed=%q", r.manager.Active(), kbd.isGrabbed(), kbd.typedKeys())
+	}
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+	time.Sleep(100 * time.Millisecond)
+	t.Logf("second tap after recovery: active=%v grabbed=%v", r.manager.Active(), kbd.isGrabbed())
+}
+
+// Found in review: notes heard from other programs survive the loss of the MIDI device.
+func TestHeardNotesGoWithTheDevice(t *testing.T) {
+	shortRetry(t)
+	var mu sync.Mutex
+	var lamp *fakeLight
+	r := newRigWith(t, Options{Lights: func(info control.DeviceInfo) Light {
+		mu.Lock()
+		defer mu.Unlock()
+		lamp = &fakeLight{}
+		return lamp
+	}})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	scene := func() light.Scene { mu.Lock(); l := lamp; mu.Unlock(); s, _ := l.last(); return s }
+	has := func(set [2]uint64, note int) bool { return set[note/64]&(1<<(note%64)) != 0 }
+	e.incoming <- []midi.Message{midi.NoteOn(2, 64, midi.From7(100))}
+	eventually(t, "the note from outside", func() bool { return has(scene().External[2], 64) })
+
+	e.mu.Lock()
+	e.sendErr = errors.New("broken")
+	e.mu.Unlock()
+	kbd.set(keyZ, 1)
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(e.name) != e })
+	kbd.set(keyZ, 0)
+	kbd.set(keyZ, 1)
+	r.expectSent(r.endpoint(e.name), "NoteOn ch=1 note=C0 velocity=64")
+	time.Sleep(50 * time.Millisecond)
+	if has(scene().External[2], 64) {
+		t.Errorf("the lights still show a note that was sent to the MIDI device that is gone")
+	}
+}
+
+// Found in review: a lever at rest is not sent again after HIDI was off and on.
+func TestRestingAxisIsSentAfterOffAndOn(t *testing.T) {
+	lever, err := config.Parse([]byte(`
+schema = 1
+name = "Lever"
+[match]
+type = "gamepad"
+[defaults]
+axis_rate = 0
+[[layout]]
+name = "Main"
+[layout.bindings]
+ABS_Z = { cc = 7 }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, lever)
+	pad := newFakeDevice("Throttle", control.DeviceGamepad)
+	e := r.plug(pad)
+	pad.set(control.Axis(2), 0.75)
+	r.expectSent(e, "ControlChange ch=1 controller=7 value=95")
+	pad.drain(t)
+	r.manager.SetActive(false)
+	var sent string
+	eventually(t, "the reset", func() bool { sent, _ = e.state(); return strings.Count(sent, "ControlChange") == 2 })
+	r.manager.SetActive(true)
+	time.Sleep(50 * time.Millisecond)
+	// The lever still stands at 0.75 and trembles, as levers do.
+	for i := range 50 {
+		pad.set(control.Axis(2), 0.75+float64(i%2)*0.004)
+	}
+	pad.drain(t)
+	sent, _ = e.state()
+	t.Logf("sent: %s", sent)
+	if !strings.HasSuffix(sent, "value=95") && !strings.HasSuffix(sent, "value=96") {
+		t.Errorf("after off and on the controller stays at its rest value although the lever is at 0.75")
+	}
+}
+
+// Found in review: what a parked device reported long ago is played when a profile comes.
+func TestParkedInputIsNotPlayedLater(t *testing.T) {
+	old := parkedPoll
+	parkedPoll = time.Hour // as good as never, like 500 ms against a full buffer
+	t.Cleanup(func() { parkedPoll = old })
+	r := newRig(t)
+	pedal := newFakeDevice("Pedal", control.DeviceUnknown)
+	pedal.info.Hardware = control.HardwareID{Vendor: 0x1234, Product: 1}
+	r.devices <- pedal
+	time.Sleep(50 * time.Millisecond)
+	for range 8 { // pressed long before there is a profile
+		pedal.set(keyZ, 1)
+		pedal.set(keyZ, 0)
+	}
+	time.Sleep(50 * time.Millisecond)
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Pedal", "vendor = 0x1234\nproduct = 1", "C3")))
+	name := EndpointPrefix + "Pedal"
+	eventually(t, "the pedal's MIDI device", func() bool { return r.endpoint(name) != nil })
+	time.Sleep(100 * time.Millisecond)
+	sent, _ := r.endpoint(name).state()
+	if sent != "" {
+		t.Errorf("the new instrument played %d old notes at once", strings.Count(sent, "NoteOn"))
+	}
+}

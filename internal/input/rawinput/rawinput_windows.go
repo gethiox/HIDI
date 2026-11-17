@@ -36,6 +36,7 @@ var (
 	procUnhookWindowsHookEx     = user32.NewProc("UnhookWindowsHookEx")
 	procCallNextHookEx          = user32.NewProc("CallNextHookEx")
 	procSendInput               = user32.NewProc("SendInput")
+	procPostThreadMessage       = user32.NewProc("PostThreadMessageW")
 	procGetProductString        = hid.NewProc("HidD_GetProductString")
 	cfgmgr                      = windows.NewLazySystemDLL("cfgmgr32.dll")
 	procLocateDevNode           = cfgmgr.NewProc("CM_Locate_DevNodeW")
@@ -52,6 +53,7 @@ var (
 const (
 	wmDestroy           = 0x0002
 	wmClose             = 0x0010
+	wmQuit              = 0x0012
 	wmInput             = 0x00FF
 	wmInputDeviceChange = 0x00FE
 	wmKeyUp             = 0x0101
@@ -225,9 +227,23 @@ type Watcher struct {
 	hook     uintptr
 	buf      []byte // what Windows reports is read into this
 
-	// gate decides what the hook swallows.
+	// rejected holds the interfaces that were looked at and are of no
+	// use, so that their input is not looked into again and again.
+	rejected map[uintptr]bool
+
+	// gate decides what the hook swallows. Its maps belong to the hook's
+	// thread.
 	gate gate
-	// claims decides which keyboard gets a swallowed key.
+	// The hook runs on a thread of its own: Windows waits for the hook
+	// before any program gets a key, and removes a hook that is slow to
+	// answer, without a word. The window's thread asks devices for their
+	// names, which can take seconds for one that is asleep.
+	hookThread uint32
+	hookDone   chan struct{}
+
+	// keys guards what both threads use: claims, which decides which
+	// keyboard gets a swallowed key, and the down map of every keyboard.
+	keys   sync.Mutex
 	claims claims[*Device]
 }
 
@@ -251,7 +267,8 @@ func Watch(opts Options) (*Watcher, error) {
 		byHandle: map[uintptr]*Device{},
 		byGroup:  map[string]*Device{},
 		readers:  map[uintptr]*padReader{},
-		gate:     gate{passed: map[uint32]bool{}},
+		rejected: map[uintptr]bool{},
+		hookDone: make(chan struct{}),
 	}
 	if !current.CompareAndSwap(nil, w) {
 		return nil, errors.New("input devices are already being watched")
@@ -324,13 +341,20 @@ func (w *Watcher) run(ready chan<- error) {
 		fail("asking Windows for the input of keyboards and game controllers", err)
 		return
 	}
-	w.hook, _, err = procSetWindowsHookEx.Call(whKeyboardLL, windows.NewCallback(keyboardHook), uintptr(instance), 0)
-	if w.hook == 0 {
+	hooked := make(chan error, 1)
+	go w.runHook(instance, hooked)
+	if err := <-hooked; err != nil {
 		procDestroyWindow.Call(hwnd)
 		fail("installing the keyboard hook", err)
 		return
 	}
-	defer procUnhookWindowsHookEx.Call(w.hook)
+	defer func() {
+		procPostThreadMessage.Call(uintptr(w.hookThread), wmQuit, 0, 0)
+		select {
+		case <-w.hookDone:
+		case <-time.After(time.Second):
+		}
+	}()
 
 	// Asking for notifications makes Windows announce the devices that
 	// are there already; listing them as well covers a Windows that does
@@ -352,6 +376,58 @@ func (w *Watcher) run(ready chan<- error) {
 		d.end(ErrClosed)
 	}
 	close(w.devices)
+}
+
+// runHook is the hook's thread: it installs the hook and handles messages,
+// which is how Windows calls the hook, until it is told to quit.
+func (w *Watcher) runHook(instance windows.Handle, ready chan<- error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	defer close(w.hookDone)
+
+	hook, _, err := procSetWindowsHookEx.Call(whKeyboardLL, windows.NewCallback(keyboardHook), uintptr(instance), 0)
+	if hook == 0 {
+		ready <- err
+		return
+	}
+	defer procUnhookWindowsHookEx.Call(hook)
+	w.hook, w.hookThread = hook, windows.GetCurrentThreadId()
+	ready <- nil
+
+	var msg message
+	for {
+		r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if int32(r) <= 0 {
+			return // WM_QUIT
+		}
+		procDispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
+	}
+}
+
+// Virtual key codes of the keys the hook names differently from Raw Input.
+const (
+	vkPause    = 0x13
+	vkNumLock  = 0x90
+	vkRShift   = 0xA1
+	keyRShift  = 54
+	keyNumLock = 69
+	keyPause   = 119
+)
+
+// hookKeyCode is keyCode for what the hook is told. For three keys the
+// hook's scan code and prefix differ from what Raw Input reports: right
+// Shift and Num Lock come with the prefix, and Pause as Num Lock's code
+// without it. Those are told by their virtual key code.
+func hookKeyCode(vk uint32, scan, flags uint16) (uint16, bool) {
+	switch vk {
+	case vkRShift:
+		return keyRShift, true
+	case vkNumLock:
+		return keyNumLock, true
+	case vkPause:
+		return keyPause, true
+	}
+	return keyCode(scan, flags)
 }
 
 // windowProc receives the window's messages.
@@ -395,8 +471,21 @@ func keyboardHook(code int32, wParam, lParam uintptr) uintptr {
 			if info.flags&llkhfExtended != 0 {
 				flags = flagE0
 			}
-			code, known := keyCode(uint16(info.scanCode), flags)
-			if w.gate.swallowKey(info.vkCode, code, known, wParam == wmKeyUp || wParam == wmSysKeyUp) {
+			code, known := hookKeyCode(info.vkCode, uint16(info.scanCode), flags)
+			// Two keys can share a virtual key code, Enter and the Enter
+			// of the keypad for one, so the gate tells keys apart by
+			// their scan code where there is one.
+			id := info.scanCode | uint32(flags)<<16
+			if info.scanCode == 0 {
+				id = info.vkCode | 1<<31
+			}
+			up := wParam == wmKeyUp || wParam == wmSysKeyUp
+			if w.gate.swallowKey(id, code, known, up) {
+				// Raw Input will not report this key: Windows drops it
+				// there too. So it is taken from here.
+				if known {
+					w.swallowed(code, !up)
+				}
 				return 1
 			}
 		}
@@ -457,7 +546,8 @@ func productName(path string) string {
 	}
 	defer windows.CloseHandle(h)
 	var buf [127]uint16
-	if r, _, _ := procGetProductString.Call(uintptr(h), uintptr(unsafe.Pointer(&buf[0])), unsafe.Sizeof(buf)); r == 0 {
+	// The answer is one byte; the rest of the register is not defined.
+	if r, _, _ := procGetProductString.Call(uintptr(h), uintptr(unsafe.Pointer(&buf[0])), unsafe.Sizeof(buf)); r&0xff == 0 {
 		return ""
 	}
 	return windows.UTF16ToString(buf[:])
@@ -525,12 +615,20 @@ func container(path string) string {
 // interfaces of one piece of hardware become one device, which is
 // delivered when its first interface appears.
 func (w *Watcher) add(handle uintptr) {
-	if handle == 0 || w.byHandle[handle] != nil {
+	if handle == 0 || w.byHandle[handle] != nil || w.rejected[handle] {
 		return
 	}
+	if !w.take(handle) {
+		w.rejected[handle] = true
+	}
+}
+
+// take is add for an interface that was not looked at yet. It reports
+// false for one that is of no use.
+func (w *Watcher) take(handle uintptr) bool {
 	info, ok := deviceInfo(handle)
 	if !ok {
-		return
+		return false
 	}
 	var controller bool
 	switch {
@@ -538,11 +636,11 @@ func (w *Watcher) add(handle uintptr) {
 	case info.typ == rimTypeHID && isGameController(info.usagePage, info.usage):
 		controller = true
 	default:
-		return
+		return false
 	}
 	path := devicePath(handle)
 	if path == "" {
-		return
+		return false
 	}
 	id := parsePath(path)
 	// The interfaces of one piece of hardware share its container; where
@@ -553,7 +651,7 @@ func (w *Watcher) add(handle uintptr) {
 	kind, typ, group := "Keyboard", control.DeviceKeyboard, id.group
 	if controller {
 		if id.xinput && w.opts.SkipXInput {
-			return
+			return false
 		}
 		if id.vendor == 0 {
 			// The path of a Bluetooth controller is written differently.
@@ -564,14 +662,14 @@ func (w *Watcher) add(handle uintptr) {
 		kind, typ, group = "Game controller", control.DeviceGamepad, "PAD:"+id.group
 		reader, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
 		if err != nil {
-			return
+			return false
 		}
 		w.readers[handle] = reader
 	}
 	if d := w.byGroup[group]; d != nil {
 		w.byHandle[handle] = d
 		d.handles++
-		return
+		return true
 	}
 	// Some devices pad the name they give themselves with spaces.
 	name := strings.TrimSpace(productName(path))
@@ -598,7 +696,9 @@ func (w *Watcher) add(handle uintptr) {
 	w.byHandle[handle] = d
 	w.byGroup[group] = d
 	if !controller {
+		w.keys.Lock()
 		w.claims.add(d)
+		w.keys.Unlock()
 	}
 	select {
 	case w.devices <- d:
@@ -607,11 +707,13 @@ func (w *Watcher) add(handle uintptr) {
 		w.forget(d)
 		d.end(ErrClosed)
 	}
+	return true
 }
 
 // remove handles an interface that went away. The device ends with its
 // last interface.
 func (w *Watcher) remove(handle uintptr) {
+	delete(w.rejected, handle)
 	d := w.byHandle[handle]
 	if d == nil {
 		return
@@ -627,7 +729,9 @@ func (w *Watcher) remove(handle uintptr) {
 
 func (w *Watcher) forget(d *Device) {
 	delete(w.byGroup, d.group)
+	w.keys.Lock()
 	w.claims.remove(d)
+	w.keys.Unlock()
 	for handle, other := range w.byHandle {
 		if other == d {
 			delete(w.byHandle, handle)
@@ -694,10 +798,18 @@ func (w *Watcher) input(lParam uintptr) {
 
 // key handles one key event.
 func (w *Watcher) key(d *Device, raw *rawKeyboard) {
+	// Windows marks with this virtual key code what is no key by itself:
+	// the second half of Pause, which would read as Num Lock, and the
+	// shifts a keyboard puts around some keys.
+	if raw.vKey == 0xFF {
+		return
+	}
 	code, ok := keyCode(raw.makeCode, raw.flags)
 	if !ok {
 		return
 	}
+	w.keys.Lock()
+	defer w.keys.Unlock()
 	w.claims.saw(d)
 	w.put(d, code, raw.flags&flagBreak == 0)
 }
@@ -705,6 +817,8 @@ func (w *Watcher) key(d *Device, raw *rawKeyboard) {
 // swallowed handles a key the hook kept from other programs. The hook does
 // not tell the keyboard; see [claims].
 func (w *Watcher) swallowed(code uint16, pressed bool) {
+	w.keys.Lock()
+	defer w.keys.Unlock()
 	d, ok := w.claims.owner(code, pressed, func(d *Device) bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -715,7 +829,7 @@ func (w *Watcher) swallowed(code uint16, pressed bool) {
 	}
 }
 
-// put delivers a key event of a keyboard.
+// put delivers a key event of a keyboard. The caller holds w.keys.
 func (w *Watcher) put(d *Device, code uint16, pressed bool) {
 	if d.down[code] == pressed {
 		return // a held key repeating, or a release without a press
@@ -870,7 +984,8 @@ type Device struct {
 	// controller is set for a game controller.
 	controller bool
 
-	// handles and down belong to the window's thread.
+	// handles belongs to the window's thread; down is guarded by the
+	// watcher's keys.
 	handles int
 	down    map[uint16]bool
 

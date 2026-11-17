@@ -77,7 +77,7 @@ func edit(text []byte, section Section, key string, value *string) ([]byte, erro
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
-		if ok && entry.key == key {
+		if ok && sameKey(section, entry.key, key) {
 			found = i
 			break
 		}
@@ -91,18 +91,24 @@ func edit(text []byte, section Section, key string, value *string) ([]byte, erro
 		entry, _, _ := parseEntry(lines[found])
 		lines[found] = entry.before + *value + entry.after
 	default:
-		// After the last line of the section that says something, so
-		// that blank lines before the next section stay where they are.
+		// After the last entry of the section, so that blank lines and a
+		// note that stands above the next section stay with it. A
+		// section without entries gets the line at its start.
 		at := start
 		for i := start; i < end; i++ {
-			if strings.TrimSpace(lines[i]) != "" {
+			if _, ok, _ := parseEntry(lines[i]); ok {
 				at = i + 1
 			}
 		}
-		if at > 0 && !strings.HasSuffix(lines[at-1], "\n") {
-			lines[at-1] += "\n" // the file ended without a line break
+		// The line ends as the lines of the file do.
+		ending := "\n"
+		if strings.Contains(string(text), "\r\n") {
+			ending = "\r\n"
 		}
-		line := writeKey(key) + " = " + *value + "\n"
+		if at > 0 && !strings.HasSuffix(lines[at-1], "\n") {
+			lines[at-1] += ending // the file ended without a line break
+		}
+		line := writeKey(key) + " = " + *value + ending
 		lines = append(lines[:at], append([]string{line}, lines[at:]...)...)
 	}
 	out := []byte(strings.Join(lines, ""))
@@ -276,4 +282,20 @@ func stripComment(line string) string {
 		return line[:i]
 	}
 	return line
+}
+
+// sameKey reports whether two keys of a section name the same thing: the
+// same text, or in a table of bindings the same control. A control has
+// several spellings, BTN_A and BTN_SOUTH, KEY_0x120 and BTN_TRIGGER, and
+// either case; a file may use one and whoever asks for a change another.
+func sameKey(section Section, a, b string) bool {
+	if a == b {
+		return true
+	}
+	if section.Table != Global.Table && section.Table != Bindings("").Table {
+		return false
+	}
+	sa, errA := parseSource(a)
+	sb, errB := parseSource(b)
+	return errA == nil && errB == nil && sourceID(sa) == sourceID(sb)
 }

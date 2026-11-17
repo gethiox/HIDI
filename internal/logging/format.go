@@ -173,3 +173,13 @@ func writeEscaped(b *strings.Builder, s string) {
 		i += size
 	}
 }
+
+// Printable returns s with everything that is not printable text escaped,
+// as the log writes it. The name a device gives itself is whatever the
+// device says, and must not reach a terminal as it is: it could move the
+// cursor or clear the screen.
+func Printable(s string) string {
+	var b strings.Builder
+	writeEscaped(&b, s)
+	return b.String()
+}

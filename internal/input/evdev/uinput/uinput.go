@@ -177,10 +177,13 @@ func (d *Device) setup(spec Spec) error {
 
 // Emit makes the device report one event, followed by the end of a packet.
 func (d *Device) Emit(typ, code uint16, value int32) error {
-	for _, raw := range [][]byte{rawEvent(typ, code, value), rawEvent(EvSyn, synReport, 0)} {
-		if _, err := unix.Write(d.fd, raw); err != nil {
-			return fmt.Errorf("writing to uinput: %w", err)
-		}
+	// Both go in one write; the kernel takes any number of events at once.
+	const size = 2*wordSize + 8
+	var raw [2 * size]byte
+	putEvent(raw[:size], typ, code, value)
+	putEvent(raw[size:], EvSyn, synReport, 0)
+	if _, err := unix.Write(d.fd, raw[:]); err != nil {
+		return fmt.Errorf("writing to uinput: %w", err)
 	}
 	return nil
 }
@@ -205,12 +208,10 @@ func (d *Device) Close() error {
 	return err
 }
 
-// rawEvent encodes struct input_event with a zero time, which the kernel
+// putEvent encodes struct input_event with a zero time, which the kernel
 // fills in.
-func rawEvent(typ, code uint16, value int32) []byte {
-	b := make([]byte, 2*wordSize+8)
+func putEvent(b []byte, typ, code uint16, value int32) {
 	native.PutUint16(b[2*wordSize:], typ)
 	native.PutUint16(b[2*wordSize+2:], code)
 	native.PutUint32(b[2*wordSize+4:], uint32(value))
-	return b
 }

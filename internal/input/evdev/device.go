@@ -137,7 +137,9 @@ func (d *Device) Grab() error {
 	d.pass.stop()
 	for i, n := range d.nodes {
 		if err := n.Grab(); err != nil {
-			for _, grabbed := range d.nodes[:i] {
+			// The node that failed is released too: it still wants the
+			// grab, and would take it once whatever held it lets go.
+			for _, grabbed := range d.nodes[:i+1] {
 				grabbed.Release()
 			}
 			return err

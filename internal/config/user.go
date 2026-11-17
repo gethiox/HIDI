@@ -126,6 +126,9 @@ func WriteBuiltin(dir string) (written, skipped []string, err error) {
 			err = cerr
 		}
 		if err != nil {
+			// Half a file must not stay: the next try would keep it
+			// as something that is there already.
+			os.Remove(file)
 			return written, skipped, fmt.Errorf("writing %s: %w", file, err)
 		}
 		written = append(written, file)
@@ -183,7 +186,9 @@ func fingerprint(dir string) string {
 		if entry.IsDir() || !isProfileFile(entry.Name()) {
 			continue
 		}
-		info, err := entry.Info()
+		// Of the file itself, also where the entry is a link to it: the
+		// link does not change when the file is edited.
+		info, err := os.Stat(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			continue // removed since the directory was read
 		}

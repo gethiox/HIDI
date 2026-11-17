@@ -125,21 +125,26 @@ func TestTranslateDiscardsAfterDrop(t *testing.T) {
 	n := testNode()
 	var events []control.Event
 	for _, raw := range [][]byte{
+		rawEvent(evKey, 29, 1), // before the news: taken
 		rawEvent(evSyn, synDropped, 0),
 		rawEvent(evKey, 30, 1), // part of the incomplete packet
 		rawEvent(evAbs, 0, 100),
-		rawEvent(evSyn, synReport, 0), // ends it; the state is read back here
+		rawEvent(evSyn, synReport, 0),
+		// Read together with the news, so older than the state that is
+		// read back at the end of the read: its release may be among the
+		// events the kernel forgets when it is asked for that state.
 		rawEvent(evKey, 31, 1),
 	} {
 		events = n.translate(raw, events)
 	}
-	// The test node has no device to read the state back from, so only the
-	// event after the packet remains.
-	if len(events) != 1 || events[0].Code != control.Key(31) {
-		t.Errorf("events = %+v, want only KEY 31", events)
+	if len(events) != 1 || events[0].Code != control.Key(29) {
+		t.Errorf("events = %+v, want only KEY 29", events)
 	}
-	if n.dropped {
-		t.Error("the node is still discarding after the packet ended")
+	if !n.dropped {
+		t.Error("the node stopped discarding before the end of the read")
+	}
+	if n.keyDown(31) {
+		t.Error("a key from after the dropped events is taken for down")
 	}
 }
 

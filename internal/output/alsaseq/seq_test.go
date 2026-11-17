@@ -243,3 +243,30 @@ func TestOffersConnections(t *testing.T) {
 		}
 	}
 }
+
+// A system exclusive message arrives as an event followed by its bytes,
+// which must not be read as events.
+func TestDecodeAllSkipsData(t *testing.T) {
+	note, _ := encode(midi.NoteOn(0, 60, midi.From7(100)), addr{Client: 130, Port: 0})
+
+	// 56 bytes of data that would read as two note-on events.
+	sysex := event{Type: 130, Flags: lengthVariable, Source: addr{Client: 130}}
+	native.PutUint32(sysex.Data[0:], 56)
+	var buf []byte
+	add := func(ev event) {
+		buf = append(buf, unsafe.Slice((*byte)(unsafe.Pointer(&ev)), eventSize)...)
+	}
+	add(sysex)
+	add(note) // the data: two events' worth
+	add(note)
+	add(note) // and a real note after it
+
+	got := decodeAll(buf, nil)
+	if len(got) != 1 || got[0].String() != "NoteOn ch=1 note=C3 velocity=100" {
+		t.Errorf("decodeAll = %v, want the one note after the data", got)
+	}
+	// Data that is cut off ends the reading without a fault.
+	if got := decodeAll(buf[:2*eventSize], nil); len(got) != 0 {
+		t.Errorf("decodeAll of a cut-off message = %v", got)
+	}
+}

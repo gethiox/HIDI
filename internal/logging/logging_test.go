@@ -455,3 +455,85 @@ func TestFooter(t *testing.T) {
 		t.Errorf("after closing wrote %q", got)
 	}
 }
+
+// stalled is an output that takes nothing until it is let go.
+type stalled struct {
+	release chan struct{}
+	mu      sync.Mutex
+	got     strings.Builder
+}
+
+func (s *stalled) Write(p []byte) (int, error) {
+	<-s.release
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.got.Write(p)
+}
+
+func (s *stalled) text() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.got.String()
+}
+
+// With a queue, whoever logs does not wait for the output, lines that
+// find no room are counted, and Close writes what waits.
+func TestQueueNeverHoldsUpTheLogger(t *testing.T) {
+	out := &stalled{release: make(chan struct{})}
+	l := New(Options{Output: out, Queue: 4})
+	log := l.Logger("test")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 20 {
+			log.Info("line", "n", i)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("logging waited for an output that takes nothing")
+	}
+	// Everything is kept in memory all the same.
+	if lines, _ := l.Lines(0, 100); len(lines) != 20 {
+		t.Errorf("%d lines kept, want 20", len(lines))
+	}
+
+	close(out.release)
+	l.Close()
+	text := out.text()
+	if !strings.Contains(text, "n=0") {
+		t.Errorf("the output did not get the first line:\n%s", text)
+	}
+	if !strings.Contains(text, "log lines are missing here") {
+		t.Errorf("the output was not told of the lines left out:\n%s", text)
+	}
+	// After Close the log still writes.
+	log.Info("written directly")
+	if !strings.Contains(out.text(), "written directly") {
+		t.Error("a line logged after Close was not written")
+	}
+}
+
+// A footer taller than the terminal is cut to what can be taken off again.
+func TestFooterFitsTheTerminal(t *testing.T) {
+	var out bytes.Buffer
+	f := NewFooter(&out)
+	f.Rows = func() int { return 4 }
+	f.Set([]string{"one", "two", "three", "four", "five", "six"})
+	if got := out.String(); !strings.Contains(got, "three") || strings.Contains(got, "four") {
+		t.Errorf("a terminal of 4 lines was sent %q", got)
+	}
+	out.Reset()
+	f.Set(nil)
+	if got := out.String(); !strings.Contains(got, "\x1b[2A") {
+		t.Errorf("taking off a footer of 3 lines moved by %q", got)
+	}
+}
+
+func TestPrintable(t *testing.T) {
+	if got, want := Printable("Kbd\x1b[2J\x07\r née"), `Kbd\x1b[2J\a\r née`; got != want {
+		t.Errorf("Printable = %q, want %q", got, want)
+	}
+}

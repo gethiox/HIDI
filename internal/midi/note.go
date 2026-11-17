@@ -63,6 +63,10 @@ func ParseNote(s string) (Note, error) {
 		return 0, fmt.Errorf("invalid note %q: want a name like C3 or F#-1, or a number 0-127", s)
 	}
 
+	if octave < -2 || octave > 8 {
+		// Checked before the sum, which a number long enough overflows.
+		return 0, fmt.Errorf("note %q is outside the MIDI range C-2 to G8", s)
+	}
 	n := (octave+2)*12 + semitone
 	if n < 0 || n > int(MaxNote) {
 		return 0, fmt.Errorf("note %q is outside the MIDI range C-2 to G8", s)

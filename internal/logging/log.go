@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -31,6 +32,13 @@ type Options struct {
 	// Keep is how many lines are kept in memory; the oldest are dropped.
 	// Zero means [DefaultKeep].
 	Keep int
+	// Queue, if not zero, makes writing to Output the work of a goroutine
+	// of the log's own, with room for this many lines that wait. Whoever
+	// logs then never waits for the output: a terminal that is paused, or
+	// a pipe nobody reads, must not hold up an instrument, or keep a
+	// keyboard from being given back. Lines that find no room are left
+	// out, and the output is told how many. [Log.Close] writes what waits.
+	Queue int
 }
 
 // Line is one line of the log.
@@ -53,6 +61,13 @@ type Log struct {
 	out    io.Writer
 	colour bool
 	lines  *ring[Line]
+
+	// queue carries lines to the goroutine that writes them, if there is
+	// one; missed counts those that found no room since the last that
+	// did; written is closed when that goroutine has ended.
+	queue   chan string
+	missed  int
+	written chan struct{}
 }
 
 // New returns a log.
@@ -64,7 +79,46 @@ func New(opts Options) *Log {
 	l := &Log{out: opts.Output, colour: opts.Colour, lines: newRing[Line](keep)}
 	l.level.Set(opts.Level)
 	l.keepLevel.Set(opts.KeepLevel)
+	if opts.Queue > 0 && opts.Output != nil {
+		l.queue, l.written = make(chan string, opts.Queue), make(chan struct{})
+		go func(out io.Writer, queue <-chan string) {
+			defer close(l.written)
+			for text := range queue {
+				io.WriteString(out, text)
+			}
+		}(l.out, l.queue)
+	}
 	return l
+}
+
+// closeWait is how long [Log.Close] waits for an output that does not
+// take what is left.
+const closeWait = 2 * time.Second
+
+// Close writes the lines that still wait for the output, as far as the
+// output takes them within a moment. Lines logged afterwards are written
+// by whoever logs them. A log without a queue needs no closing.
+func (l *Log) Close() {
+	l.mu.Lock()
+	queue, written, missed := l.queue, l.written, l.missed
+	l.queue, l.missed = nil, 0
+	l.mu.Unlock()
+	if queue == nil {
+		return
+	}
+	close(queue)
+	select {
+	case <-written:
+		if missed > 0 {
+			io.WriteString(l.out, missing(missed))
+		}
+	case <-time.After(closeWait):
+	}
+}
+
+// missing is the line that stands for lines the output did not take.
+func missing(n int) string {
+	return fmt.Sprintf("... %d log lines are missing here: the output did not take them in time\n", n)
 }
 
 // Handler returns the log as a [slog.Handler].
@@ -160,8 +214,21 @@ func (l *Log) add(line Line) error {
 	if !l.colour {
 		text = Strip(text)
 	}
-	_, err := io.WriteString(l.out, text+"\n")
-	return err
+	text += "\n"
+	if l.queue == nil {
+		_, err := io.WriteString(l.out, text)
+		return err
+	}
+	if l.missed > 0 {
+		text = missing(l.missed) + text
+	}
+	select {
+	case l.queue <- text:
+		l.missed = 0
+	default:
+		l.missed++
+	}
+	return nil
 }
 
 // handler is the [slog.Handler] of a [Log].
