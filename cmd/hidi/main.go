@@ -491,10 +491,12 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		close(served)
 	}
 	desktopDone := make(chan struct{})
+	var nothingToShow atomic.Bool
 	if *headless {
 		close(desktopDone)
 	} else {
 		d := desktop{show: *showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
+		d.failed = func() { nothingToShow.Store(true) }
 		if server != nil {
 			d.windowArgs = []string{"--socket", *socket}
 			if given["config"] {
@@ -563,6 +565,10 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	<-served
 	<-desktopDone
 	<-lightsDone // the lights are left evenly lit
+	if nothingToShow.Load() {
+		log.Error("HIDI stopped: it had neither an icon nor a window to show itself with; run it with --headless where there is no desktop")
+		return 1
+	}
 	log.Info("HIDI stopped")
 	return 0
 }

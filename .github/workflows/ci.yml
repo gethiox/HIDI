@@ -44,6 +44,13 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: staticcheck, the window
+        # The files that draw the window are built without cgo only, so
+        # the run above does not see them.
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "0"
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./internal/ui/... ./cmd/...
       - name: go test
         run: go test -race ./...
 

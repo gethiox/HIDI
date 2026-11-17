@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -80,10 +81,18 @@ type linuxHost struct {
 	done    chan struct{}
 	close   sync.Once
 
+	// present says that a notification area took the icon.
+	present atomic.Bool
+
 	mu       sync.Mutex
 	view     View
 	revision uint32
 }
+
+// Present reports whether a notification area shows the icon now. A
+// desktop without one, GNOME as it comes for instance, has nobody to
+// register the icon with.
+func (h *linuxHost) Present() bool { return h.present.Load() }
 
 // NewHost puts an icon into the notification area. The icon appears when
 // the desktop has such an area, also when that starts later.
@@ -199,7 +208,20 @@ func (h *linuxHost) export() error {
 // there is nobody to tell, which is not an error: watch tries again when
 // one appears.
 func (h *linuxHost) register() {
-	h.conn.Object(watcherName, watcherPath).Call(watcherName+".RegisterStatusNotifierItem", 0, h.name)
+	watcher := h.conn.Object(watcherName, watcherPath)
+	if err := watcher.Call(watcherName+".RegisterStatusNotifierItem", 0, h.name).Err; err != nil {
+		h.present.Store(false)
+		return
+	}
+	// Something may keep the list of icons without anything showing
+	// them. Where that cannot be asked, the icon is taken for shown.
+	shown := true
+	if v, err := watcher.GetProperty(watcherName + ".IsStatusNotifierHostRegistered"); err == nil {
+		if b, ok := v.Value().(bool); ok {
+			shown = b
+		}
+	}
+	h.present.Store(shown)
 }
 
 func (h *linuxHost) watch() {
@@ -215,6 +237,8 @@ func (h *linuxHost) watch() {
 			if sig.Name == nameOwnerSig && len(sig.Body) == 3 {
 				if owner, _ := sig.Body[2].(string); owner != "" {
 					h.register()
+				} else {
+					h.present.Store(false)
 				}
 			}
 		}
@@ -224,6 +248,12 @@ func (h *linuxHost) watch() {
 func (h *linuxHost) Show(v View) error {
 	h.mu.Lock()
 	old := h.view
+	if v.equal(old) {
+		// A view arrives with every note that is played; the desktop is
+		// told only of one that differs.
+		h.mu.Unlock()
+		return nil
+	}
 	h.view = v
 	h.revision++
 	revision := h.revision

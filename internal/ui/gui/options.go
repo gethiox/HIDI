@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/output"
@@ -36,6 +37,10 @@ type Options struct {
 	Paths settings.Paths
 	// ShowSettings opens the window with the settings showing.
 	ShowSettings bool
+	// SnapshotPace, if set, is told how often the window wants HIDI's
+	// state at the most, once the window knows its monitor and before it
+	// starts to follow HIDI.
+	SnapshotPace func(time.Duration)
 	// Ports, if set, lists the MIDI ports that exist, for choosing those
 	// every instrument also sends to.
 	Ports func() ([]output.Port, error)

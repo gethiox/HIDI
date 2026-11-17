@@ -2,6 +2,7 @@ package tray
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/gethiox/HIDI/internal/ipc"
 )
@@ -92,6 +93,20 @@ const (
 	// OpenLabel opens the window.
 	OpenLabel = "Open the window"
 )
+
+// equal reports whether two views show the same.
+func (v View) equal(o View) bool {
+	return v.Look == o.Look && v.Title == o.Title && v.Toggle == o.Toggle &&
+		v.Open == o.Open && v.Quit == o.Quit && slices.Equal(v.Lines, o.Lines)
+}
+
+// Shown reports whether the icon of a host is on screen now, as far as
+// the host can tell: a desktop may have no place for icons at all. A host
+// that cannot tell is taken at its word.
+func Shown(h Host) bool {
+	p, ok := h.(interface{ Present() bool })
+	return !ok || p.Present()
+}
 
 // click is what a click on the icon does.
 func (v View) click() Action {

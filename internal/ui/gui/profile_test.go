@@ -176,3 +176,111 @@ func TestProfileDocAxes(t *testing.T) {
 		t.Errorf("ABS_Z after clearing: %+v", r)
 	}
 }
+
+const optionsProfile = `schema = 1
+name = "Options"
+[match]
+type = "gamepad"
+[defaults]
+layout = "L"
+[[layout]]
+name = "L"
+[layout.bindings]
+KEY_A = { note = "C3", velocity = 90, channel_offset = 2 }
+BTN_A = "D3"
+ABS_X = { cc = 1, channel_offset = 3, centered = true }
+ABS_Y = { pitch_bend = "down", deadzone = 0.1 }
+`
+
+func openText(t *testing.T, text string) *ProfileDoc {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "p.toml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := OpenProfile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+// What a line says that the window does not show stays when the window
+// writes the line anew.
+func TestProfileDocKeepsOptions(t *testing.T) {
+	doc := openText(t, optionsProfile)
+	keyA, absX, absY := control.Key(30), control.Axis(0), control.Axis(1)
+
+	if err := doc.SetNote("L", keyA, 61); err != nil {
+		t.Fatal(err)
+	}
+	x := doc.Role("L", absX)
+	if err := doc.SetController("L", absX, 2, x.Shape); err != nil {
+		t.Fatal(err)
+	}
+	y := doc.Role("L", absY)
+	y.Shape.Invert = true
+	if err := doc.SetBend("L", absY, y.Shape); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := os.ReadFile(doc.Path)
+	for _, want := range []string{
+		`KEY_A = { note = "C#3", velocity = 90, channel_offset = 2 }`,
+		`ABS_X = { cc = 2, channel_offset = 3, centered = true }`,
+		`ABS_Y = { pitch_bend = "down", invert = true, deadzone = 0.1 }`,
+	} {
+		if !strings.Contains(string(text), want) {
+			t.Errorf("the file does not contain %s\n%s", want, text)
+		}
+	}
+}
+
+// A control the file names by another spelling is changed and cleared in
+// its own line.
+func TestProfileDocOtherSpelling(t *testing.T) {
+	doc := openText(t, optionsProfile)
+	south := control.Key(0x130) // BTN_SOUTH, which the file calls BTN_A
+	if err := doc.SetNote("L", south, 64); err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := os.ReadFile(doc.Path); !strings.Contains(string(text), `BTN_A = "E3"`) {
+		t.Errorf("the line of BTN_A was not changed:\n%s", text)
+	}
+	if err := doc.Clear("L", south); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role("L", south); r.Kind != RoleNone {
+		t.Errorf("still bound after clearing: %+v", r)
+	}
+}
+
+// A change made to the file in an editor while the page is open is kept
+// by the next change made in the window, and shown.
+func TestProfileDocKeepsHandEdits(t *testing.T) {
+	doc := openText(t, optionsProfile)
+	byHand := optionsProfile + "KEY_Z = \"C1\" # by hand\n"
+	if err := os.WriteFile(doc.Path, []byte(byHand), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetDefault("octave", 1); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := os.ReadFile(doc.Path)
+	if !strings.Contains(string(text), "KEY_Z = \"C1\" # by hand") || !strings.Contains(string(text), "octave = 1") {
+		t.Errorf("the file lost a change:\n%s", text)
+	}
+	if r := doc.Role("L", control.Key(44)); r.Kind != RoleNote {
+		t.Errorf("the key added by hand is not shown: %+v", r)
+	}
+
+	// A file that was broken meanwhile is not written over.
+	if err := os.WriteFile(doc.Path, []byte("schema = 1\nnonsense = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetDefault("octave", 2); err == nil {
+		t.Error("a change was written into a file with mistakes")
+	}
+	if text, _ := os.ReadFile(doc.Path); !strings.Contains(string(text), "nonsense") {
+		t.Error("the broken file was written over")
+	}
+}

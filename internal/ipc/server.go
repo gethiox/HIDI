@@ -71,6 +71,17 @@ func Listen(path string) (*Server, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("creating the directory of the control socket: %w", err)
 	}
+	// Looking whether a HIDI answers, clearing away what one left behind
+	// and taking the socket are three steps. Two HIDIs started at the same
+	// moment could both find nobody answering and both go on; a lock on a
+	// file beside the socket lets one of them do the three at a time. The
+	// lock ends when the file is closed.
+	if lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600); err == nil {
+		defer lock.Close()
+		if err := lockFile(lock); err != nil {
+			return nil, fmt.Errorf("locking the control socket: %w", err)
+		}
+	}
 	if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
 		conn.Close()
 		return nil, ErrRunning

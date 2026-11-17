@@ -32,6 +32,9 @@ type Model struct {
 	state    *ipc.Snapshot // nil while HIDI is not running
 	lines    []ipc.LogLine
 	minLevel int
+	// shown is what Log last made of lines, nil when it has to be made
+	// anew.
+	shown []ipc.LogLine
 	// version counts the changes, so that the drawing side can tell
 	// whether what it prepared is still current.
 	version uint64
@@ -64,6 +67,7 @@ func (m *Model) AddLog(line ipc.LogLine) {
 			return
 		}
 	}
+	m.shown = nil
 	m.lines = append(m.lines, line)
 	if len(m.lines) > maxLogLines {
 		m.lines = append(m.lines[:0], m.lines[len(m.lines)-maxLogLines:]...)
@@ -77,6 +81,7 @@ func (m *Model) SetMinLevel(level int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.minLevel = min(max(level, 0), len(Levels)-1)
+	m.shown = nil
 	m.version++
 }
 
@@ -94,15 +99,20 @@ func (m *Model) Version() uint64 {
 	return m.version
 }
 
-// Log returns the lines the filter lets through, oldest first.
+// Log returns the lines the filter lets through, oldest first. The
+// caller must not change what it gets: the same list is handed out until
+// a line arrives or the filter changes, since the window asks with every
+// frame it draws.
 func (m *Model) Log() []ipc.LogLine {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]ipc.LogLine, 0, len(m.lines))
-	for _, l := range m.lines {
-		if levelRank(l.Level) >= m.minLevel {
-			out = append(out, l)
+	if m.shown == nil {
+		m.shown = make([]ipc.LogLine, 0, len(m.lines))
+		for _, l := range m.lines {
+			if levelRank(l.Level) >= m.minLevel {
+				m.shown = append(m.shown, l)
+			}
 		}
 	}
-	return out
+	return m.shown
 }

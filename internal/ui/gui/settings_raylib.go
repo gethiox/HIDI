@@ -197,8 +197,8 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	// scrolling is held to before anything is drawn.
 	v.scroll -= wheel(area) * 40
 	v.scroll = min(max(v.scroll, 0), max(v.content-area.Height, 0))
-	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
-	defer rl.EndScissorMode()
+	beginClip(area)
+	defer endClip()
 
 	x, y := area.X+margin, area.Y+12-v.scroll
 	right := area.X + area.Width - margin
@@ -250,6 +250,10 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	combination := strings.Join(toggleNames, " + ")
 	if combination == "" {
 		combination = "none"
+	}
+	if state == nil && v.capture != nil {
+		// HIDI went away; what was pressed so far is not a combination.
+		v.capture, v.message = nil, "HIDI stopped; the combination was not changed."
 	}
 	switch {
 	case v.capture != nil:
@@ -343,17 +347,38 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	}
 	for _, port := range v.ports {
 		if portChip(port.Name, portChosen(s.Output.Connect, port)) {
-			s.Output.Connect = togglePort(s.Output.Connect, port)
-			w.save(s, restartNote)
+			var still string
+			s.Output.Connect, still = togglePort(s.Output.Connect, port)
+			if still != "" {
+				// Nothing to save: the entry may select other ports too.
+				v.message = fmt.Sprintf("%q in settings.toml selects this port, and maybe others; change it there.", still)
+			} else {
+				w.save(s, restartNote)
+			}
 		}
 	}
-	for _, pattern := range absentPorts(s.Output.Connect, v.ports) {
-		if portChip(pattern+" (not there now)", true) {
+	// Without a list nothing can be told to be absent.
+	var absent []string
+	if v.portsErr == "" {
+		absent = absentPorts(s.Output.Connect, v.ports)
+	} else {
+		absent = s.Output.Connect
+	}
+	for _, pattern := range absent {
+		label := pattern + " (not there now)"
+		if v.portsErr != "" {
+			label = pattern
+		}
+		if portChip(label, true) {
 			s.Output.Connect = slices.DeleteFunc(slices.Clone(s.Output.Connect), func(p string) bool { return p == pattern })
 			w.save(s, restartNote)
 		}
 	}
 	switch {
+	case v.portsErr != "" && px > vx:
+		// The reason goes below what is chosen.
+		py += chipH + 6
+		text(w.sans, v.portsErr, vx, py+3, sizeText-2, col(colFaint))
 	case px > vx:
 	case v.portsErr != "":
 		// The reason may be long; its start says most.
