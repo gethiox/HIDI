@@ -12,7 +12,11 @@ func TestStructSizes(t *testing.T) {
 		name      string
 		got, want uintptr
 	}{
-		{"XINPUT_STATE", unsafe.Sizeof(xState{}), 16},
+		// XINPUT_STATE is 16 bytes: the packet number and the gamepad.
+		// Four more follow it here, for the function that is said to
+		// write them.
+		{"XINPUT_STATE.Gamepad", unsafe.Offsetof(xState{}.pad), 4},
+		{"XINPUT_STATE and the room after it", unsafe.Sizeof(xState{}), 20},
 		{"XINPUT_GAMEPAD", unsafe.Sizeof(xGamepad{}), 12},
 		{"XINPUT_CAPABILITIES_EX", unsafe.Sizeof(xCapabilitiesEx{}), 32},
 		{"XINPUT_CAPABILITIES_EX.vendor", unsafe.Offsetof(xCapabilitiesEx{}.vendor), 20},
