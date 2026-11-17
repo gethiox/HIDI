@@ -393,9 +393,9 @@ var (
 )
 
 // parkedPoll is how often a parked device is looked at. Its input is of no
-// interest, so it is taken slowly: a mouse reports a thousand times a
-// second, and following that for nothing would keep the processor busy.
-// What the device sends faster than this is dropped by the kernel.
+// interest, so it is taken in one go every so often and thrown away: a
+// mouse reports a thousand times a second, and following each report for
+// nothing would keep the processor busy.
 var parkedPoll = 500 * time.Millisecond
 
 // runner looks after one connected device. While a profile selects the
@@ -815,12 +815,20 @@ loop:
 			case <-r.quit:
 				break loop
 			case <-time.After(parkedPoll):
-				select {
-				case _, ok := <-events:
-					if !ok {
-						break loop
+				// Everything that has gathered is thrown away, not one
+				// event: only Linux drops for a reader that falls behind,
+				// and what is left to pile up elsewhere holds up the
+				// reading of other devices, or would be played in one
+				// burst when a profile takes the device after all.
+				for drained := false; !drained; {
+					select {
+					case _, ok := <-events:
+						if !ok {
+							break loop
+						}
+					default:
+						drained = true
 					}
-				default:
 				}
 			}
 			continue

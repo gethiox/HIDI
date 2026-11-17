@@ -130,15 +130,25 @@ func (l layout) button(n uint16, joystick bool) (uint16, bool) {
 		return 0, false
 	}
 	i := n - 1
+	// A button past the end of a table must not get a code the table gave
+	// away already, as the generic numbering would: the click of a
+	// DualShock's touchpad, its button 14, would be the left stick's.
+	// Such buttons get the codes of extra buttons.
+	var named []uint16
 	switch l {
 	case layoutXbox:
-		if int(i) < len(xboxButtons) {
-			return xboxButtons[i], true
-		}
+		named = xboxButtons
 	case layoutSony:
-		if int(i) < len(sonyButtons) {
-			return sonyButtons[i], true
+		named = sonyButtons
+	}
+	if named != nil {
+		if int(i) < len(named) {
+			return named[i], true
 		}
+		if code := btnTriggerHappy + (i - uint16(len(named))); code <= btnTriggerLast {
+			return code, true
+		}
+		return 0, false
 	}
 	if i < 16 {
 		if joystick {
@@ -239,6 +249,7 @@ type pad struct {
 	axes     []padAxis
 	used     map[uint16]bool
 	down     map[uint16]bool
+	now      map[uint16]bool // of buttons, a scratch map
 	last     map[uint16]float64
 }
 
@@ -259,6 +270,14 @@ func (p *pad) addAxis(page, usage, bits uint16, minimum, maximum int32) bool {
 	width := uint16(1)
 	if kind != axisPlain {
 		width = 2
+	}
+	if kind == axisTriggers {
+		// The two triggers are ABS_Z and ABS_RZ, which are not next to
+		// each other.
+		if p.used[absZ] || p.used[absRZ] {
+			return false
+		}
+		width = 1
 	}
 	for p.taken(code, width) {
 		if kind == axisHat {
@@ -303,7 +322,11 @@ func (p *pad) taken(code, width uint16) bool {
 // one, and returns events for those that changed.
 func (p *pad) buttons(pressed []uint16, at time.Time) []control.Event {
 	var events []control.Event
-	now := make(map[uint16]bool, len(pressed))
+	if p.now == nil {
+		p.now = map[uint16]bool{}
+	}
+	now := p.now // kept between reports, which come a thousand a second
+	clear(now)
 	for _, n := range pressed {
 		if code, ok := p.layout.button(n, p.joystick); ok {
 			now[code] = true

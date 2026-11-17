@@ -36,9 +36,7 @@ var startWindow = func(ctx context.Context, args []string) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, exe, append([]string{"gui"}, args...)...)
-	hideConsole(cmd)
-	// Ending the window the way a user would lets it close properly.
-	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	prepareWindow(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	return cmd.Run()
 }

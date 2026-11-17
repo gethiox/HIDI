@@ -742,6 +742,11 @@ func (e *Endpoint) remove() error {
 		e.trace.note("not removing the device; it goes away when the program ends")
 		return nil
 	}
+	if generation.Load() != e.born && e.trace.stuck.Load() {
+		// A call on these objects never returned. Should it return yet,
+		// it must find them in place: nothing is let go of.
+		return nil
+	}
 	if generation.Load() != e.born {
 		// The service that held the device is gone, and the device with
 		// it. What is left is let go of without asking anything of the

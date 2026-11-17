@@ -20,8 +20,8 @@ type gate struct {
 	// swallowed like any key of a grabbed keyboard.
 	hides  atomic.Int32
 	hidden atomic.Pointer[map[uint16]bool]
-	// passed holds the keys, by virtual key code, whose press was let
-	// through and whose release is still to come.
+	// passed holds the keys whose press was let through and whose release
+	// is still to come, by what the hook tells them apart by.
 	passed map[uint32]bool
 	// held holds the keys whose press was swallowed.
 	held map[uint32]bool
@@ -61,8 +61,13 @@ func (g *gate) swallowKey(vk uint32, code uint16, known, up bool) bool {
 			delete(g.held, vk)
 			return true
 		}
-		// A release without a known press: decide by the present state.
-		return g.kept(code, known)
+		// A release without a known press, of a key that went down
+		// before HIDI looked: the other programs saw that press and get
+		// the release too. Kept from them, the key would stay down for
+		// them, and a Ctrl held while HIDI started would turn every
+		// click into a Ctrl+click. A release without a press harms
+		// nobody.
+		return false
 	}
 	switch {
 	case g.passed[vk]:

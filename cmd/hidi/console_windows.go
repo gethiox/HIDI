@@ -28,8 +28,11 @@ func leaveOwnConsole() bool {
 	return r != 0
 }
 
-// hideConsole keeps Windows from opening a console window for a program
-// HIDI starts.
-func hideConsole(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+// prepareWindow sets up the process of the window. It gets no console.
+// The window itself must not be asked to start hidden, which the same
+// structure could: the library that opens it would obey. When HIDI ends
+// the process is ended outright, since Windows has no interrupt to send
+// to one process; the window has nothing to save.
+func prepareWindow(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 }

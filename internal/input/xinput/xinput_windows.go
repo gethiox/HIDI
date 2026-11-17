@@ -37,6 +37,9 @@ type (
 	xState struct {
 		packet uint32
 		pad    xGamepad
+		// The function that also tells of the Guide button is not
+		// documented, and is said to write four bytes more.
+		_ uint32
 	}
 	xGamepad struct {
 		buttons        uint16
@@ -287,6 +290,12 @@ func (d *Device) update(s xState, at time.Time, stop <-chan struct{}) bool {
 		rightX: s.pad.rightX, rightY: s.pad.rightY,
 	}
 	events := changes(d.last, next, d.first, at)
+	if len(events) > cap(d.events)-len(d.events) {
+		// Nobody takes this controller's input at the moment. Waiting
+		// for room would keep every other controller from being read;
+		// the difference is found again at the next look.
+		return true
+	}
 	d.first, d.packet, d.last = false, s.packet, next
 	for _, ev := range events {
 		select {
