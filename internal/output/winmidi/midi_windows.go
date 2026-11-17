@@ -130,9 +130,9 @@ var (
 // process does.
 var errStuck = errors.New("Windows did not answer in time. The MIDI service of Windows is stuck, " +
 	"which is a known fault of the service in Windows builds before December 2026. " +
-	"To get it going again without restarting Windows, close HIDI and end the service's process " +
+	"To get it going again without restarting Windows, end the service's process " +
 	"from a terminal opened as administrator: taskkill /F /IM midisrv.exe " +
-	"(Windows starts it again when it is needed)")
+	"(Windows starts it again when it is needed, and HIDI then creates its MIDI devices anew)")
 
 // within runs fn and waits for it at most d. It reports false if fn has
 // not returned by then; fn keeps running, since a call into Windows cannot
@@ -151,12 +151,6 @@ func within(d time.Duration, fn func()) bool {
 	}
 }
 
-// serviceStuck is set once a call into Windows did not return. Whatever
-// is asked of the service after that would wait behind it, so nothing more
-// is asked: ten instruments then fail at once and say why, instead of
-// each waiting its turn to find out the same.
-var serviceStuck atomic.Bool
-
 // note reports something that is not a stage.
 func (t *tracer) note(what string) {
 	if t.w != nil {
@@ -165,7 +159,7 @@ func (t *tracer) note(what string) {
 }
 
 func (t *tracer) step(what string, do func() error) error {
-	if t.stuck.Load() || serviceStuck.Load() {
+	if t.stuck.Load() || stuck.is(time.Now()) {
 		return errStuck
 	}
 	if t.w != nil {
@@ -174,7 +168,7 @@ func (t *tracer) step(what string, do func() error) error {
 	var err error
 	if !within(stepTimeout, func() { err = do() }) {
 		t.stuck.Store(true)
-		serviceStuck.Store(true)
+		stuck.mark(time.Now())
 		if t.w != nil {
 			fmt.Fprintf(t.w, "NO ANSWER after %v\n", stepTimeout)
 		}
@@ -217,6 +211,7 @@ func Check() (Status, error) {
 		_, _, build.Build = windows.RtlGetNtVersionNumbers()
 		build.Build &= 0xFFFF
 		build.Found = "unknown"
+		stuck.mark(time.Now())
 		return build, errStuck
 	}
 	return st, err
@@ -269,6 +264,18 @@ type Endpoint struct {
 	// used is when the device was last asked for something: its creation
 	// or a send, in nanoseconds since 1970.
 	used atomic.Int64
+	// born is the count of ended MIDI services when the device was
+	// created; see [generation].
+	born uint64
+}
+
+// Check reports whether the device is still there: it is gone once the
+// MIDI service it was created in has ended. It implements output.Checker.
+func (e *Endpoint) Check() error {
+	if generation.Load() != e.born {
+		return ErrServiceRestarted
+	}
+	return nil
 }
 
 // ErrClosed is returned by [Endpoint.Send] after the endpoint was closed.
@@ -315,13 +322,15 @@ var Settle time.Duration
 func open(name string, t *tracer) (_ *Endpoint, err error) {
 	service.Lock()
 	defer service.Unlock()
-	if serviceStuck.Load() {
+	if stuck.is(time.Now()) {
 		return nil, errStuck
 	}
+	watch()
+	born := generation.Load()
 	if _, err := Check(); err != nil {
 		return nil, err
 	}
-	e := &Endpoint{trace: t}
+	e := &Endpoint{trace: t, born: born}
 	defer func() {
 		if err != nil {
 			e.closeLocked()
@@ -661,6 +670,9 @@ func (e *Endpoint) Send(msgs []midi.Message) error {
 	if len(e.words) == 0 {
 		return nil
 	}
+	if generation.Load() != e.born {
+		return ErrServiceRestarted
+	}
 	if e.trace.stuck.Load() {
 		return errStuck
 	}
@@ -730,14 +742,27 @@ func (e *Endpoint) remove() error {
 		e.trace.note("not removing the device; it goes away when the program ends")
 		return nil
 	}
+	if generation.Load() != e.born {
+		// The service that held the device is gone, and the device with
+		// it. What is left is let go of without asking anything of the
+		// service that may run now, and without holding it against that
+		// service if letting go does not return.
+		within(closeTimeout, func() {
+			e.raw.release()
+			e.connection.release()
+			e.device.release()
+			e.session.release()
+		})
+		return nil
+	}
 
-	if e.trace.stuck.Load() || serviceStuck.Load() {
+	if e.trace.stuck.Load() || stuck.is(time.Now()) {
 		// An earlier call never returned; another one would not either.
 		return errors.New("the MIDI device was not removed, because Windows stopped answering; it goes away when the program ends")
 	}
 	if !within(closeTimeout, e.teardown) {
 		e.trace.stuck.Store(true)
-		serviceStuck.Store(true)
+		stuck.mark(time.Now())
 		return errors.New("Windows did not finish removing the MIDI device; it goes away when the program ends")
 	}
 	return nil

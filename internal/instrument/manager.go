@@ -382,6 +382,16 @@ func (m *Manager) Status() []Status {
 	return out
 }
 
+// RetryOutput is how long after its MIDI device broke an instrument first
+// tries for a new one. Each further try waits twice as long, up to
+// maxRetryOutput. healthPeriod is how often a MIDI device that can tell is
+// asked whether it still works.
+var (
+	RetryOutput    = 2 * time.Second
+	maxRetryOutput = 30 * time.Second
+	healthPeriod   = 2 * time.Second
+)
+
 // parkedPoll is how often a parked device is looked at. Its input is of no
 // interest, so it is taken slowly: a mouse reports a thousand times a
 // second, and following that for nothing would keep the processor busy.
@@ -516,7 +526,7 @@ func (r *runner) run() {
 		state    engine.State
 		out      []midi.Message
 		active   = false // the instrument is on, and grabbed if it should be
-		failed   = false // the endpoint broke; waiting for the device to stop
+		failed   = false // the endpoint broke; a new one is being tried for
 
 		// limit thins out axis input; due collects what it releases, and
 		// release fires when it next has something.
@@ -529,11 +539,32 @@ func (r *runner) run() {
 	// held tracks which keys of the toggle combination are down.
 	held := map[control.Code]bool{}
 
+	// retry fires when a new MIDI device is to be tried for after the old
+	// one broke, and health when the one in use is next asked how it is.
+	var (
+		retry     <-chan time.Time
+		retryWait time.Duration
+		health    <-chan time.Time
+	)
+	var regrab func()
 	fail := func() {
-		// Without an output there is no instrument. Stopping the device
-		// ends the loop below.
+		// The MIDI device broke, which on Windows happens when the MIDI
+		// service is restarted. The instrument plays nothing until a new
+		// device could be created, and gives its keys back meanwhile.
+		if failed {
+			return
+		}
 		failed = true
-		go r.device.Close()
+		if endpoint != nil {
+			go endpoint.Close() // may wait for a service that is gone
+			endpoint = nil
+		}
+		limit.drop()
+		retryWait = RetryOutput
+		retry = time.After(retryWait)
+		if regrab != nil {
+			regrab()
+		}
 	}
 	// rules are the input rules in force, and hold says how the device is
 	// held now. regrab makes that fit the rules and the state.
@@ -546,10 +577,10 @@ func (r *runner) run() {
 	hold := holdFree
 	passer, _ := r.device.(input.Passer)
 	cannotPass := false // passing was tried and failed; it is not tried again
-	regrab := func() {
+	regrab = func() {
 		want := holdFree
 		switch {
-		case eng == nil || !rules.grab:
+		case eng == nil || !rules.grab || failed:
 		case active:
 			want = holdGrabbed
 		case rules.hide && passer != nil && !cannotPass:
@@ -646,8 +677,11 @@ func (r *runner) run() {
 
 	// reassign makes the device what the manager last asked for.
 	reassign := func() {
+		if failed {
+			return // what is pending is taken up once there is an output again
+		}
 		a := r.pending.Swap(nil)
-		if a == nil || failed {
+		if a == nil {
 			return
 		}
 		if eng != nil && active && !r.send(endpoint, eng.Reset(out[:0])) {
@@ -680,6 +714,7 @@ func (r *runner) run() {
 				return
 			}
 			endpoint = e
+			health = time.After(healthPeriod)
 			if r.lights != nil && r.info.Type == control.DeviceKeyboard {
 				lamp = r.lights(r.info)
 			}
@@ -847,6 +882,42 @@ loop:
 			if eng != nil && active && !failed {
 				flush()
 			}
+		case <-health:
+			health = nil
+			if endpoint == nil {
+				break
+			}
+			if checker, ok := endpoint.(output.Checker); ok {
+				if err := checker.Check(); err != nil {
+					r.log.Error("the MIDI device was lost; it is created anew", "error", err)
+					fail()
+					break
+				}
+				health = time.After(healthPeriod)
+			}
+		case <-retry:
+			retry = nil
+			e, err := r.open(r.endpointName)
+			if err != nil {
+				r.log.Debug("the MIDI device cannot be created yet", "error", err)
+				retryWait = min(retryWait*2, maxRetryOutput)
+				retry = time.After(retryWait)
+				break
+			}
+			endpoint, failed = e, false
+			health = time.After(healthPeriod)
+			if receiver, ok := e.(output.Receiver); ok {
+				go r.listen(receiver)
+			}
+			// Whatever was held when the old device broke is forgotten.
+			eng.Reset(out[:0])
+			clear(held)
+			r.log.Info("the MIDI device is back")
+			regrab()
+			apply()
+			if eng != nil {
+				r.publish(eng, &state)
+			}
 		}
 	}
 
@@ -861,8 +932,10 @@ loop:
 		// Release whatever is still held, so that nothing keeps sounding.
 		r.send(endpoint, eng.Reset(out[:0]))
 	}
-	if err := endpoint.Close(); err != nil {
-		r.log.Warn("closing the MIDI device failed", "error", err)
+	if endpoint != nil {
+		if err := endpoint.Close(); err != nil {
+			r.log.Warn("closing the MIDI device failed", "error", err)
+		}
 	}
 	dark()
 	r.setStatus(Status{}, false)
@@ -947,7 +1020,7 @@ func (r *runner) send(endpoint output.Endpoint, msgs []midi.Message) bool {
 		}
 	}
 	if err := endpoint.Send(msgs); err != nil {
-		r.log.Error("sending MIDI failed; stopping the instrument", "error", err)
+		r.log.Error("sending MIDI failed; the MIDI device is created anew", "error", err)
 		return false
 	}
 	r.sent.Add(uint64(len(msgs)))

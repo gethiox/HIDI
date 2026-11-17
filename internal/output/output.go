@@ -20,6 +20,14 @@ type Endpoint interface {
 	Close() error
 }
 
+// Checker is an endpoint that can tell, without sending, that it stopped
+// working: its device is gone because the system's MIDI service was
+// restarted, for instance.
+type Checker interface {
+	// Check returns an error once the endpoint is of no use any more.
+	Check() error
+}
+
 // Receiver is an endpoint that other programs can also send to.
 type Receiver interface {
 	// Receive waits for MIDI sent to the endpoint and appends the

@@ -469,18 +469,106 @@ func TestEndpointFailureLeavesNoInstrument(t *testing.T) {
 	}
 }
 
-func TestSendFailureStopsInstrument(t *testing.T) {
-	r := newRig(t)
+// An instrument whose MIDI device breaks gives its keys back, tries for a
+// new device and plays on with it.
+func TestSendFailureRecreatesTheDevice(t *testing.T) {
+	old := RetryOutput
+	RetryOutput = 20 * time.Millisecond
+	t.Cleanup(func() { RetryOutput = old })
+
+	r := newRigWith(t, Options{Grab: GrabKeyboards})
 	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
 	e := r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	r.mu.Lock()
+	r.openErr = errors.New("the service is away")
+	r.mu.Unlock()
 	e.mu.Lock()
 	e.sendErr = errors.New("broken")
 	e.mu.Unlock()
 
 	kbd.set(keyZ, 1)
-	eventually(t, "the device to be closed", kbd.wasClosed)
 	eventually(t, "the endpoint to close", func() bool { _, closed := e.state(); return closed })
-	eventually(t, "the instrument to be forgotten", func() bool { return len(r.manager.Status()) == 0 })
+	eventually(t, "the keyboard to be given back", func() bool { return !kbd.isGrabbed() })
+	eventually(t, "a new device to be tried for", func() bool { return r.openFailures() > 1 })
+	if kbd.wasClosed() {
+		t.Fatal("the keyboard was closed with its MIDI device")
+	}
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(e.name) != e })
+	eventually(t, "the keyboard to be grabbed again", kbd.isGrabbed)
+	kbd.set(keyZ, 1)
+	r.expectSent(r.endpoint(e.name), "NoteOn ch=1 note=C0 velocity=64")
+}
+
+// checkedEndpoint is an endpoint that can tell that it is of no use.
+type checkedEndpoint struct {
+	*fakeEndpoint
+	lost *atomic.Bool
+}
+
+func (e checkedEndpoint) Check() error {
+	if e.lost.Load() {
+		return errors.New("lost")
+	}
+	return nil
+}
+
+// A MIDI device that says it is lost is replaced without anything being
+// sent.
+func TestLostDeviceIsRecreated(t *testing.T) {
+	oldRetry, oldHealth := RetryOutput, healthPeriod
+	RetryOutput, healthPeriod = 10*time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { RetryOutput, healthPeriod = oldRetry, oldHealth })
+
+	var (
+		mu     sync.Mutex
+		opened []checkedEndpoint
+	)
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(opened)
+	}
+	profiles, err := config.Builtin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(Options{Profiles: profiles, OpenEndpoint: func(name string) (output.Endpoint, error) {
+		e := checkedEndpoint{&fakeEndpoint{name: name, incoming: make(chan []midi.Message, 8), gone: make(chan struct{})}, new(atomic.Bool)}
+		mu.Lock()
+		opened = append(opened, e)
+		mu.Unlock()
+		return e, nil
+	}})
+	ctx, cancel := context.WithCancel(context.Background())
+	devices := make(chan input.Device)
+	done := make(chan struct{})
+	go func() { m.Run(ctx, devices); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	devices <- kbd
+	eventually(t, "the first endpoint", func() bool { return count() == 1 })
+	mu.Lock()
+	first := opened[0]
+	mu.Unlock()
+	first.lost.Store(true)
+	eventually(t, "the second endpoint", func() bool { return count() == 2 })
+	eventually(t, "the first endpoint to close", func() bool { _, closed := first.state(); return closed })
+	mu.Lock()
+	second := opened[1]
+	mu.Unlock()
+	kbd.set(keyZ, 1)
+	eventually(t, "the note on the new endpoint", func() bool {
+		sent, _ := second.state()
+		return sent == "NoteOn ch=1 note=C0 velocity=64"
+	})
 }
 
 // Run must also end when the source of devices is closed.
