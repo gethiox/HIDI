@@ -261,9 +261,12 @@ pull request before.
       a running HIDI follows changed ports only when it starts again,
       since the router cannot drop connections yet; and the lights are
       not on the page.
-    - In a profile: axes, controllers, program changes, pitch bend, keys
-      with modifiers, and the options of a note; adding and removing
-      layouts; making a new profile and saying which devices it is for.
+    - Done in a profile: an axis sends a controller or bends the pitch,
+      with centred, reversed and dead zone; a key sends a controller.
+      Still open there: the two halves of an axis bound apart, program
+      changes, keys with modifiers, and the options of a note; adding
+      and removing layouts; making a new profile and saying which
+      devices it is for.
 
 ### Features
 

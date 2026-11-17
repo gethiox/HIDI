@@ -100,3 +100,79 @@ func TestProfileDoc(t *testing.T) {
 		t.Error("a refused change was written")
 	}
 }
+
+// The axes of a game controller: what they send is read, changed and
+// written as a person would write it.
+func TestProfileDocAxes(t *testing.T) {
+	files, err := config.BuiltinFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "gamepad.toml")
+	if err := os.WriteFile(path, files["gamepad.toml"], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := OpenProfile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := doc.Layouts()[0]
+	absX, absY, absRX, absZ, absMisc := control.Axis(0), control.Axis(1), control.Axis(3), control.Axis(2), control.Axis(0x28)
+
+	if r := doc.Role(layout, absX); r.Kind != RoleController || r.Controller != 0 || !r.Shape.Centered || r.Shape.Deadzone != 0.1 || r.Split {
+		t.Errorf("ABS_X: %+v", r)
+	}
+	if r := doc.Role(layout, absY); r.Kind != RoleBend || !r.Shape.Invert {
+		t.Errorf("ABS_Y: %+v", r)
+	}
+	// The halves of the right stick are bound apart.
+	if r := doc.Role(layout, absRX); r.Kind != RoleNone || !r.Split {
+		t.Errorf("ABS_RX: %+v", r)
+	}
+	if r := doc.Role(layout, absMisc); r.Kind != RoleNone || r.Split {
+		t.Errorf("an unbound axis: %+v", r)
+	}
+
+	// A trigger becomes another controller, an unbound axis a pitch bend,
+	// and the stick loses its dead zone.
+	if err := doc.SetController(layout, absZ, 74, Shape{Invert: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetBend(layout, absMisc, Shape{Centered: true, Deadzone: 0.05}); err != nil {
+		t.Fatal(err)
+	}
+	shape := doc.Role(layout, absX).Shape
+	shape.Deadzone = 0
+	if err := doc.SetController(layout, absX, 0, shape); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetController(layout, absX, 128, shape); err == nil {
+		t.Error("controller 128 was accepted")
+	}
+
+	again, err := OpenProfile(path)
+	if err != nil {
+		t.Fatalf("the changed file is not a profile any more: %v", err)
+	}
+	if r := again.Role(layout, absZ); r.Kind != RoleController || r.Controller != 74 || !r.Shape.Invert || r.Shape.Centered {
+		t.Errorf("ABS_Z afterwards: %+v", r)
+	}
+	if r := again.Role(layout, absMisc); r.Kind != RoleBend || !r.Shape.Centered || r.Shape.Deadzone != 0.05 {
+		t.Errorf("ABS_MISC afterwards: %+v", r)
+	}
+	if r := again.Role(layout, absX); r.Kind != RoleController || r.Shape.Deadzone != 0 || !r.Shape.Centered {
+		t.Errorf("ABS_X afterwards: %+v", r)
+	}
+	text, _ := os.ReadFile(path)
+	for _, want := range []string{"ABS_Z = { cc = 74, invert = true }", "ABS_MISC = { pitch_bend = true, centered = true, deadzone = 0.05 }", "ABS_X = { cc = 0, centered = true }"} {
+		if !strings.Contains(string(text), want) {
+			t.Errorf("the file does not contain %q", want)
+		}
+	}
+	if err := again.Clear(layout, absZ); err != nil {
+		t.Fatal(err)
+	}
+	if r := again.Role(layout, absZ); r.Kind != RoleNone {
+		t.Errorf("ABS_Z after clearing: %+v", r)
+	}
+}

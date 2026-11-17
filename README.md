@@ -205,17 +205,19 @@ is unfocused" lowers it only while another window is in use.
 "Edit profile" on an instrument, or "Edit" beside a profile in the settings,
 opens the profile: the numbers an instrument starts with, the layouts, and
 what every control does. A keyboard's profile is drawn as a keyboard,
-coloured by what the keys do; other profiles list their buttons. Click a
-control, or press it on the device, and make it play a note, run a command,
-or do nothing.
+coloured by what the keys do; other profiles list their buttons and axes.
+Click a control, or press it on the device, and make it play a note, send a
+controller, run a command, or do nothing. An axis sends a controller or
+bends the pitch, and has switches for resting in the middle and for being
+reversed, and a dead zone.
 
 ![Changing a keyboard's profile](docs/images/gui-profile.png)
 
 Every change is written to the file at once, as a change of that one line:
 notes you wrote into the file by hand stay. A running HIDI follows within a
-few seconds. What a control sends besides notes and commands, a controller
-for one, and keys that need a modifier, are shown where they apply and
-changed in the file.
+few seconds. Program changes, keys that need a modifier, the two directions
+of an axis bound apart, and the options of a note are shown where they apply
+and changed in the file. So are adding a layout and making a new profile.
 
 The window needs 64-bit Linux or Windows with OpenGL 3.3.
 
