@@ -141,9 +141,13 @@ func (w *Watcher) run(changes <-chan change) {
 
 	// opened holds the names of nodes that were opened and not yet removed,
 	// so that an attribute change does not open a node twice. failed holds
-	// the names whose failure was already reported.
+	// the names of nodes that could not be opened, with the reason until
+	// it has been reported. It is reported only if the node still cannot
+	// be opened a moment later: a node that was just plugged in appears
+	// before the system has set who may read it, and the first try fails
+	// for a device that works an instant after.
 	opened := map[string]bool{}
-	failed := map[string]bool{}
+	failed := map[string]error{}
 	// pending holds opened nodes that are not part of a device yet.
 	pending := map[string]*Node{}
 	defer func() {
@@ -163,10 +167,13 @@ func (w *Watcher) run(changes <-chan change) {
 		node, err := Open(path)
 		if err != nil {
 			// A node that vanished again is not worth mentioning.
-			if !errors.Is(err, unix.ENOENT) && !errors.Is(err, unix.ENODEV) && !failed[name] && w.opts.Problem != nil {
-				w.opts.Problem(path, err)
+			if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENODEV) {
+				return
 			}
-			failed[name] = true
+			if _, known := failed[name]; !known {
+				failed[name] = err
+				settle.Reset(w.opts.Settle)
+			}
 			return
 		}
 		opened[name] = true
@@ -209,6 +216,12 @@ func (w *Watcher) run(changes <-chan change) {
 				delete(pending, c.name)
 			}
 		case <-settle.C:
+			for name, err := range failed {
+				if err != nil && w.opts.Problem != nil {
+					w.opts.Problem(filepath.Join(w.opts.Dir, name), err)
+				}
+				failed[name] = nil // said once
+			}
 			for _, device := range formDevices(pending) {
 				select {
 				case w.devices <- device:

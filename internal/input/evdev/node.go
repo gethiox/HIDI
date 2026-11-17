@@ -83,9 +83,12 @@ type Node struct {
 	// what changed after the kernel dropped events.
 	keysDown [keyCount / 8]byte
 	absValue map[uint16]int32
-	// dropped is set between a SYN_DROPPED event and the SYN_REPORT that
-	// ends the incomplete packet.
+	// dropped is set from a SYN_DROPPED event to the end of what was read
+	// with it, where the state is read back from the device.
 	dropped bool
+	// heldBefore says that the grab was in place before the events last
+	// read were looked at: the system did not get them.
+	heldBefore bool
 
 	// mu guards the key state and the grab state, which Grab and Release
 	// touch from other goroutines than the one reading.
@@ -281,6 +284,15 @@ func (n *Node) grabIfIdle() error {
 	return nil
 }
 
+// HeldBefore reports whether the grab was in place before the events of
+// the last Read were looked at. A grab that waited for a key to come up
+// begins at the end of a Read, whose events the system then still got.
+func (n *Node) HeldBefore() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.heldBefore
+}
+
 // Grabbed reports whether a grab is in place, which a wanted grab is not
 // while a key is down.
 func (n *Node) Grabbed() bool {
@@ -327,8 +339,13 @@ func (n *Node) Read(dst []control.Event) ([]control.Event, error) {
 			return dst, fmt.Errorf("%s: %w", n.info.Path, err)
 		}
 		n.mu.Lock()
+		n.heldBefore = n.grabbed
 		for off := 0; off+rawEventSize <= got; off += rawEventSize {
 			dst = n.translate(n.raw[off:off+rawEventSize], dst)
+		}
+		if n.dropped {
+			n.dropped = false
+			dst = n.resync(dst)
 		}
 		n.grabIfIdle() // a grab may have been waiting for a key release
 		n.mu.Unlock()
@@ -344,13 +361,15 @@ func (n *Node) translate(raw []byte, dst []control.Event) []control.Event {
 	value := int32(native.Uint32(body[4:]))
 
 	if n.dropped {
-		// The kernel ran out of buffer space. Everything up to the end of
-		// the current packet is incomplete and must be discarded; after
-		// that the real state is read back from the device.
-		if typ == evSyn && code == synReport {
-			n.dropped = false
-			dst = n.resync(dst)
-		}
+		// The kernel ran out of buffer space and left events out. What
+		// came with that news in the same read is discarded, and then
+		// Read reads the real state back from the device. The rest of the
+		// read must not be applied after that: it is older than the state
+		// read back, and asking for the state of the keys makes the
+		// kernel forget the key events it still holds, among them the
+		// ones that would have set an old event right. A button whose
+		// press was in this read and whose release was still with the
+		// kernel would stay down.
 		return dst
 	}
 

@@ -33,6 +33,9 @@ type passing struct {
 	hidden map[uint16]bool
 	nodes  map[*Node]bool // the nodes whose keys are passed on
 	down   map[uint16]bool
+	// closed is set when the device has ended; nothing is passed on any
+	// more, and no keyboard is made for it.
+	closed bool
 }
 
 // Pass keeps the hidden keys from the rest of the system and passes every
@@ -45,6 +48,9 @@ func (d *Device) Pass(hidden []control.Code) error {
 	p := &d.pass
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		return ErrClosed
+	}
 
 	nodes := map[*Node]bool{}
 	var keys []uint16
@@ -97,7 +103,18 @@ func (d *Device) Pass(hidden []control.Code) error {
 			return err
 		}
 	}
-	p.on, p.hidden, p.nodes, p.down = true, set, nodes, map[uint16]bool{}
+	// Keys that were passed on as pressed and are hidden now are let go
+	// of; the others stay as they are.
+	for code := range p.down {
+		if set[code] {
+			p.out.Key(code, false)
+			delete(p.down, code)
+		}
+	}
+	if p.down == nil {
+		p.down = map[uint16]bool{}
+	}
+	p.on, p.hidden, p.nodes = true, set, nodes
 	return nil
 }
 
@@ -120,8 +137,9 @@ func (p *passing) forward(node *Node, events []control.Event) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// A grab that waits for a key to come up is not in place yet, and the
-	// system still gets the node's keys by itself.
-	if !p.on || !p.nodes[node] || !node.Grabbed() {
+	// system still gets the node's keys by itself. That holds for the
+	// events with which the grab began as well.
+	if !p.on || !p.nodes[node] || !node.HeldBefore() {
 		return
 	}
 	for _, ev := range events {
@@ -162,6 +180,7 @@ func (p *passing) close() {
 	p.stop()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.closed = true
 	if p.out != nil {
 		p.out.Close()
 		p.out = nil

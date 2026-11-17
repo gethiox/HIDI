@@ -74,20 +74,48 @@ func (in *Input) Connect(sourceID string) (already bool, err error) {
 // After [Input.Close] it returns [ErrClosed]. Read must not be called from
 // several goroutines at once.
 func (in *Input) Read(out []midi.Message) ([]midi.Message, error) {
-	n, err := in.file.Read(in.buf)
-	if err != nil {
-		if errors.Is(err, os.ErrClosed) {
-			return out, ErrClosed
+	for {
+		n, err := in.file.Read(in.buf)
+		if errors.Is(err, unix.ENOSPC) {
+			// More arrived than the kernel kept for this client; it has
+			// thrown the lot away and goes on from here.
+			continue
 		}
-		return out, fmt.Errorf("reading from the ALSA sequencer: %w", err)
+		if err != nil {
+			if errors.Is(err, os.ErrClosed) {
+				return out, ErrClosed
+			}
+			return out, fmt.Errorf("reading from the ALSA sequencer: %w", err)
+		}
+		return decodeAll(in.buf[:n], out), nil
 	}
-	for off := 0; off+eventSize <= n; off += eventSize {
-		ev := (*event)(unsafe.Pointer(&in.buf[off]))
+}
+
+// The two bits of an event's flags that say how long it is, and their
+// value for an event that is followed by data of its own.
+const (
+	lengthMask     = 3 << 2
+	lengthVariable = 1 << 2
+)
+
+// decodeAll converts what one read returned: whole events, of which one
+// that carries data of its own, a system exclusive message for instance,
+// is followed by that data, filled up to a whole number of events. The
+// data is passed over; read as events it would be taken for notes.
+func decodeAll(buf []byte, out []midi.Message) []midi.Message {
+	for off := 0; off+eventSize <= len(buf); off += eventSize {
+		ev := (*event)(unsafe.Pointer(&buf[off]))
+		if ev.Flags&lengthMask == lengthVariable {
+			// The length, without the two bits the kernel keeps there.
+			length := int(native.Uint32(ev.Data[0:4]) &^ (3 << 30))
+			off += (length + eventSize - 1) / eventSize * eventSize
+			continue
+		}
 		if m, ok := decode(*ev); ok {
 			out = append(out, m)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // Close removes the input and interrupts a Read in progress. Closing twice
