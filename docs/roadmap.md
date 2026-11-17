@@ -256,10 +256,11 @@ pull request before.
 ### Interfaces
 
 6. **The rest of configuring in the graphical interface**:
-    - The toggle combination, by pressing the keys, and the MIDI ports to
-      connect to, from the list of those that exist. The settings page
-      shows them and points to the file. Changed ports need the router to
-      drop connections too.
+    - Done: the toggle combination, by pressing the keys, and the MIDI
+      ports to connect to, from the list of those that exist. Still open:
+      a running HIDI follows changed ports only when it starts again,
+      since the router cannot drop connections yet; and the lights are
+      not on the page.
     - In a profile: axes, controllers, program changes, pitch bend, keys
       with modifiers, and the options of a note; adding and removing
       layouts; making a new profile and saying which devices it is for.

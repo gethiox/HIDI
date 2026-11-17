@@ -309,7 +309,7 @@ func (w *window) draw() {
 		inputOff = true
 		w.drawInstruments(state, body)
 		inputOff = false
-		w.drawOverlay(body)
+		w.drawOverlay(state, body)
 	} else {
 		w.drawInstruments(state, body)
 	}

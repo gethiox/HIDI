@@ -23,6 +23,7 @@ type editor struct {
 	chosen  bool
 	message string
 	scroll  float32
+	content float32 // the height of the page when it was last drawn
 	// held are the controls that were down at the last look, to notice a
 	// new press: pressing a control of the device chooses it.
 	held map[string]bool
@@ -89,10 +90,8 @@ func roleColour(r Role) RGB {
 func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	e := w.edit
 	doc := e.doc
-	if hovered(area) {
-		e.scroll -= rl.GetMouseWheelMove() * 40
-	}
-	e.scroll = max(e.scroll, 0)
+	e.scroll -= wheel(area) * 40
+	e.scroll = min(max(e.scroll, 0), max(e.content-area.Height, 0))
 	rl.BeginScissorMode(int32(area.X), int32(area.Y), int32(area.Width), int32(area.Height))
 	defer rl.EndScissorMode()
 	x, y := float32(margin), area.Y+4-e.scroll
@@ -186,11 +185,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	y += 14
 	y = w.editChosen(e, x, y, right-x)
 
-	if content := y + e.scroll - area.Y + 12; content > area.Height {
-		e.scroll = min(e.scroll, content-area.Height)
-	} else {
-		e.scroll = 0
-	}
+	e.content = y + e.scroll - area.Y + 12
 }
 
 // editKeyboard draws the keyboard with what every key does, and chooses

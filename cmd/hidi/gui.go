@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/backend"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/ui/gui"
 )
@@ -40,6 +41,7 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 		opts.BackgroundFPS = pl.settings.Window.BackgroundFPS
 	}
 	opts.Paths = pl.paths
+	opts.Ports = backend.Ports
 	if !given["log-height"] {
 		opts.LogHeight = pl.settings.Window.LogHeight
 	}

@@ -181,10 +181,17 @@ instruments. A click beside the sheet closes it.
 
 ![The settings](docs/images/gui-settings.png)
 
-The switches and the frame limits are changed there. A running HIDI takes
-most of them over within a few seconds; the page says which matter only at
-the next start. The toggle combination and the MIDI ports to send to are
-shown there and changed in `settings.toml`. Below them are the places where
+Everything in `settings.toml` except the lights can be changed there. A
+running HIDI takes most of it over within a few seconds; the page says what
+matters only at the next start.
+
+- "Change" beside the toggle combination takes a new one from the keyboard:
+  press the keys together and let go. One key alone works too, and can then
+  be made to work by a tap.
+- "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
+  makes every instrument send there as well.
+
+Below them are the places where
 settings and profiles are kept, with buttons that open them in the file
 manager, and every profile, also those of devices that are not connected.
 
