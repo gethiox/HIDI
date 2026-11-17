@@ -223,7 +223,7 @@ func (s Settings) Text() []byte {
 	list := func(items []string) string {
 		quoted := make([]string, len(items))
 		for i, item := range items {
-			quoted[i] = fmt.Sprintf("%q", item)
+			quoted[i] = tomlString(item)
 		}
 		return "[" + strings.Join(quoted, ", ") + "]"
 	}
@@ -283,7 +283,7 @@ connect = %s
 openrgb = %t
 
 # Where the OpenRGB server listens.
-address = %q
+address = %s
 
 [window]
 # Open the window when HIDI starts. Without this HIDI starts as an icon in
@@ -303,7 +303,7 @@ background_fps = %d
 # last line.
 log_height = %d
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab,
-		list(s.Output.Connect), s.Lights.OpenRGB, s.Lights.Address, s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight)
+		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight)
 	return []byte(b.String())
 }
 
@@ -313,4 +313,26 @@ func Save(path string, s Settings) error {
 		return errors.New(strings.Join(problems, "\n"))
 	}
 	return writeFile(path, s.Text())
+}
+
+// tomlString writes text as a TOML string. Go's own quoting is close and
+// not the same: it writes a bell as \a, which TOML does not know, and a
+// file with that in it would not be read again. The name of a MIDI port
+// can hold anything.
+func tomlString(text string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range strings.ToValidUTF8(text, "\uFFFD") {
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, "\\u%04X", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }

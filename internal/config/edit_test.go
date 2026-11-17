@@ -212,3 +212,35 @@ func TestEditBuiltinProfiles(t *testing.T) {
 		}
 	}
 }
+
+// A control has several spellings. A change asked for in one finds the
+// line written in another.
+func TestEditFindsOtherSpellings(t *testing.T) {
+	text := "schema = 1\nname = \"Pad\"\n[match]\ntype = \"gamepad\"\n[defaults]\nlayout = \"L\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nBTN_A = \"C3\" # the south button\nkey_0x120 = \"D3\"\n"
+	out := mustEdit(t, text, func(b []byte) ([]byte, error) { return Set(b, Bindings("L"), "BTN_SOUTH", `"E3"`) })
+	if !strings.Contains(out, "BTN_A = \"E3\" # the south button\n") || strings.Contains(out, "BTN_SOUTH") {
+		t.Errorf("setting BTN_SOUTH gave:\n%s", out)
+	}
+	out = mustEdit(t, text, func(b []byte) ([]byte, error) { return Remove(b, Bindings("L"), "BTN_TRIGGER") })
+	if strings.Contains(out, "0x120") {
+		t.Errorf("removing BTN_TRIGGER left its line:\n%s", out)
+	}
+	// Outside the bindings a key is its text.
+	if out := mustEdit(t, text, func(b []byte) ([]byte, error) { return Remove(b, Defaults, "LAYOUT") }); out != text {
+		t.Error("a setting was found by another spelling")
+	}
+}
+
+// A new line goes after the last entry of its section: not below a note
+// that belongs to the next one, and with the line ending of the file.
+func TestSetPlacesNewLines(t *testing.T) {
+	out := mustEdit(t, edited, func(b []byte) ([]byte, error) { return Set(b, Global, "KEY_F2", `"octave_up"`) })
+	if !strings.Contains(out, "KEY_ESC = \"panic\"\nKEY_F2 = \"octave_up\"\n\n# The main layout.\n[[layout]]") {
+		t.Errorf("the new line is not after the last entry:\n%s", out)
+	}
+	crlf := strings.ReplaceAll(edited, "\n", "\r\n")
+	out = mustEdit(t, crlf, func(b []byte) ([]byte, error) { return Set(b, Global, "KEY_F2", `"octave_up"`) })
+	if strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
+		t.Errorf("a line of the result ends without a carriage return:\n%q", out)
+	}
+}

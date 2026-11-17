@@ -513,12 +513,12 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 			manager.SetProfiles(profiles)
 		})
 	}
-	if pl.managed {
+	if pl.settingsFile != "" {
 		// Settings changed in the file, by hand or from the window, are
 		// taken over while HIDI runs, as far as they can be: the toggle
 		// combination and what is grabbed. What the command line set
 		// stays as it was set there.
-		settingsFile := pl.paths.Settings
+		settingsFile := pl.settingsFile
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
 				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
@@ -557,7 +557,8 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		})
 	}
 	manager.Run(ctx, source.Devices)
-	stopFooter() // also when the manager ended by itself
+	quit() // also when the manager ended by itself
+	stopFooter()
 	<-footerDone
 	<-served
 	<-desktopDone

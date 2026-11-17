@@ -167,3 +167,11 @@ func FuzzDecodeBytes(f *testing.F) {
 		}
 	})
 }
+
+func TestParseNoteRejectsAbsurdOctaves(t *testing.T) {
+	for _, s := range []string{"C9223372036854775807", "C-9223372036854775808", "C9", "C-3"} {
+		if n, err := ParseNote(s); err == nil {
+			t.Errorf("ParseNote(%q) = %v, want an error", s, n)
+		}
+	}
+}

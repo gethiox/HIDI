@@ -327,3 +327,47 @@ func TestToggleTapSettings(t *testing.T) {
 		t.Errorf("a tap with three keys: %v", err)
 	}
 }
+
+// Whatever a MIDI port is called, the settings that name it can be read
+// again.
+func TestOddNamesRoundTrip(t *testing.T) {
+	s := Default()
+	s.Output.Connect = []string{"bell\a", `quote " and \ slash`, "tab\there", "ünïcödé ♯", "bad\xffutf8", "del\x7f"}
+	got, err := Parse(s.Text())
+	if err != nil {
+		t.Fatalf("the settings written cannot be read: %v\n%s", err, s.Text())
+	}
+	want := slices.Clone(s.Output.Connect)
+	want[4] = "bad�utf8" // what is no text cannot be kept as it is
+	if !slices.Equal(got.Output.Connect, want) {
+		t.Errorf("read back %q, want %q", got.Output.Connect, want)
+	}
+}
+
+// A directory that is HIDI's, without the record of what HIDI wrote there,
+// gets the record, so that it counts as in use before the next start has
+// made it ready.
+func TestPrepareWritesAMissingRecord(t *testing.T) {
+	p := PathsIn(filepath.Join(t.TempDir(), "HIDI"))
+	profiles := map[string][]byte{"keyboard.toml": []byte("schema = 1\n")}
+	if _, err := Prepare(p, profiles); err != nil {
+		t.Fatal(err)
+	}
+	if !Managed(p) {
+		t.Fatal("not in use after the first start")
+	}
+	if err := os.Remove(p.record); err != nil {
+		t.Fatal(err)
+	}
+	// And something a write left behind when HIDI was ended in it.
+	if err := os.WriteFile(filepath.Join(p.Root, ".tmp-123"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Prepare(p, profiles)
+	if err != nil || !report.Managed || report.Unrecognised != "" {
+		t.Fatalf("Prepare without the record: %+v, %v", report, err)
+	}
+	if !Managed(p) {
+		t.Error("the record was not written again")
+	}
+}
