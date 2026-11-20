@@ -96,6 +96,7 @@ func TestProfileDocPassthrough(t *testing.T) {
 			t.Errorf("%v after SetPassthrough: %+v", key, r)
 		}
 	}
+	doc.Save()
 	text, _ := os.ReadFile(path)
 	if !strings.Contains(string(text), `KEY_SPACE = "passthrough"`) {
 		t.Error("the file does not say that the space bar is passed through")

@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -23,8 +24,15 @@ type editor struct {
 	code    control.Code
 	chosen  bool
 	message string
-	scroll  float32
+	scroll  glide
 	content float32 // the height of the page when it was last drawn
+	// touched says that what is shown changed in this frame; the running
+	// HIDI is then given it to play with.
+	touched bool
+	// adding says that a layout is being added, and newName is its name
+	// as far as it is typed.
+	adding  bool
+	newName string
 	// held are the controls that were down at the last look, to notice a
 	// new press: pressing a control of the device chooses it.
 	held map[string]bool
@@ -34,6 +42,11 @@ type editor struct {
 
 // editProfile opens the page for a profile file.
 func (w *window) editProfile(path string) {
+	// A page that was left with changes on it is as it was left.
+	if e := w.docs[path]; e != nil {
+		w.edit = e
+		return
+	}
 	doc, err := OpenProfile(path)
 	if err != nil {
 		// Said on the settings sheet, which is opened for it: the page
@@ -43,17 +56,113 @@ func (w *window) editProfile(path string) {
 		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
 		return
 	}
-	w.edit = &editor{doc: doc, layout: doc.Profile.Engine.Defaults.Layout, held: map[string]bool{}}
-	if !slices.Contains(doc.Layouts(), w.edit.layout) {
-		w.edit.layout = doc.Layouts()[0]
+	w.edit = &editor{doc: doc, layout: doc.DefaultLayout(), held: map[string]bool{}}
+	if w.docs == nil {
+		w.docs = map[string]*editor{}
+	}
+	w.docs[path] = w.edit
+}
+
+// try takes the outcome of a change: what went wrong goes to the message
+// line, and what is shown now is to be played with.
+func (e *editor) try(err error) {
+	e.message, e.touched = "", true
+	if err != nil {
+		e.message = strings.ReplaceAll(err.Error(), "\n", " ")
+	}
+	// The layout that is shown may be gone, by a change or by taking one
+	// back.
+	if !slices.Contains(e.doc.Layouts(), e.layout) {
+		e.layout = e.doc.DefaultLayout()
 	}
 }
 
-// try makes a change and keeps what came of it for the message line.
-func (e *editor) try(err error) {
-	e.message = "Saved. A running HIDI takes this over within a few seconds."
-	if err != nil {
-		e.message = strings.ReplaceAll(err.Error(), "\n", " ")
+// preview gives the running HIDI the profile as it is shown, to play
+// with, if it differs from the file; otherwise the file counts again.
+// The asking is done beside the drawing, the newest text for each file
+// last.
+func (w *window) preview(doc *ProfileDoc) {
+	text := ""
+	if doc.Dirty() {
+		text = string(doc.Text())
+	}
+	w.tryMu.Lock()
+	if w.trying == nil {
+		w.trying = map[string]string{}
+	}
+	w.trying[doc.Path] = text
+	idle := !w.tryBusy
+	w.tryBusy = true
+	w.tryMu.Unlock()
+	if !idle {
+		return // the one at work takes it along
+	}
+	go func() {
+		for {
+			w.tryMu.Lock()
+			var path, text string
+			found := false
+			for path, text = range w.trying {
+				found = true
+				break
+			}
+			if !found {
+				w.tryBusy = false
+				w.tryMu.Unlock()
+				return
+			}
+			delete(w.trying, path)
+			w.tryMu.Unlock()
+			ctx, cancel := context.WithTimeout(w.ctx, 2*time.Second)
+			w.hidi.Preview(ctx, path, text) // no HIDI, nothing to play with
+			cancel()
+		}
+	}()
+}
+
+// dimButton draws a button that may have nothing to do at the moment: it
+// is faint then, and takes no click.
+func (w *window) dimButton(label string, enabled bool, x, y float32) (clickedNow bool, right float32) {
+	if enabled {
+		return w.button(label, x, y)
+	}
+	bw := width(w.sans, label, sizeText) + 20
+	rl.DrawRectangleRoundedLinesEx(rl.NewRectangle(x, y, bw, 24), 0.35, 6, 1, col(colPanelEdge))
+	text(w.sans, label, x+10, y+5, sizeText, col(colOff))
+	return false, x + bw
+}
+
+// saveButton draws the button that saves, a floppy disk, yellow while
+// there is something to save, and reports a click on it.
+func (w *window) saveButton(unsaved bool, x, y float32) bool {
+	r := rl.NewRectangle(x, y, 30, 24)
+	ink := colOff
+	if unsaved {
+		ink = colUnsaved
+	}
+	if hovered(r) && unsaved {
+		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanelEdge))
+	} else {
+		rl.DrawRectangleRoundedLinesEx(r, 0.35, 6, 1, col(colPanelEdge))
+	}
+	// The disk: a square with a corner cut off, the shutter at the top
+	// and the label below.
+	bx, by := x+7, y+4
+	rl.DrawRectangleRounded(rl.NewRectangle(bx, by, 16, 16), 0.2, 4, col(ink))
+	rl.DrawTriangle(rl.NewVector2(bx+16, by), rl.NewVector2(bx+12, by), rl.NewVector2(bx+16, by+4), col(colBackground))
+	rl.DrawRectangleRec(rl.NewRectangle(bx+4, by+1.5, 7, 5), col(colBackground))
+	rl.DrawRectangleRec(rl.NewRectangle(bx+8, by+2.5, 2, 3), col(ink))
+	rl.DrawRectangleRec(rl.NewRectangle(bx+3, by+9.5, 10, 5), col(colBackground))
+	return unsaved && clicked(r)
+}
+
+// freeLayoutName returns a name no layout of the profile has.
+func freeLayoutName(doc *ProfileDoc) string {
+	for n := len(doc.Layouts()) + 1; ; n++ {
+		if name := fmt.Sprintf("Layout %d", n); !slices.Contains(doc.Layouts(), name) {
+			return name
+		}
 	}
 }
 
@@ -101,15 +210,46 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		} else if changed {
 			e.message = "The file was changed elsewhere; this is how it is now."
 			if !slices.Contains(doc.Layouts(), e.layout) {
-				e.layout = doc.Layouts()[0]
+				e.layout = doc.DefaultLayout()
 			}
 		}
 	}
-	e.scroll -= wheel(area) * 40
-	e.scroll = min(max(e.scroll, 0), max(e.content-area.Height, 0))
+	// What a change in this frame leaves is given to HIDI when the frame
+	// is drawn.
+	defer func() {
+		if e.touched {
+			e.touched = false
+			w.preview(doc)
+		}
+	}()
+	// The keys that take a change back, make it again, and save. They
+	// reach the window only while the keyboard is not HIDI's alone.
+	if !inputOff && !e.adding && (rl.IsKeyDown(rl.KeyLeftControl) || rl.IsKeyDown(rl.KeyRightControl)) {
+		shift := rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
+		switch {
+		case rl.IsKeyPressed(rl.KeyZ) && !shift:
+			if doc.Undo() {
+				e.try(nil)
+			}
+		case rl.IsKeyPressed(rl.KeyZ) && shift, rl.IsKeyPressed(rl.KeyY):
+			if doc.Redo() {
+				e.try(nil)
+			}
+		case rl.IsKeyPressed(rl.KeyS):
+			if doc.Dirty() {
+				e.save()
+			}
+		}
+	}
+	e.scroll.Target -= wheel(area) * 60
+	e.scroll.Clamp(e.content - area.Height)
+	if e.scroll.Step(w.dt) {
+		w.moving = true
+	}
+	scrolled := float32(int(e.scroll.At))
 	beginClip(area)
 	defer endClip()
-	x, y := float32(margin), area.Y+4-e.scroll
+	x, y := float32(margin), area.Y+4-scrolled
 	right := area.Width - margin
 
 	// The device that plays with this profile now, if any: its presses
@@ -137,15 +277,42 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		e.held = now
 	}
 
-	if back, end := w.button("← Back", x, y); back {
+	back, end := w.button("← Back", x, y)
+	if back {
+		// The page stays as it is, with what is not saved, for the next
+		// time it is opened; a dot on the way to it says so.
 		w.edit = nil
 		return
-	} else {
-		text(w.bold, doc.Profile.Name, end+14, y+2, sizeName, col(colText))
-		w.drawPath(doc.Path, end+14+width(w.bold, doc.Profile.Name, sizeName)+14, y+6, right-end-28-width(w.bold, doc.Profile.Name, sizeName))
 	}
+	// At the right: taking back, making again, and saving.
+	tools := right - 30
+	if w.saveButton(doc.Dirty(), tools, y) {
+		e.save()
+	}
+	redoW := width(w.sans, "Redo", sizeText) + 20
+	tools -= redoW + 8
+	if hit, _ := w.dimButton("Redo", doc.CanRedo(), tools, y); hit && doc.Redo() {
+		e.try(nil)
+	}
+	undoW := width(w.sans, "Undo", sizeText) + 20
+	tools -= undoW + 6
+	if hit, _ := w.dimButton("Undo", doc.CanUndo(), tools, y); hit && doc.Undo() {
+		e.try(nil)
+	}
+	text(w.bold, doc.Profile.Name, end+14, y+2, sizeName, col(colText))
+	w.drawPath(doc.Path, end+14+width(w.bold, doc.Profile.Name, sizeName)+14, y+6, tools-end-42-width(w.bold, doc.Profile.Name, sizeName))
 	y += 34
-	text(w.sans, e.message, x, y, sizeText, col(AnsiColour(93)))
+	// One line for what is to be said: what went wrong, or else how
+	// things stand with saving.
+	status := e.message
+	switch {
+	case status != "":
+	case doc.Elsewhere:
+		status = "Not saved, and the file was changed elsewhere meanwhile: saving writes over that."
+	case doc.Dirty():
+		status = "Not saved. A running HIDI plays with it as it is shown here; the file is as it was."
+	}
+	text(w.sans, status, x, y, sizeText, col(colUnsaved))
 	y += 26
 
 	// What an instrument starts with.
@@ -169,27 +336,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	}
 	y += 40
 
-	// The layouts.
-	text(w.sans, "layout", x, y+3, sizeText, col(colFaint))
-	lx := x + width(w.sans, "layout", sizeText) + 10
-	for _, name := range doc.Layouts() {
-		chip := rl.NewRectangle(lx, y, w.chipWidth(name), chipH)
-		if hovered(chip) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
-		}
-		if name == e.layout {
-			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
-			text(w.mono, name, lx+7, y+3, sizeMono, col(colBar))
-		} else {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
-			text(w.mono, name, lx+7, y+3, sizeMono, col(colFaint))
-		}
-		if clicked(chip) {
-			e.layout = name
-		}
-		lx += chip.Width + 6
-	}
-	y += 34
+	y = w.editLayouts(e, x, y, right)
 
 	// The controls: a keyboard as a keyboard, anything else as a list.
 	if doc.Profile.Match.Type == control.DeviceKeyboard {
@@ -200,7 +347,111 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	y += 14
 	y = w.editChosen(e, x, y, right-x)
 
-	e.content = y + e.scroll - area.Y + 12
+	e.content = y + scrolled - area.Y + 12
+}
+
+// save writes the profile and says what came of it.
+func (e *editor) save() {
+	e.message = ""
+	if err := e.doc.Save(); err != nil {
+		e.message = strings.ReplaceAll(err.Error(), "\n", " ")
+	}
+}
+
+// editLayouts draws the layouts: which one is shown, which one an
+// instrument starts with, and the buttons that add one, remove the one
+// shown, and move it in the row the player steps through.
+func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
+	doc := e.doc
+	text(w.sans, "layouts", x, y+3, sizeText, col(colFaint))
+	start := x + width(w.sans, "layouts", sizeText) + 12
+	lx := start
+	layouts := doc.Layouts()
+	first := doc.DefaultLayout()
+	for _, name := range layouts {
+		// The name, a box that makes the layout the first one played,
+		// and behind the one that is, the word for it.
+		note := ""
+		if name == first {
+			note = "default"
+		}
+		itemW := w.chipWidth(name) + 6 + 16 + 14
+		if note != "" {
+			itemW += width(w.sans, note, sizeText-2) + 6
+		}
+		if lx > start && lx+itemW > right {
+			lx, y = start, y+chipH+10
+		}
+		if w.chip(name, name == e.layout, lx, y) {
+			e.layout = name
+		}
+		bx := lx + w.chipWidth(name) + 6
+		if w.checkbox(name == first, bx, y+1, 16) && name != first {
+			e.try(doc.SetDefaultLayout(name))
+		}
+		if note != "" {
+			text(w.sans, note, bx+22, y+4, sizeText-2, col(colFaint))
+		}
+		lx += itemW
+	}
+	y += chipH + 12
+
+	// What can be done with the layout that is shown.
+	lx = start
+	at := slices.Index(layouts, e.layout)
+	if hit, end := w.dimButton("← Earlier", at > 0, lx, y); hit {
+		e.try(doc.MoveLayout(e.layout, -1))
+	} else {
+		lx = end + 6
+	}
+	if hit, end := w.dimButton("Later →", at >= 0 && at < len(layouts)-1, lx, y); hit {
+		e.try(doc.MoveLayout(e.layout, 1))
+	} else {
+		lx = end + 6
+	}
+	if hit, end := w.dimButton("Remove \""+e.layout+"\"", len(layouts) > 1, lx, y); hit {
+		e.try(doc.RemoveLayout(e.layout))
+	} else {
+		lx = end + 18
+	}
+	if !e.adding {
+		if hit, _ := w.button("+ Add a layout", lx, y); hit {
+			e.adding, e.newName = true, freeLayoutName(doc)
+		}
+		return y + 38
+	}
+	// The name of the new layout: there is one to begin with, which can
+	// be typed over while the keyboard is not HIDI's alone.
+	for r := rl.GetCharPressed(); r > 0; r = rl.GetCharPressed() {
+		if r >= 0x20 && len([]rune(e.newName)) < 32 {
+			e.newName += string(r)
+		}
+	}
+	if (rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace)) && e.newName != "" {
+		name := []rune(e.newName)
+		e.newName = string(name[:len(name)-1])
+	}
+	field := rl.NewRectangle(lx, y, max(width(w.mono, e.newName, sizeMono)+24, 140), 24)
+	rl.DrawRectangleRounded(field, 0.3, 6, col(colBar))
+	rl.DrawRectangleRoundedLinesEx(field, 0.3, 6, 1, col(colAccent))
+	text(w.mono, e.newName, field.X+8, y+5, sizeMono, col(colText))
+	if time.Now().UnixMilli()/500%2 == 0 {
+		rl.DrawRectangleRec(rl.NewRectangle(field.X+9+width(w.mono, e.newName, sizeMono), y+5, 1, 14), col(colText))
+	}
+	w.moving = true // the mark blinks
+	add, end := w.button("Add", field.X+field.Width+8, y)
+	cancel, _ := w.button("Cancel", end+6, y)
+	switch {
+	case add || rl.IsKeyPressed(rl.KeyEnter):
+		name := strings.TrimSpace(e.newName)
+		e.try(doc.AddLayout(name))
+		if slices.Contains(doc.Layouts(), name) {
+			e.layout, e.adding = name, false
+		}
+	case cancel || rl.IsKeyPressed(rl.KeyEscape):
+		e.adding = false
+	}
+	return y + 38
 }
 
 // editKeyboard draws the keyboard with what every key does, and chooses

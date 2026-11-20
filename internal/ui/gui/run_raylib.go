@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -50,14 +51,18 @@ const (
 
 // The colours of the window.
 var (
-	colBackground = RGB{0x1b, 0x1f, 0x26}
-	colPanel      = RGB{0x25, 0x2a, 0x33}
-	colPanelEdge  = RGB{0x33, 0x3a, 0x46}
+	colBackground = RGB{0x0a, 0x0c, 0x0f}
+	colPanel      = RGB{0x12, 0x15, 0x1a}
+	colPanelEdge  = RGB{0x24, 0x29, 0x32}
 	colFaint      = RGB{0x8b, 0x94, 0xa3}
 	colOn         = RGB{0x21, 0xa3, 0x5a}
 	colOff        = RGB{0x5c, 0x63, 0x6e}
 	colAccent     = RGB{0x3d, 0xc9, 0x7b}
-	colBusy       = RGB{0xa5, 0xe8, 0xc0} // a number that says something is going on
+	colInput      = RGB{0x3d, 0xc9, 0x7b} // what comes in from the devices: its curve
+	colMIDI       = RGB{0xe6, 0xc2, 0x3f} // what goes out as MIDI: its curve
+	colInputText  = RGB{0xa5, 0xe8, 0xc0} // a number of what comes in, while it is not zero
+	colMIDIText   = RGB{0xf2, 0xdc, 0x8c} // a number of what goes out, while it is not zero
+	colUnsaved    = RGB{0xf2, 0xc9, 0x4c} // changes that wait to be saved
 	colIdleDown   = RGB{0x9a, 0xa1, 0xac} // a control that is down while HIDI is off
 	colKeyInk     = RGB{0xb9, 0xc0, 0xcc} // the lettering of a key that does something
 	colWhiteKey   = RGB{0xdd, 0xe1, 0xe7}
@@ -77,11 +82,29 @@ type window struct {
 	dragging    bool
 	dragMoved   bool
 	logScroll   float32 // lines scrolled back from the newest
-	cardScroll  float32
+	cards       glide   // how far the instruments are scrolled
 	toggling    chan struct{}
 
 	// active says whether HIDI is on, as of the frame being drawn.
 	active bool
+	// moving says that something drawn in this frame is on its way
+	// somewhere, so that another frame has to follow; dt is the time
+	// since the frame before, and drawn when that one was drawn.
+	moving bool
+	dt     time.Duration
+	drawn  time.Time
+	// trails is how much came in and went out of every instrument over
+	// the last seconds.
+	trails map[string]*[2]trail
+	// docs are the profiles that were opened for changing, by their
+	// files: what was changed in one and not saved is still there when
+	// its page is opened again.
+	docs map[string]*editor
+	// trying holds, by profile file, the text HIDI is still to be given
+	// to play with; tryBusy says that somebody is giving.
+	tryMu   sync.Mutex
+	trying  map[string]string
+	tryBusy bool
 	// shown says what is drawn of which instrument.
 	shown settings.Shown
 	// glow is the picture of a light under a key.
@@ -138,6 +161,17 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	w := &window{hidi: hidi, model: model, opts: opts, ctx: ctx, toggling: make(chan struct{}, 1)}
 	w.loadFonts()
 	defer w.unloadFonts()
+	// What was tried and not saved ends with the window: the files count
+	// again.
+	defer func() {
+		for path, e := range w.docs {
+			if e.doc.Dirty() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				hidi.Preview(ctx, path, "")
+				cancel()
+			}
+		}
+	}()
 	w.glow = loadGlow()
 	defer rl.UnloadTexture(w.glow)
 	if opts.Paths.Root != "" {
@@ -173,7 +207,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		version := model.Version()
 		// While the settings are open the gear turns, and the page follows
 		// the files on disk.
-		if version != seen || w.gear.open || w.dragging || userActive() || rl.IsWindowResized() || rl.IsWindowFocused() != focused {
+		if version != seen || w.gear.open || w.dragging || w.moving || userActive() || rl.IsWindowResized() || rl.IsWindowFocused() != focused {
 			seen, focused, settle = version, rl.IsWindowFocused(), 3
 		}
 		shoot := opts.Screenshot != "" && time.Since(started) > screenshotDelay
@@ -345,6 +379,38 @@ func endClip() {
 	clipped = false
 }
 
+// beginClipWithin holds drawing to the part of r that the clip in force
+// leaves, until endClipWithin puts that clip back.
+func beginClipWithin(r rl.Rectangle) {
+	outer, was := clip, clipped
+	if was {
+		r = rl.GetCollisionRec(r, outer)
+		rl.EndScissorMode()
+	}
+	rl.BeginScissorMode(int32(r.X), int32(r.Y), int32(max(r.Width, 0)), int32(max(r.Height, 0)))
+	clipStack = append(clipStack, struct {
+		r  rl.Rectangle
+		on bool
+	}{outer, was})
+	clip, clipped = r, true
+}
+
+func endClipWithin() {
+	rl.EndScissorMode()
+	last := clipStack[len(clipStack)-1]
+	clipStack = clipStack[:len(clipStack)-1]
+	clip, clipped = last.r, last.on
+	if clipped {
+		rl.BeginScissorMode(int32(clip.X), int32(clip.Y), int32(clip.Width), int32(clip.Height))
+	}
+}
+
+// clipStack holds the clips that wait for the ones inside them to end.
+var clipStack []struct {
+	r  rl.Rectangle
+	on bool
+}
+
 // wheel returns how far the mouse wheel was turned over r.
 func wheel(r rl.Rectangle) float32 {
 	if !hovered(r) {
@@ -359,6 +425,12 @@ func (w *window) draw() {
 	state := w.model.Snapshot()
 	// Whatever lies under the pointer may ask for another cursor.
 	rl.SetMouseCursor(rl.MouseCursorDefault)
+	// What moves by itself moves by the time since the last frame. After
+	// a pause in which nothing was drawn that is one frame's worth.
+	now := time.Now()
+	w.dt = min(now.Sub(w.drawn), 50*time.Millisecond)
+	w.drawn, w.moving = now, false
+	w.follow(state, now)
 
 	// The log takes its height from the bottom; the rest is for the
 	// header and the instruments.
@@ -370,17 +442,18 @@ func (w *window) draw() {
 
 	w.drawHeader(state, sw)
 	w.drawGear(sw)
-	if body := rl.NewRectangle(0, headerH, sw, logTop-headerH); w.edit != nil {
+	// The settings lie over everything else, which stays in view beside
+	// and faintly through them, and takes no clicks meanwhile.
+	body := rl.NewRectangle(0, headerH, sw, logTop-headerH)
+	inputOff = w.gear.open
+	if w.edit != nil {
 		w.drawEditor(state, body)
-	} else if w.gear.open {
-		// The settings lie over the instruments, which stay in view
-		// beside and faintly through them, and take no clicks meanwhile.
-		inputOff = true
-		w.drawInstruments(state, body)
-		inputOff = false
-		w.drawOverlay(state, body)
 	} else {
 		w.drawInstruments(state, body)
+	}
+	inputOff = false
+	if w.gear.open {
+		w.drawOverlay(state, body)
 	}
 	w.drawLog(rl.NewRectangle(0, logTop, sw, sh-logTop))
 }
@@ -424,8 +497,100 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	if r := []rune(version); len(r) > 40 {
 		version = string(r[:40])
 	}
-	// The gear has the corner; the version stands beside it.
-	text(w.mono, version, sw-margin-44-width(w.mono, version, sizeMono), 28, sizeMono, col(colFaint))
+	// The gear has the corner; the version stands beside it, and before
+	// the version what all instruments together take in and send.
+	vx := sw - margin - 44 - width(w.mono, version, sizeMono)
+	text(w.mono, version, vx, 28, sizeMono, col(colFaint))
+	in, out := 0, 0
+	for _, instrument := range state.Instruments {
+		in, out = in+instrument.InputRate, out+instrument.MIDIRate
+	}
+	rx := vx - 22
+	for _, rate := range []struct {
+		label string
+		value int
+		busy  RGB
+	}{{"MIDI", out, colMIDIText}, {"input", in, colInputText}} {
+		number := fmt.Sprintf("%5d/s", rate.value)
+		ink := colFaint
+		if rate.value > 0 {
+			ink = rate.busy
+		}
+		rx -= width(w.mono, number, sizeMono)
+		text(w.mono, number, rx, 28, sizeMono, col(ink))
+		rx -= width(w.sans, rate.label, sizeText) + 4
+		text(w.sans, rate.label, rx, 27, sizeText, col(colFaint))
+		rx -= 16
+	}
+}
+
+// trailKey tells the instruments apart for their trails.
+func trailKey(in ipc.Instrument) string { return in.Name + "\x00" + in.Location + "\x00" + in.Type }
+
+// follow notes how much every instrument takes in and sends, for the
+// curves behind their names.
+func (w *window) follow(state *ipc.Snapshot, now time.Time) {
+	if state == nil {
+		return
+	}
+	if w.trails == nil {
+		w.trails = map[string]*[2]trail{}
+	}
+	there := map[string]bool{}
+	for _, in := range state.Instruments {
+		key := trailKey(in)
+		there[key] = true
+		t := w.trails[key]
+		if t == nil {
+			t = &[2]trail{}
+			w.trails[key] = t
+		}
+		t[0].Add(in.InputRate, now)
+		t[1].Add(in.MIDIRate, now)
+		// A curve that still has something in it runs out of view by
+		// itself, also when nothing else changes.
+		if t[0].Max() > 0 || t[1].Max() > 0 {
+			w.moving = true
+		}
+	}
+	for key := range w.trails {
+		if !there[key] {
+			delete(w.trails, key)
+		}
+	}
+}
+
+// drawTrails draws how much an instrument took in and sent over the last
+// seconds, as two curves over the area: what came in green, what went out
+// as MIDI yellow. They lie behind what is written there.
+func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
+	t := w.trails[trailKey(in)]
+	if t == nil {
+		return
+	}
+	// Both curves on one scale, so that they can be compared.
+	most := float32(max(t[0].Max(), t[1].Max(), 20))
+	step := area.Width / float32(trailLen-1)
+	for i, ink := range []RGB{colInput, colMIDI} {
+		values := t[i].values
+		if t[i].Max() == 0 {
+			continue
+		}
+		at := func(n int) rl.Vector2 {
+			return rl.NewVector2(area.X+float32(n)*step, area.Y+area.Height-float32(values[n])/most*(area.Height-4))
+		}
+		for n := 1; n < trailLen; n++ {
+			if values[n-1] == 0 && values[n] == 0 {
+				continue
+			}
+			a, b := at(n-1), at(n)
+			// The area under the curve, faint, and the curve itself.
+			floor := area.Y + area.Height
+			rl.DrawTriangle(a, rl.NewVector2(a.X, floor), b, colA(ink, 22))
+			rl.DrawTriangle(b, rl.NewVector2(a.X, floor), rl.NewVector2(b.X, floor), colA(ink, 22))
+			rl.DrawLineEx(a, b, 1.5, colA(ink, 120))
+		}
+	}
 }
 
 // toggle asks HIDI to turn on or off, without making the drawing wait for
@@ -460,12 +625,15 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 		heights[i] = w.cardHeight(in, cardW-2*cardPad)
 		total += heights[i] + cardGap
 	}
-	w.cardScroll -= wheel(area) * 40
-	w.cardScroll = min(max(w.cardScroll, 0), max(total-area.Height, 0))
+	w.cards.Target -= wheel(area) * 60
+	w.cards.Clamp(total - area.Height)
+	if w.cards.Step(w.dt) {
+		w.moving = true
+	}
 
 	beginClip(area)
 	defer endClip()
-	y := area.Y - w.cardScroll
+	y := area.Y - float32(int(w.cards.At))
 	for i, in := range state.Instruments {
 		if y+heights[i] >= area.Y && y <= area.Y+area.Height {
 			w.drawCard(in, rl.NewRectangle(margin, y, cardW, heights[i]))
@@ -512,6 +680,10 @@ func (w *window) chip(label string, on bool, x, y float32) bool {
 
 func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	rl.DrawRectangleRounded(r, 16/r.Height, 8, col(colPanel))
+	// Behind the two lines of the card, how busy the instrument was.
+	beginClipWithin(rl.NewRectangle(r.X+1, r.Y+1, r.Width-2, cardTop-2))
+	w.drawTrails(in, rl.NewRectangle(r.X, r.Y+6, r.Width, cardTop-12))
+	endClipWithin()
 	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, 1, col(colPanelEdge))
 	x, y := r.X+cardPad, r.Y+12
 
@@ -524,8 +696,10 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	if in.ProfileFile != "" {
 		label := "Edit profile"
 		right -= width(w.sans, label, sizeText) + 20
-		if hit, _ := w.button(label, right, r.Y+9); hit {
+		if hit, end := w.button(label, right, r.Y+9); hit {
 			w.editProfile(in.ProfileFile)
+		} else if w.unsaved(in.ProfileFile) {
+			rl.DrawCircleV(rl.NewVector2(end-2, r.Y+11), 4.5, col(colUnsaved))
 		}
 		right -= 14
 	}
@@ -547,18 +721,18 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	y += 30
 	for _, field := range []struct {
 		label, value string
-		busy         bool // something is going on: the number is tinted
+		busy         *RGB // something is going on: the number is tinted
 	}{
-		{"octave", fmt.Sprintf("%+3d", in.Octave), false},
-		{"transpose", fmt.Sprintf("%+4d", in.Transpose), false},
-		{"channel", fmt.Sprintf("%2d", in.Channel), false},
-		{"velocity", fmt.Sprintf("%3d", in.Velocity), false},
-		{"notes", fmt.Sprintf("%2d", in.Sounding), false},
-		{"input", fmt.Sprintf("%4d/s", in.InputRate), in.InputRate > 0},
-		{"MIDI", fmt.Sprintf("%4d/s", in.MIDIRate), in.MIDIRate > 0},
-		{"layout", in.Layout, false},
-		{"chord", in.Chord, false},
-		{"", map[bool]string{true: "learning"}[in.Learning], false},
+		{"octave", fmt.Sprintf("%+3d", in.Octave), nil},
+		{"transpose", fmt.Sprintf("%+4d", in.Transpose), nil},
+		{"channel", fmt.Sprintf("%2d", in.Channel), nil},
+		{"velocity", fmt.Sprintf("%3d", in.Velocity), nil},
+		{"notes", fmt.Sprintf("%2d", in.Sounding), nil},
+		{"input", fmt.Sprintf("%4d/s", in.InputRate), tint(in.InputRate, &colInputText)},
+		{"MIDI", fmt.Sprintf("%4d/s", in.MIDIRate), tint(in.MIDIRate, &colMIDIText)},
+		{"layout", in.Layout, nil},
+		{"chord", in.Chord, nil},
+		{"", map[bool]string{true: "learning"}[in.Learning], nil},
 	} {
 		if field.value == "" {
 			continue // no chord remembered, not learning
@@ -566,8 +740,8 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		text(w.sans, field.label, x, y, sizeText, col(colFaint))
 		x += width(w.sans, field.label, sizeText) + 6
 		ink := colText
-		if field.busy {
-			ink = colBusy
+		if field.busy != nil {
+			ink = *field.busy
 		}
 		text(w.mono, field.value, x, y+1, sizeMono, col(ink))
 		x += width(w.mono, field.value, sizeMono) + 20
@@ -583,6 +757,22 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	if showOutput {
 		w.drawPiano(in, rl.NewRectangle(r.X+cardPad, y, inner, pianoH))
 	}
+}
+
+// tint returns the colour for a rate that is not zero, and nil for one
+// that is.
+func tint(rate int, colour *RGB) *RGB {
+	if rate > 0 {
+		return colour
+	}
+	return nil
+}
+
+// unsaved reports whether a profile file has changes in the window that
+// were not saved.
+func (w *window) unsaved(path string) bool {
+	e := w.docs[path]
+	return e != nil && e.doc.Dirty()
 }
 
 // saveShown keeps what is shown of which instrument in the settings file,
@@ -809,7 +999,9 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 	// is under it as light does, then what stands on the caps.
 	for _, key := range keys {
 		role := roles[key.Name]
-		fill := KeyColour(role.Role, role.Note, in.Octave, in.Transpose)
+		// What the key does shows at half strength here: the view is of
+		// what is pressed, with the roles as a background to it.
+		fill := Mix(colBar, KeyColour(role.Role, role.Note, in.Octave, in.Transpose), 0.5)
 		if down[key.Name] && !in.Lit {
 			fill = pressed
 		}

@@ -31,7 +31,7 @@ type settingsView struct {
 	profiles []*config.Profile
 	broken   []config.Problem
 	message  string // the outcome of the last thing the user did here
-	scroll   float32
+	scroll   glide
 	content  float32 // the height of the page when it was last drawn
 	// capture is the toggle combination being taken from the keys the
 	// user presses, or nil.
@@ -201,14 +201,18 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 
 	// The page is as long as it was when last drawn, which is what the
 	// scrolling is held to before anything is drawn.
-	v.scroll -= wheel(area) * 40
-	v.scroll = min(max(v.scroll, 0), max(v.content-area.Height, 0))
+	v.scroll.Target -= wheel(area) * 60
+	v.scroll.Clamp(v.content - area.Height)
+	if v.scroll.Step(w.dt) {
+		w.moving = true
+	}
+	scrolled := float32(int(v.scroll.At))
 	beginClip(area)
 	defer endClip()
 
-	x, y := area.X+margin, area.Y+12-v.scroll
+	x, y := area.X+margin, area.Y+12-scrolled
 	right := area.X + area.Width - margin
-	defer func() { v.content = y + v.scroll - area.Y + 14 }()
+	defer func() { v.content = y + scrolled - area.Y + 14 }()
 	heading := func(s string) {
 		text(w.bold, s, x, y, sizeName, col(colText))
 		y += 30
@@ -480,7 +484,10 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	for _, profile := range v.profiles {
 		edit, end := w.button("Edit", x, y)
 		if edit {
+			w.gear.set(false, time.Now()) // the page is under the sheet
 			w.editProfile(profile.Source)
+		} else if w.unsaved(profile.Source) {
+			rl.DrawCircleV(rl.NewVector2(end-2, y+2), 4.5, col(colUnsaved))
 		}
 		hit, end := w.button("Open file", end+6, y)
 		if hit {
@@ -529,11 +536,15 @@ func (w *window) checkbox(ticked bool, x, y, room float32) bool {
 // those HIDI has met before, and those the settings name.
 func (w *window) drawDeviceList(state *ipc.Snapshot, s *settings.Settings, editable bool, x, y, right float32) float32 {
 	text(w.sans, "Devices that play", x, y+2, sizeText, col(colText))
-	text(w.sans, "by name; HIDI follows within a few seconds", x, y+20, sizeText-2, col(colFaint))
+	about := "blacklist: all but the ticked ones play"
+	if s.Devices.Mode == settings.Whitelist {
+		about = "whitelist: only the ticked ones play"
+	}
+	text(w.sans, about, x, y+20, sizeText-2, col(colFaint))
 	vx := x + 300
 	for _, mode := range []struct{ value, label string }{
-		{settings.Blacklist, "all but the ticked"},
-		{settings.Whitelist, "only the ticked"},
+		{settings.Blacklist, "blacklist"},
+		{settings.Whitelist, "whitelist"},
 	} {
 		if w.chip(mode.label, s.Devices.Mode == mode.value, vx, y) && editable && s.Devices.Mode != mode.value {
 			s.Devices.Mode = mode.value
