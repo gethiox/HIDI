@@ -184,6 +184,23 @@ var ratePeriod = time.Second
 
 const rateSteps = 10
 
+// TrailLen is how many steps of the past a [Trail] holds.
+const TrailLen = 122
+
+// Trail is how busy an instrument was over the last while, step by step:
+// one value for every tenth of [ratePeriod], the newest last, each the
+// number of events of that step alone, as a rate per period. Nothing is
+// averaged; that is what the rates in a [Status] are for.
+type Trail struct {
+	// Seq counts the steps since the instrument's device was connected:
+	// it tells whoever draws the trail when a step was added.
+	Seq uint64
+	// Step is the time one value covers.
+	Step time.Duration
+	// Input and MIDI are what came in from the device and what went out.
+	Input, MIDI []int
+}
+
 // measure works out how much every instrument did since the last time.
 func (m *Manager) measure() {
 	m.mu.Lock()
@@ -418,6 +435,8 @@ type Status struct {
 	// InputRate is how many events the device reported in the last
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate, MIDIRate int
+	// Trail is how busy the instrument was over the last seconds.
+	Trail Trail
 	// Keys is what every bound key does in the selected layout.
 	Keys []engine.KeyRole
 	// Lit says that the lights of the keyboard show the instrument. Then
@@ -507,6 +526,12 @@ type runner struct {
 	seen, sent atomic.Uint64
 	measured   [rateSteps][2]uint64
 	measuredAt int
+	// trail holds the last steps, input and MIDI, the newest last, and
+	// trailSeq counts them; r.mu guards both. trailBusy says that some
+	// value in it is not zero.
+	trail     [2][TrailLen]int
+	trailSeq  uint64
+	trailBusy bool
 
 	mu         sync.Mutex
 	status     Status
@@ -521,16 +546,34 @@ func (r *runner) measure() bool {
 	now := [2]uint64{r.seen.Load(), r.sent.Load()}
 	// The oldest of the kept counts is from one period ago.
 	then := r.measured[r.measuredAt]
+	last := r.measured[(r.measuredAt+rateSteps-1)%rateSteps]
 	in, out := int(now[0]-then[0]), int(now[1]-then[1])
 	r.measured[r.measuredAt] = now
 	r.measuredAt = (r.measuredAt + 1) % rateSteps
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.instrument || (r.status.InputRate == in && r.status.MIDIRate == out) {
+	// The step that just ended joins the trail, as a rate.
+	step := [2]int{int(now[0]-last[0]) * rateSteps, int(now[1]-last[1]) * rateSteps}
+	was := r.trailBusy
+	r.trailBusy = false
+	for i := range r.trail {
+		copy(r.trail[i][:], r.trail[i][1:])
+		r.trail[i][TrailLen-1] = step[i]
+		for _, v := range r.trail[i] {
+			if v != 0 {
+				r.trailBusy = true
+			}
+		}
+	}
+	r.trailSeq++
+	if !r.instrument {
 		return false
 	}
+	// A trail with something in it moves with every step, until what
+	// was in it has left it.
+	changed := was || r.trailBusy || r.status.InputRate != in || r.status.MIDIRate != out
 	r.status.InputRate, r.status.MIDIRate = in, out
-	return true
+	return changed
 }
 
 // snapshot returns the status of the instrument, if the device is one.
@@ -540,6 +583,10 @@ func (r *runner) snapshot() (Status, bool) {
 	status := r.status
 	if r.instrument {
 		status.Input = r.input.snapshot()
+		status.Trail = Trail{
+			Seq: r.trailSeq, Step: ratePeriod / rateSteps,
+			Input: slices.Clone(r.trail[0][:]), MIDI: slices.Clone(r.trail[1][:]),
+		}
 		if r.lamp != nil {
 			status.Lights, status.LightRest, status.Lit = r.lamp.Painted()
 		}

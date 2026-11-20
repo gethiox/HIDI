@@ -30,6 +30,18 @@ type Device struct {
 	Allowed bool `json:"allowed"`
 }
 
+// Trail is how busy an instrument was, step by step: the events of each
+// step alone, as a rate per second, the newest step last.
+type Trail struct {
+	// Seq counts the steps; it grows by one with each that is added.
+	Seq uint64 `json:"seq"`
+	// StepMS is the time one value covers, in milliseconds.
+	StepMS int `json:"step_ms"`
+	// Input is what came in from the device, and MIDI what went out.
+	Input []int `json:"input"`
+	MIDI  []int `json:"midi"`
+}
+
 // Key is what a key of the device does in the selected layout.
 type Key struct {
 	// Name is the key's name, such as "KEY_A".
@@ -87,6 +99,8 @@ type Instrument struct {
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate int `json:"input_rate"`
 	MIDIRate  int `json:"midi_rate"`
+	// Trail is how busy the instrument was over the last seconds.
+	Trail *Trail `json:"trail,omitempty"`
 	// Keys is what the bound keys do in the selected layout.
 	Keys []Key `json:"keys,omitempty"`
 	// Lit says that HIDI controls the lights of the keyboard. Lights are

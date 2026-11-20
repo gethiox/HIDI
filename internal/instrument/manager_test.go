@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1243,9 +1244,23 @@ func TestRatesAndMIDILog(t *testing.T) {
 			st := r.manager.Status()
 			return len(st) == 1 && st[0].InputRate > 0 && st[0].MIDIRate > 0
 		})
+		// The trail has the step in which it happened, as a rate of that
+		// step alone: one event in a tenth of the period is ten a period.
+		eventually(t, "the event in the trail", func() bool {
+			st := r.manager.Status()
+			if len(st) != 1 || len(st[0].Trail.Input) != TrailLen || len(st[0].Trail.MIDI) != TrailLen || st[0].Trail.Step != ratePeriod/rateSteps {
+				return false
+			}
+			return slices.Max(st[0].Trail.Input) == rateSteps && slices.Max(st[0].Trail.MIDI) == rateSteps
+		})
+		seq := r.manager.Status()[0].Trail.Seq
 		eventually(t, "the rate to fall back to nothing", func() bool {
 			st := r.manager.Status()
 			return len(st) == 1 && st[0].InputRate == 0 && st[0].MIDIRate == 0
+		})
+		eventually(t, "the event to leave the trail, which goes on", func() bool {
+			tr := r.manager.Status()[0].Trail
+			return slices.Max(tr.Input) == 0 && slices.Max(tr.MIDI) == 0 && tr.Seq > seq+TrailLen
 		})
 		r.stop()
 		if got := strings.Contains(buf.String(), "NoteOn"); got != logMIDI {

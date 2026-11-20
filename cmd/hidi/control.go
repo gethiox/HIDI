@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/config"
@@ -116,6 +117,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			slices.SortFunc(lights, func(a, b ipc.KeyLight) int { return cmp.Compare(a.Name, b.Name) })
 		}
 		s.Instruments = append(s.Instruments, ipc.Instrument{
+			Trail:       &ipc.Trail{Seq: st.Trail.Seq, StepMS: int(st.Trail.Step / time.Millisecond), Input: st.Trail.Input, MIDI: st.Trail.MIDI},
 			Keys:        keys,
 			Lit:         st.Lit,
 			Lights:      lights,
