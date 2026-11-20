@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/light"
 )
 
 func TestDefaultRoundTrip(t *testing.T) {
@@ -369,5 +370,53 @@ func TestPrepareWritesAMissingRecord(t *testing.T) {
 	}
 	if !Managed(p) {
 		t.Error("the record was not written again")
+	}
+}
+
+func TestDevicesAndColoursSettings(t *testing.T) {
+	s := Default()
+	if s.Devices.Mode != Blacklist || !s.Devices.Allowed("Any Keyboard") {
+		t.Errorf("by default every device should play: %+v", s.Devices)
+	}
+	if s.Lights.Colours != light.DefaultColours() {
+		t.Errorf("default colours: %+v", s.Lights.Colours)
+	}
+
+	s.Devices = Devices{Mode: Whitelist, List: []string{"My \"best\" Keyboard", "Pad"}}
+	s.Lights.Colours.Passthrough = light.RGB{R: 0x12, G: 0xab, B: 0xff}
+	s.Lights.Colours.Command = light.RGB{B: 0x80}
+	s.Shown = Shown{Input: []string{"Pad"}, Output: []string{"My \"best\" Keyboard"}}
+	got, err := Parse(s.Text())
+	if err != nil {
+		t.Fatalf("what was written is not read back: %v", err)
+	}
+	if got.Devices.Mode != Whitelist || !slices.Equal(got.Devices.List, s.Devices.List) ||
+		got.Lights.Colours != s.Lights.Colours || !slices.Equal(got.Shown.Input, s.Shown.Input) || !slices.Equal(got.Shown.Output, s.Shown.Output) {
+		t.Errorf("read back: %+v %+v %+v", got.Devices, got.Lights.Colours, got.Shown)
+	}
+	if got.Devices.Allowed("Other") || !got.Devices.Allowed("Pad") {
+		t.Error("a whitelist allows exactly the listed devices")
+	}
+	got.Devices.Mode = Blacklist
+	if !got.Devices.Allowed("Other") || got.Devices.Allowed("Pad") {
+		t.Error("a blacklist allows exactly the devices that are not listed")
+	}
+
+	// One colour set, the others keep their defaults.
+	one, err := Parse([]byte("schema = 1\n[lights.colours]\nwhite = \"#010203\"\n"))
+	want := light.DefaultColours()
+	want.White = light.RGB{R: 1, G: 2, B: 3}
+	if err != nil || one.Lights.Colours != want {
+		t.Errorf("one colour set: %+v, %v", one.Lights.Colours, err)
+	}
+	for text, mention := range map[string]string{
+		"schema = 1\n[devices]\nmode = \"some\"\n":              "devices.mode",
+		"schema = 1\n[lights.colours]\nwhite = \"green\"\n":     "#rrggbb",
+		"schema = 1\n[lights.colours]\nwhite = \"#12345g\"\n":   "#rrggbb",
+		"schema = 1\n[lights.colours]\nsparkle = \"#000000\"\n": "lights.colours.sparkle",
+	} {
+		if _, err := Parse([]byte(text)); err == nil || !strings.Contains(err.Error(), mention) {
+			t.Errorf("%q: error = %v, want it to mention %q", text, err, mention)
+		}
 	}
 }

@@ -993,6 +993,7 @@ type Device struct {
 	err     error
 	grabbed bool
 	passing bool
+	sharing bool // some keys are let through the grab
 }
 
 // llkhfExtended marks a key with the E0 prefix in what the hook is told.
@@ -1048,7 +1049,40 @@ func (d *Device) Pass(hidden []control.Code) error {
 		d.grabbed = false
 		d.watcher.gate.grabs.Add(-1)
 	}
+	d.unshare()
 	return nil
+}
+
+// Share keeps the keys from other programs like [Device.Grab], except for
+// the open ones. As with a grab, Windows cannot tell keyboards apart here:
+// the open keys are let through whichever keyboard they are pressed on,
+// and the last keyboard to ask decides which they are.
+func (d *Device) Share(open []control.Code) error {
+	if err := d.Grab(); err != nil {
+		return err
+	}
+	if d.controller {
+		return nil
+	}
+	set := make(map[uint16]bool, len(open))
+	for _, code := range open {
+		if code.Kind == control.KindKey {
+			set[code.Num] = true
+		}
+	}
+	d.mu.Lock()
+	d.sharing = true
+	d.mu.Unlock()
+	d.watcher.gate.open.Store(&set)
+	return nil
+}
+
+// unshare ends what Share added to a grab. The caller holds d.mu.
+func (d *Device) unshare() {
+	if d.sharing {
+		d.sharing = false
+		d.watcher.gate.open.Store(nil)
+	}
 }
 
 // Type presses or releases a key for the other programs. What HIDI types
@@ -1102,6 +1136,7 @@ func (d *Device) Grab() error {
 		d.watcher.gate.grabs.Add(1)
 	}
 	d.unpass()
+	d.unshare()
 	return nil
 }
 
@@ -1122,6 +1157,7 @@ func (d *Device) Release() error {
 
 func (d *Device) ungrab() {
 	d.unpass()
+	d.unshare()
 	if d.grabbed {
 		d.grabbed = false
 		d.watcher.gate.grabs.Add(-1)

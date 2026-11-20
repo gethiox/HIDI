@@ -18,6 +18,8 @@ type Paths struct {
 	Settings string
 	// Profiles is the directory of the profiles.
 	Profiles string
+	// Seen is the file in which HIDI notes the devices it has met.
+	Seen string
 	// record is the file in which HIDI notes what it wrote.
 	record string
 }
@@ -38,6 +40,7 @@ func PathsIn(root string) Paths {
 		Root:     root,
 		Settings: filepath.Join(root, "settings.toml"),
 		Profiles: filepath.Join(root, "profiles"),
+		Seen:     filepath.Join(root, ".devices.json"),
 		record:   filepath.Join(root, ".written.json"),
 	}
 }

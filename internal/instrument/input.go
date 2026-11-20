@@ -108,6 +108,18 @@ func (t *inputTracker) record(ev control.Event) bool {
 	return false
 }
 
+// keysDown returns the keys of the main part that are down, ordered by
+// code.
+func (t *inputTracker) keysDown() []control.Code {
+	var out []control.Code
+	for _, b := range t.buttons {
+		if b.Down && b.Part == "" {
+			out = append(out, b.Code)
+		}
+	}
+	return out
+}
+
 // axesNow returns the axes with where each stands, ordered by part and
 // code.
 func (t *inputTracker) axesNow() []Axis { return slices.Clone(t.axes) }

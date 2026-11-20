@@ -20,6 +20,9 @@ type gate struct {
 	// swallowed like any key of a grabbed keyboard.
 	hides  atomic.Int32
 	hidden atomic.Pointer[map[uint16]bool]
+	// open holds the keys that are let through although a keyboard is
+	// grabbed, by their Linux code; nil when there are none.
+	open atomic.Pointer[map[uint16]bool]
 	// passed holds the keys whose press was let through and whose release
 	// is still to come, by what the hook tells them apart by.
 	passed map[uint32]bool
@@ -35,6 +38,9 @@ func (g *gate) swallow(vk uint32, up bool) bool { return g.swallowKey(vk, 0, fal
 // says that code is the key's Linux code.
 func (g *gate) kept(code uint16, known bool) bool {
 	if g.grabs.Load() > 0 {
+		if open := g.open.Load(); known && open != nil && (*open)[code] {
+			return false
+		}
 		return true
 	}
 	if !known || g.hides.Load() == 0 {

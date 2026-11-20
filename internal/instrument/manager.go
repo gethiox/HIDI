@@ -57,6 +57,10 @@ type Options struct {
 	HideToggle bool
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
+	// Allow decides whether a device may become an instrument at all.
+	// Nil allows every device. [Manager.SetAllow] replaces it while the
+	// manager runs.
+	Allow func(control.DeviceInfo) bool
 	// Lights, if set, returns the lights of a keyboard that became an
 	// instrument, or nil if it has none to offer.
 	Lights func(control.DeviceInfo) Light
@@ -225,11 +229,53 @@ type assignment struct {
 	engine  *engine.Engine
 }
 
+// SetAllow replaces what decides whether a device may become an
+// instrument; nil allows every device. Instruments of devices that may
+// not be one any more stop, and devices that may now become instruments.
+func (m *Manager) SetAllow(allow func(control.DeviceInfo) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.Allow = allow
+	for r := range m.running {
+		a := m.choose(r.info, r.log)
+		if sameProfile(a.profile, r.assigned) {
+			continue
+		}
+		r.assign(a)
+	}
+}
+
+// Device is a connected device that a profile selects.
+type Device struct {
+	Info control.DeviceInfo
+	// Allowed says whether the device may be an instrument (see
+	// [Options.Allow]).
+	Allowed bool
+}
+
+// Devices returns the connected devices that are instruments or would be
+// if they were allowed to, in no particular order.
+func (m *Manager) Devices() []Device {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Device, 0, len(m.running))
+	for r := range m.running {
+		if profile := config.Select(m.profiles, r.info); profile == nil || !usable(r.info, profile) {
+			continue
+		}
+		out = append(out, Device{Info: r.info, Allowed: m.opts.Allow == nil || m.opts.Allow(r.info)})
+	}
+	return out
+}
+
 // choose decides what a device is to be with the current profiles. The
 // caller holds m.mu.
 func (m *Manager) choose(info control.DeviceInfo, log *slog.Logger) assignment {
 	profile := config.Select(m.profiles, info)
 	if profile == nil || !usable(info, profile) {
+		return assignment{}
+	}
+	if m.opts.Allow != nil && !m.opts.Allow(info) {
 		return assignment{}
 	}
 	eng, err := engine.New(profile.Engine)
@@ -367,6 +413,14 @@ type Status struct {
 	// InputRate is how many events the device reported in the last
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate, MIDIRate int
+	// Keys is what every bound key does in the selected layout.
+	Keys []engine.KeyRole
+	// Lit says that the lights of the keyboard show the instrument. Then
+	// Lights is the colour of every key that has one of its own, and
+	// LightRest the colour of the other keys. Lights must not be changed.
+	Lit       bool
+	Lights    map[control.Code]light.RGB
+	LightRest light.RGB
 }
 
 // Status returns the running instruments, in no particular order.
@@ -452,6 +506,7 @@ type runner struct {
 	status     Status
 	instrument bool // whether status describes a running instrument
 	input      inputTracker
+	lamp       Light // the lights in use, if any
 }
 
 // measure works out the rates of the last period from the counters and
@@ -476,6 +531,9 @@ func (r *runner) snapshot() (Status, bool) {
 	status := r.status
 	if r.instrument {
 		status.Input = r.input.snapshot()
+		if r.lamp != nil {
+			status.Lights, status.LightRest, status.Lit = r.lamp.Painted()
+		}
 	}
 	return status, r.instrument
 }
@@ -595,16 +653,32 @@ func (r *runner) run() {
 	hold := holdFree
 	passer, _ := r.device.(input.Passer)
 	cannotPass := false // passing was tried and failed; it is not tried again
+	// The keys the selected layout leaves to the system: open are those
+	// the grab lets through now, and passed those of the layout, worked
+	// out anew only for another engine or layout.
+	var (
+		open, passed []control.Code
+		passedFor    *engine.Engine
+		passedLayout string
+		cannotShare  bool
+	)
 	regrab = func() {
 		want := holdFree
+		var share []control.Code
 		switch {
 		case eng == nil || !rules.grab || failed:
 		case active:
 			want = holdGrabbed
+			if passedFor != eng || passedLayout != state.Layout {
+				passed, passedFor, passedLayout = eng.Passed(), eng, state.Layout
+			}
+			if passer != nil && !cannotShare {
+				share = passed
+			}
 		case rules.hide && passer != nil && !cannotPass:
 			want = holdPassing
 		}
-		if want == hold {
+		if want == hold && slices.Equal(share, open) {
 			return
 		}
 		if want == holdPassing {
@@ -619,6 +693,14 @@ func (r *runner) run() {
 		}
 		switch want {
 		case holdGrabbed:
+			if len(share) > 0 {
+				err := passer.Share(share)
+				if err == nil {
+					break
+				}
+				cannotShare, share = true, nil
+				r.log.Warn("the keys the profile leaves to the system cannot be passed on from this device; they do nothing while HIDI is on", "error", err)
+			}
 			if err := r.device.Grab(); errors.Is(err, input.ErrGrabbedElsewhere) {
 				// Not a fault: the user runs a program that takes the
 				// device and passes its input on through one of its own.
@@ -631,7 +713,7 @@ func (r *runner) run() {
 				r.log.Warn("the device cannot be released", "error", err)
 			}
 		}
-		hold = want
+		hold, open = want, share
 	}
 	ungrab := func() {
 		active = false
@@ -683,14 +765,39 @@ func (r *runner) run() {
 			keys, at, layouts = eng.Keys()
 			shownFor, shownName = eng, state.Layout
 		}
-		lamp.Show(light.Scene{Active: active, Keys: keys, Layout: at, Layouts: layouts, State: state, External: r.heard.snapshot()})
+		scene := light.Scene{Active: active, Keys: keys, Layout: at, Layouts: layouts, State: state, External: r.heard.snapshot()}
+		if !active {
+			// While HIDI is off the keys that are down show.
+			r.mu.Lock()
+			scene.Pressed = r.input.keysDown()
+			r.mu.Unlock()
+		}
+		lamp.Show(scene)
 	}
 	dark := func() {
 		if lamp != nil {
 			lamp.Close()
 			lamp = nil
+			r.mu.Lock()
+			r.lamp = nil
+			r.mu.Unlock()
 		}
 		r.heard.clear()
+	}
+	// roles records what the keys do, for [Manager.Status], when the
+	// engine or its layout is another.
+	var rolesFor *engine.Engine
+	var rolesLayout string
+	roles := func() {
+		if eng == nil || (rolesFor == eng && rolesLayout == state.Layout) {
+			return
+		}
+		rolesFor, rolesLayout = eng, state.Layout
+		now, _, _ := eng.Keys()
+		r.mu.Lock()
+		r.status.Keys = now
+		r.mu.Unlock()
+		r.changed()
 	}
 
 	// reassign makes the device what the manager last asked for.
@@ -761,6 +868,9 @@ func (r *runner) run() {
 			health = time.After(healthPeriod)
 			if r.lights != nil && r.info.Type == control.DeviceKeyboard {
 				lamp = r.lights(r.info)
+				r.mu.Lock()
+				r.lamp = lamp
+				r.mu.Unlock()
 			}
 			if receiver, ok := e.(output.Receiver); ok {
 				go r.listen(receiver)
@@ -776,6 +886,7 @@ func (r *runner) run() {
 		steady = newSteadier(profile.AxisThreshold)
 		state = eng.State()
 		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, State: state}, true)
+		roles()
 		replay() // where the axes stand, for the new profile
 	}
 
@@ -791,7 +902,7 @@ func (r *runner) run() {
 			}
 			rules = now
 			clear(held)
-			cannotPass = false
+			cannotPass, cannotShare = false, false
 			if hold == holdPassing {
 				// The keys to hide may be others now.
 				if err := r.device.Release(); err != nil {
@@ -831,6 +942,10 @@ func (r *runner) run() {
 			return
 		}
 		r.publish(eng, &state)
+		if state.Layout != passedLayout {
+			regrab() // another layout may leave other keys to the system
+		}
+		roles()
 		show()
 	}
 	// replay sends where every axis stands, as far as the device has
@@ -941,6 +1056,9 @@ loop:
 				continue
 			}
 			if !active {
+				if lamp != nil && ev.Code.Kind == control.KindKey {
+					show() // the key lights up while it is down
+				}
 				continue
 			}
 			now := time.Now()
