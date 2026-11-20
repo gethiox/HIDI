@@ -513,10 +513,17 @@ controllers, the buttons and paddles play notes.
 - The motion sensors show up as a part called "Motion Sensors"; the
   profile does not use them.
 
-On Windows these controllers are not supported yet. They speak a protocol
-of Valve's own there, and without Steam they are only a mouse and a
-keyboard. With Steam running and its controller support turned on, Steam
-presents them as an Xbox controller, which HIDI plays like any other.
+On Windows HIDI reads the controller of 2026 itself, by cable, by Bluetooth
+and through its wireless receiver. Windows only sees a mouse and a keyboard
+in it; HIDI tells the controller to stop being those and listens to what it
+reports of its own. When HIDI ends, the controller is a mouse and a keyboard
+again. Close Steam first: two programs telling the controller what to be do
+not get along. This part was written from the Linux driver without a
+controller at hand, so tell what you find.
+
+The controller of 2015 and the Steam Deck's controls are not read on Windows
+yet. With Steam running and its controller support turned on, Steam presents
+them as an Xbox controller, which HIDI plays like any other.
 
 ### Beside an input remapper
 

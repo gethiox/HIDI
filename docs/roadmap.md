@@ -317,6 +317,18 @@ And after that:
 Not tried: a Steam Controller. The profile is written from the kernel's
 driver, not from a device.
 
+The maintainer then tried the controller of 2026 on Windows, through its
+wireless receiver: HIDI showed its keyboard, and the controller went on
+moving the mouse. Windows has nothing like `hid-steam`, so HIDI now reads
+that controller itself there (`rawinput/steam.go`): it asks Raw Input for
+the interface the controller keeps for itself, sends the two commands that
+end its being a mouse and keyboard, as the kernel does, and turns its
+reports into the same buttons and axes the kernel makes of them. The
+keyboard it pretends to be is no longer taken for an instrument. What turns
+reports into events is tested; what talks to Windows and to the controller
+has never run. The controller of 2015 and the Steam Deck use an older form
+of the reports and are not read on Windows.
+
 ## Done
 
 - Module layout, CI for Linux and Windows, and the architecture document.

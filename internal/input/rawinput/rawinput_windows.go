@@ -47,6 +47,9 @@ var (
 	procHidGetData              = hid.NewProc("HidP_GetData")
 	procHidMaxDataListLength    = hid.NewProc("HidP_MaxDataListLength")
 	procHidGetUsageValueArray   = hid.NewProc("HidP_GetUsageValueArray")
+	procHidSetFeature           = hid.NewProc("HidD_SetFeature")
+	procHidGetPreparsedData     = hid.NewProc("HidD_GetPreparsedData")
+	procHidFreePreparsedData    = hid.NewProc("HidD_FreePreparsedData")
 )
 
 // Constants from winuser.h.
@@ -70,6 +73,7 @@ const (
 	rimTypeHID        = 2
 	ridevInputSink    = 0x00000100 // receive input without being the active window
 	ridevDevNotify    = 0x00002000 // be told when devices come and go
+	ridevPageOnly     = 0x00000020 // every usage of the page
 	usagePageDesktop  = 0x01
 	usageKeyboard     = 0x06
 	whKeyboardLL      = 13
@@ -223,7 +227,7 @@ type Watcher struct {
 	// The fields below belong to the window's thread.
 	byHandle map[uintptr]*Device // one entry for each interface
 	byGroup  map[string]*Device
-	readers  map[uintptr]*padReader // for the interfaces of game controllers
+	readers  map[uintptr]reportReader // for the interfaces of game controllers
 	hook     uintptr
 	buf      []byte // what Windows reports is read into this
 
@@ -256,6 +260,14 @@ type Options struct {
 	// SkipXInput leaves alone the controllers Windows also offers through
 	// XInput, for a caller that reads them there.
 	SkipXInput bool
+	// Problem, if set, is told of a device that cannot be used as it
+	// should. It is called from several goroutines.
+	Problem func(what string, err error)
+}
+
+// reportReader turns the reports of one interface into events.
+type reportReader interface {
+	read(report []byte, at time.Time) []control.Event
 }
 
 // Watch starts watching for keyboards and game controllers.
@@ -266,7 +278,7 @@ func Watch(opts Options) (*Watcher, error) {
 		done:     make(chan struct{}),
 		byHandle: map[uintptr]*Device{},
 		byGroup:  map[string]*Device{},
-		readers:  map[uintptr]*padReader{},
+		readers:  map[uintptr]reportReader{},
 		rejected: map[uintptr]bool{},
 		hookDone: make(chan struct{}),
 	}
@@ -340,6 +352,13 @@ func (w *Watcher) run(ready chan<- error) {
 		procDestroyWindow.Call(hwnd)
 		fail("asking Windows for the input of keyboards and game controllers", err)
 		return
+	}
+	// The interfaces devices keep for themselves, for the Steam
+	// Controller, which speaks on one. Asked for apart from the rest:
+	// should Windows refuse it, everything else still works.
+	vendor := rawInputDevice{usagePage: usagePageVendor, flags: ridevInputSink | ridevDevNotify | ridevPageOnly, target: hwnd}
+	if r, _, err := procRegisterRawInputDevices.Call(uintptr(unsafe.Pointer(&vendor)), 1, unsafe.Sizeof(vendor)); r == 0 && w.opts.Problem != nil {
+		w.opts.Problem("Steam Controller", fmt.Errorf("asking Windows for its reports: %w", err))
 	}
 	hooked := make(chan error, 1)
 	go w.runHook(instance, hooked)
@@ -630,11 +649,13 @@ func (w *Watcher) take(handle uintptr) bool {
 	if !ok {
 		return false
 	}
-	var controller bool
+	var controller, steam bool
 	switch {
 	case info.typ == rimTypeKeyboard:
 	case info.typ == rimTypeHID && isGameController(info.usagePage, info.usage):
 		controller = true
+	case info.typ == rimTypeHID && isSteamInterface(info.usagePage, info.usage, uint16(info.vendor), uint16(info.product)):
+		controller, steam = true, true
 	default:
 		return false
 	}
@@ -643,6 +664,11 @@ func (w *Watcher) take(handle uintptr) bool {
 		return false
 	}
 	id := parsePath(path)
+	if !controller && isSteamController(id.vendor, id.product) {
+		// The keyboard a Steam Controller pretends to be while nobody
+		// reads it. HIDI reads the controller itself.
+		return false
+	}
 	// The interfaces of one piece of hardware share its container; where
 	// Windows names none, what the path says has to do.
 	if c := container(path); c != "" {
@@ -660,15 +686,30 @@ func (w *Watcher) take(handle uintptr) bool {
 		// A keyboard that also presents a game controller is two devices,
 		// as it is on Linux.
 		kind, typ, group = "Game controller", control.DeviceGamepad, "PAD:"+id.group
-		reader, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
-		if err != nil {
-			return false
+		if steam {
+			// It is a mouse and a keyboard until it is told not to be,
+			// and again whenever it comes back to its receiver.
+			calm := func() { go w.steamCommand(path, steamLizardOff) }
+			reader := newSteamReader()
+			reader.connected = calm
+			w.readers[handle] = reader
+			calm()
+		} else {
+			reader, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
+			if err != nil {
+				return false
+			}
+			w.readers[handle] = reader
 		}
-		w.readers[handle] = reader
 	}
 	if d := w.byGroup[group]; d != nil {
 		w.byHandle[handle] = d
 		d.handles++
+		if steam {
+			d.mu.Lock()
+			d.steam = append(d.steam, path)
+			d.mu.Unlock()
+		}
 		return true
 	}
 	// Some devices pad the name they give themselves with spaces.
@@ -692,6 +733,9 @@ func (w *Watcher) take(handle uintptr) bool {
 			Location: id.group,
 			Type:     typ,
 		},
+	}
+	if steam {
+		d.steam = []string{path}
 	}
 	w.byHandle[handle] = d
 	w.byGroup[group] = d
@@ -994,6 +1038,9 @@ type Device struct {
 	grabbed bool
 	passing bool
 	sharing bool // some keys are let through the grab
+	// steam holds the paths of the interfaces of a Steam Controller,
+	// which is made a mouse and keyboard again when the device ends.
+	steam []string
 }
 
 // llkhfExtended marks a key with the E0 prefix in what the hook is told.
@@ -1174,6 +1221,76 @@ func (d *Device) end(reason error) {
 	d.err = reason
 	d.ungrab()
 	d.queue.close()
+	// A controller that is still there goes back to being a mouse and a
+	// keyboard, as it was found.
+	if !errors.Is(reason, ErrDisconnected) {
+		for _, path := range d.steam {
+			go d.watcher.steamCommand(path, steamLizardOn)
+		}
+	}
+}
+
+// hidpCapsLengths is the start of HIDP_CAPS, for the lengths of reports.
+type hidpCapsLengths struct {
+	usage, usagePage       uint16
+	input, output, feature uint16
+	_                      [27]uint16
+}
+
+// steamCommand sends commands to a Steam Controller, each in a feature
+// report of its own. A controller that is asleep or out of reach does not
+// take them; it is told again when it comes back.
+func (w *Watcher) steamCommand(path string, commands [][]byte) {
+	fail := func(err error) {
+		if w.opts.Problem != nil {
+			w.opts.Problem("Steam Controller", fmt.Errorf("it could not be told to stop being a mouse and keyboard, or to be one again: %w", err))
+		}
+	}
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return
+	}
+	share := uint32(windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, share, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		// Windows answers some questions for a handle that may neither
+		// read nor write; this may be one of them.
+		if h, err = windows.CreateFile(p, 0, share, nil, windows.OPEN_EXISTING, 0, 0); err != nil {
+			fail(err)
+			return
+		}
+	}
+	defer windows.CloseHandle(h)
+	// The report has the length the device declares.
+	length := 0
+	var preparsed uintptr
+	if r, _, _ := procHidGetPreparsedData.Call(uintptr(h), uintptr(unsafe.Pointer(&preparsed))); r&0xff != 0 && preparsed != 0 {
+		var caps hidpCapsLengths
+		if status, _, _ := procHidGetCaps.Call(preparsed, uintptr(unsafe.Pointer(&caps))); uint32(status) == hidpStatusSuccess {
+			length = int(caps.feature)
+		}
+		procHidFreePreparsedData.Call(preparsed)
+	}
+	for _, command := range commands {
+		report := steamFeature(command, length)
+		// The controller is slow to take one now and then; the kernel's
+		// driver tries again too.
+		var sent bool
+		var last error
+		for range 5 {
+			r, _, err := procHidSetFeature.Call(uintptr(h), uintptr(unsafe.Pointer(&report[0])), uintptr(len(report)))
+			if r&0xff != 0 {
+				sent = true
+				break
+			}
+			last = err
+			time.Sleep(20 * time.Millisecond)
+		}
+		if !sent {
+			fail(last)
+			return
+		}
+	}
 }
 
 // Close stops delivering the device's input and ends a grab. The device
