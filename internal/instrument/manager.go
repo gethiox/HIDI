@@ -150,7 +150,7 @@ func (m *Manager) toggle() {
 // every instrument: held notes are released and the MIDI devices are
 // removed.
 func (m *Manager) Run(ctx context.Context, devices <-chan input.Device) {
-	rates := time.NewTicker(ratePeriod)
+	rates := time.NewTicker(ratePeriod / rateSteps)
 	defer rates.Stop()
 loop:
 	for {
@@ -177,7 +177,12 @@ loop:
 }
 
 // ratePeriod is the time over which the rates in a [Status] are counted.
+// They are worked out anew rateSteps times in that time, each time over
+// the whole period that just ended, so that they move evenly and can be
+// drawn as a curve.
 var ratePeriod = time.Second
+
+const rateSteps = 10
 
 // measure works out how much every instrument did since the last time.
 func (m *Manager) measure() {
@@ -500,7 +505,8 @@ type runner struct {
 	// of the instrument since the start; measured is where they stood
 	// when the rates were last worked out.
 	seen, sent atomic.Uint64
-	measured   [2]uint64
+	measured   [rateSteps][2]uint64
+	measuredAt int
 
 	mu         sync.Mutex
 	status     Status
@@ -513,8 +519,11 @@ type runner struct {
 // reports whether they differ from those before.
 func (r *runner) measure() bool {
 	now := [2]uint64{r.seen.Load(), r.sent.Load()}
-	in, out := int(now[0]-r.measured[0]), int(now[1]-r.measured[1])
-	r.measured = now
+	// The oldest of the kept counts is from one period ago.
+	then := r.measured[r.measuredAt]
+	in, out := int(now[0]-then[0]), int(now[1]-then[1])
+	r.measured[r.measuredAt] = now
+	r.measuredAt = (r.measuredAt + 1) % rateSteps
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.instrument || (r.status.InputRate == in && r.status.MIDIRate == out) {
