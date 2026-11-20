@@ -1,7 +1,7 @@
 github.com/ebitengine/purego v0.10.2 h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
 github.com/ebitengine/purego v0.10.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
-github.com/gethiox/raylib-go/raylib v0.0.0-20261120180921-b7ef7f9a32c5 h1:oqx5f3LnDaY0SQF9NK8l0O217Uu0bPzNyoScAL3VhKo=
-github.com/gethiox/raylib-go/raylib v0.0.0-20261120180921-b7ef7f9a32c5/go.mod h1:hNXVJGgOMB/ReUeFTdVPSqdOBXIQFT4cvKCaa2eTEDo=
+github.com/gethiox/raylib-go/raylib v0.0.0-20261120184410-28437f31e0d7 h1:omc9+YaHgwhskcOBvk/3LHhGhHbKLGakVfe+a1RCOQU=
+github.com/gethiox/raylib-go/raylib v0.0.0-20261120184410-28437f31e0d7/go.mod h1:hNXVJGgOMB/ReUeFTdVPSqdOBXIQFT4cvKCaa2eTEDo=
 github.com/godbus/dbus/v5 v5.2.4 h1:F2gUCy++NMIxGmo9J+z5le/+ZC8W1OgeR51P4i9ZB/U=
 github.com/godbus/dbus/v5 v5.2.4/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
 github.com/jupiterrider/ffi v0.8.0 h1:IH6lto8OZaRIulQYObtZibII4tq71hXT6Z+KLBcxCcQ=
