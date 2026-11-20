@@ -96,6 +96,10 @@ func (c *Client) Preview(ctx context.Context, file, text string) error {
 	return nil
 }
 
+// ToggleLearning turns learning mode on if it is off and off if it is on,
+// and returns the state afterwards.
+func (c *Client) ToggleLearning(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "learn") }
+
 // Status returns the current state.
 func (c *Client) Status(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "status") }
 

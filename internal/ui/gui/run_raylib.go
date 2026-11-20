@@ -486,7 +486,31 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	if state.Active {
 		hint = "the devices play"
 	}
-	text(w.sans, hint, pill.X+pill.Width+10+width(w.bold, label, sizeName)+12, 26, sizeText, col(colFaint))
+	hx := pill.X + pill.Width + 10 + width(w.bold, label, sizeName) + 12
+	text(w.sans, hint, hx, 26, sizeText, col(colFaint))
+
+	// Learning mode: a smaller switch with a fainter word, yellow while
+	// it is on.
+	small := rl.NewRectangle(hx+width(w.sans, hint, sizeText)+26, 24, 34, 18)
+	back, knobX = colOff, small.X+9
+	if state.Learning {
+		back, knobX = colUnsaved, small.X+small.Width-9
+	}
+	word := "learning mode"
+	area := rl.NewRectangle(small.X, small.Y, small.Width+8+width(w.sans, word, sizeText-1), small.Height)
+	if hovered(area) {
+		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+	}
+	rl.DrawRectangleRounded(small, 1, 12, col(back))
+	rl.DrawCircle(int32(knobX), int32(small.Y+9), 6, col(colText))
+	ink := colOff
+	if state.Learning {
+		ink = colUnsaved
+	}
+	text(w.sans, word, small.X+small.Width+8, 26, sizeText-1, col(ink))
+	if clicked(area) {
+		w.ask(func(ctx context.Context) { w.hidi.ToggleLearning(ctx) })
+	}
 
 	// Of "hidi 2.0.0 (commit) go1.27 linux/amd64", the version and the
 	// commit.
@@ -611,9 +635,14 @@ func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
 	}
 }
 
-// toggle asks HIDI to turn on or off, without making the drawing wait for
-// the answer; the new state arrives like every other.
+// toggle asks HIDI to turn on or off.
 func (w *window) toggle() {
+	w.ask(func(ctx context.Context) { w.hidi.Toggle(ctx) })
+}
+
+// ask asks HIDI for something without making the drawing wait for the
+// answer; the new state arrives like every other.
+func (w *window) ask(what func(context.Context)) {
 	select {
 	case w.toggling <- struct{}{}:
 	default:
@@ -623,7 +652,7 @@ func (w *window) toggle() {
 		defer func() { <-w.toggling }()
 		ctx, cancel := context.WithTimeout(w.ctx, 2*time.Second)
 		defer cancel()
-		w.hidi.Toggle(ctx)
+		what(ctx)
 	}()
 }
 

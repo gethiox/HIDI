@@ -175,11 +175,10 @@ const (
 	// every note played sounds with those intervals above it. Pressed
 	// while fewer notes are held, it forgets the chord.
 	CommandChord
-	// CommandLearn, while held, lets an axis through only when it is moved
-	// more than halfway. That is for teaching a program which controller
-	// to listen to: the program takes the first one it hears, and an axis
-	// that is merely touched, or does not rest quite still, must not be
-	// that one.
+	// CommandLearn asks for learning mode to be turned on, or off if it
+	// is on: see [Engine.SetLearning]. The mode is one for all
+	// instruments, so the engine only notes the wish
+	// ([Engine.LearnRequested]).
 	CommandLearn
 
 	commandCount

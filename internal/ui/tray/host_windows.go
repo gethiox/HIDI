@@ -68,6 +68,7 @@ const (
 	cmdToggle = 1
 	cmdQuit   = 2
 	cmdOpen   = 3
+	cmdLearn  = 4
 )
 
 // Structures from the Windows headers, as laid out on 64-bit Windows.
@@ -370,6 +371,9 @@ func (h *windowsHost) menu() {
 	if h.shown.Toggle != "" {
 		add(mfString, cmdToggle, h.shown.Toggle)
 	}
+	if h.shown.Learn != "" {
+		add(mfString, cmdLearn, h.shown.Learn)
+	}
 	add(mfSeparator, 0, "")
 	add(mfString, cmdQuit, h.shown.quit())
 
@@ -385,6 +389,8 @@ func (h *windowsHost) menu() {
 		h.act(ActionToggle)
 	case cmdOpen:
 		h.act(ActionOpen)
+	case cmdLearn:
+		h.act(ActionLearn)
 	case cmdQuit:
 		h.act(ActionQuit)
 	}

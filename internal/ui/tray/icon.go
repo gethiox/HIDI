@@ -49,9 +49,10 @@ var (
 		{0.545, 0.20, 0.67, 0.54, 0.03},
 	}
 
-	colourOn   = color.NRGBA{R: 0x21, G: 0xa3, B: 0x5a, A: 0xff}
-	colourOff  = color.NRGBA{R: 0x5c, G: 0x63, B: 0x6e, A: 0xff}
-	colourKeys = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	colourOn    = color.NRGBA{R: 0x21, G: 0xa3, B: 0x5a, A: 0xff}
+	colourOff   = color.NRGBA{R: 0x5c, G: 0x63, B: 0x6e, A: 0xff}
+	colourLearn = color.NRGBA{R: 0xe0, G: 0xb4, B: 0x1c, A: 0xff}
+	colourKeys  = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 )
 
 // iconSamples is the number of points looked at across one pixel, in each
@@ -64,6 +65,8 @@ func Icon(look Look, size int) *image.NRGBA {
 	switch look {
 	case LookOn:
 		back = colourOn
+	case LookLearning:
+		back = colourLearn
 	case LookStopped:
 		strength = 0.45
 	}

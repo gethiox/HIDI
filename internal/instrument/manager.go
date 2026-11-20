@@ -61,6 +61,11 @@ type Options struct {
 	// Nil allows every device. [Manager.SetAllow] replaces it while the
 	// manager runs.
 	Allow func(control.DeviceInfo) bool
+	// LearnThreshold is how far an axis has to move to get through in
+	// learning mode, as a part of its range. Zero means
+	// [engine.DefaultLearnThreshold]. [Manager.SetLearnThreshold] changes
+	// it while the manager runs.
+	LearnThreshold float64
 	// Lights, if set, returns the lights of a keyboard that became an
 	// instrument, or nil if it has none to offer.
 	Lights func(control.DeviceInfo) Light
@@ -88,6 +93,7 @@ type Manager struct {
 	running  map[*runner]struct{} // every connected device, parked ones too
 	names    map[string]bool      // the names of MIDI devices in use
 	active   bool
+	learning bool
 	done     sync.WaitGroup
 	quit     chan struct{} // closed when Run ends
 }
@@ -143,6 +149,50 @@ func (m *Manager) changed() {
 // toggle flips between on and off.
 func (m *Manager) toggle() {
 	m.SetActive(!m.Active())
+}
+
+// Learning reports whether learning mode is on: see
+// [engine.Engine.SetLearning].
+func (m *Manager) Learning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.learning
+}
+
+// SetLearning turns learning mode on or off, for all instruments at once.
+func (m *Manager) SetLearning(on bool) {
+	m.mu.Lock()
+	if m.learning == on {
+		m.mu.Unlock()
+		return
+	}
+	m.learning = on
+	for r := range m.running {
+		r.setLearning(on, m.opts.LearnThreshold)
+	}
+	m.mu.Unlock()
+	if on {
+		m.log.Info("learning mode is on: axes stand still until they are moved far")
+	} else {
+		m.log.Info("learning mode is off")
+	}
+	m.changed()
+}
+
+// SetLearnThreshold changes how far an axis has to move to get through
+// in learning mode, as a part of its range.
+func (m *Manager) SetLearnThreshold(threshold float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.LearnThreshold = threshold
+	for r := range m.running {
+		r.setLearning(m.learning, threshold)
+	}
+}
+
+// toggleLearning is what the learn command of an instrument calls.
+func (m *Manager) toggleLearning() {
+	m.SetLearning(!m.Learning())
 }
 
 // Run starts an instrument for every usable device that arrives on devices.
@@ -330,6 +380,7 @@ func (m *Manager) add(dev input.Device) {
 		open:     m.opts.OpenEndpoint,
 		lights:   m.opts.Lights,
 		onToggle: m.toggle,
+		onLearn:  m.toggleLearning,
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
 		changed:  m.changed,
@@ -340,6 +391,7 @@ func (m *Manager) add(dev input.Device) {
 	r.endpointName = m.takeName(EndpointPrefix + info.Name)
 	r.rules.Store(m.rulesFor(info))
 	r.wanted.Store(m.active)
+	r.learn.Store(&learnWish{m.learning, m.opts.LearnThreshold})
 	r.assign(m.choose(info, r.log))
 	m.mu.Unlock()
 
@@ -497,6 +549,10 @@ type runner struct {
 	endpointName string
 	// onToggle is what the toggle combination calls.
 	onToggle func()
+	// onLearn is what the learn command calls, and learn what the
+	// manager wants of learning mode.
+	onLearn func()
+	learn   atomic.Pointer[learnWish]
 	// lights gives the lights of the device, and heard holds the notes
 	// other programs send to the instrument, which the lights show.
 	lights func(control.DeviceInfo) Light
@@ -538,6 +594,17 @@ type runner struct {
 	instrument bool // whether status describes a running instrument
 	input      inputTracker
 	lamp       Light // the lights in use, if any
+}
+
+// learnWish is what the manager wants of learning mode.
+type learnWish struct {
+	on        bool
+	threshold float64
+}
+
+func (r *runner) setLearning(on bool, threshold float64) {
+	r.learn.Store(&learnWish{on, threshold})
+	r.poke()
 }
 
 // measure works out the rates of the last period from the counters and
@@ -946,10 +1013,24 @@ func (r *runner) run() {
 		replay() // where the axes stand, for the new profile
 	}
 
+	// learnt is the wish about learning mode the engine has, and
+	// learntFor the engine that has it: a new engine knows of none.
+	var (
+		learnt    *learnWish
+		learntFor *engine.Engine
+	)
 	// apply brings the device to the state the manager wants.
 	apply := func() {
 		defer show() // whatever changed, the lights follow
 		reassign()
+		if wish := r.learn.Load(); eng != nil && !failed && (wish != learnt || learntFor != eng) {
+			learnt, learntFor = wish, eng
+			// Leaving the mode, the axes say where they really are.
+			if msgs := eng.SetLearning(wish.on, wish.threshold, out[:0]); active && !r.send(endpoint, msgs) {
+				fail()
+			}
+			r.publish(eng, &state)
+		}
 		if now := r.rules.Load(); now != rules {
 			// Changed settings: another combination starts with no key
 			// of it held, and the grab follows at once.
@@ -998,6 +1079,9 @@ func (r *runner) run() {
 			return
 		}
 		r.publish(eng, &state)
+		if eng.LearnRequested() {
+			r.onLearn() // for all instruments; this one follows below
+		}
 		if state.Layout != passedLayout {
 			regrab() // another layout may leave other keys to the system
 		}

@@ -56,6 +56,7 @@ grab_gamepads = false
 start_on = true
 toggle_tap = false
 always_grab = false
+learn_threshold = 20
 
 [devices]
 mode = "blacklist"
@@ -99,6 +100,7 @@ show_output = []
 | `input.start_on` | Whether HIDI is on when it starts. | `--off` |
 | `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `--toggle-tap` |
 | `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
+| `input.learn_threshold` | How far an axis has to move to get through in learning mode, in hundredths of its range, 1 to 100. See the `learn` command. | |
 | `devices.mode` | How `devices.list` is read: with `"blacklist"` every keyboard and game controller plays except the listed ones, with `"whitelist"` only the listed ones do. | |
 | `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `--connect` |
@@ -424,7 +426,7 @@ its travel.
 | `velocity_up`, `velocity_down` | Change the note velocity. |
 | `panic` | Silence everything on every channel the instrument has played on. |
 | `chord` | Remember a chord, or forget it. See below. |
-| `learn` | While held, let an axis through only when it is moved far. See below. |
+| `learn` | Turn learning mode on, or off: axes stand still until they are moved far. See below. |
 
 Holding both commands of an up/down pair at once resets that value to its
 default.
@@ -437,12 +439,24 @@ Press the command with fewer than two notes held to forget the chord. The
 chord stays through `panic` and through turning HIDI off and on; it is
 forgotten when the profile is loaded again.
 
-**`learn`** is for teaching a program which controller to listen to ("MIDI
-learn"). Such a program takes the first controller it hears, and a game
-controller has many axes that are touched by accident or do not rest quite
-still. While the command is held, an axis is passed on only when it is moved
-more than halfway, so the program hears just the one you mean. Keys that
-send a controller are not held back.
+**`learn`** turns learning mode on, and off again. The mode is for teaching
+a program which controller to listen to ("MIDI learn"). Such a program takes
+the first controller it hears, and a game controller has many axes that are
+touched by accident or do not rest quite still: a change of one step is
+enough to be taken.
+
+Learning mode is one for all instruments. When it begins, every axis is
+taken to stand where it stands, and what it sends stays exactly there until
+the axis has moved by more than a fifth of its range (`learn_threshold` in
+the settings). Beyond that it sends where it is, so the program hears just
+the one you mean. Back within that distance it sends the place it stood at
+again. When the mode ends, every axis that is somewhere else by then sends
+where it really is. Keys that send a controller are not held back.
+
+The mode is also turned on and off with the small switch at the top of the
+window and from the menu of the icon in the tray, which blinks between green
+and yellow while HIDI is on and learning. The keyboard profile that comes
+with HIDI has the command on F10.
 
 ## What happens while you play
 

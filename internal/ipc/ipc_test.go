@@ -22,6 +22,7 @@ type fakeHost struct {
 	mu     sync.Mutex
 	active bool
 	notes  int
+	learn  bool
 	log    []LogLine
 	// previewed is what was last asked to be tried.
 	previewed [2]string
@@ -32,7 +33,7 @@ func (h *fakeHost) host() Host {
 		Snapshot: func() Snapshot {
 			h.mu.Lock()
 			defer h.mu.Unlock()
-			return Snapshot{Version: "test", Active: h.active, Instruments: []Instrument{
+			return Snapshot{Version: "test", Active: h.active, Learning: h.learn, Instruments: []Instrument{
 				{Name: "Keyboard", Type: "keyboard", Profile: "Default keyboard", Channel: 1, Sounding: h.notes},
 			}}
 		},
@@ -43,6 +44,12 @@ func (h *fakeHost) host() Host {
 			h.changes.Notify()
 		},
 		Changes: &h.changes,
+		SetLearning: func(on bool) {
+			h.mu.Lock()
+			h.learn = on
+			h.mu.Unlock()
+			h.changes.Notify()
+		},
 		Preview: func(file, text string) error {
 			if text == "broken" {
 				return errors.New("line 1: this is no profile")
@@ -501,5 +508,21 @@ func TestPreview(t *testing.T) {
 	h.mu.Unlock()
 	if got[1] != "" {
 		t.Errorf("after ending, the host still has %d bytes", len(got[1]))
+	}
+}
+
+// Learning mode is turned on and off through the socket, and the state
+// says how it stands.
+func TestLearningSwitch(t *testing.T) {
+	_, client, _ := start(t)
+	ctx := t.Context()
+	if s, err := client.Status(ctx); err != nil || s.Learning {
+		t.Fatalf("at first: %+v, %v", s.Learning, err)
+	}
+	if s, err := client.ToggleLearning(ctx); err != nil || !s.Learning {
+		t.Errorf("turned on: %v, %v", s.Learning, err)
+	}
+	if s, err := client.ToggleLearning(ctx); err != nil || s.Learning {
+		t.Errorf("turned off again: %v, %v", s.Learning, err)
 	}
 }

@@ -34,9 +34,10 @@ func socketFlag(fs *pflag.FlagSet) *string {
 // controlHost is the running HIDI as the control interface sees it.
 func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.Notifier, seen *seenDevices) ipc.Host {
 	return ipc.Host{
-		Snapshot:  func() ipc.Snapshot { return withDevices(snapshot(manager), manager, seen) },
-		SetActive: manager.SetActive,
-		Changes:   changes,
+		Snapshot:    func() ipc.Snapshot { return withDevices(snapshot(manager), manager, seen) },
+		SetActive:   manager.SetActive,
+		SetLearning: manager.SetLearning,
+		Changes:     changes,
 		LogLines: func(from, to int) []ipc.LogLine {
 			lines, first := logs.Lines(from, to)
 			out := make([]ipc.LogLine, len(lines))
@@ -91,7 +92,7 @@ func keyRole(action engine.Action) (role string, note int) {
 }
 
 func snapshot(manager *instrument.Manager) ipc.Snapshot {
-	s := ipc.Snapshot{Version: buildinfo.Get().String(), Active: manager.Active(), Instruments: []ipc.Instrument{}}
+	s := ipc.Snapshot{Version: buildinfo.Get().String(), Active: manager.Active(), Learning: manager.Learning(), Instruments: []ipc.Instrument{}}
 	for _, st := range manager.Status() {
 		buttons := make([]ipc.Button, len(st.Input.Buttons))
 		for i, b := range st.Input.Buttons {
@@ -178,7 +179,7 @@ func describe(w io.Writer, s ipc.Snapshot) {
 			fmt.Fprintf(w, "  chord %s\n", in.Chord)
 		}
 		if in.Learning {
-			fmt.Fprintln(w, "  learning: axes get through only when moved far")
+			fmt.Fprintln(w, "  learning: axes stand still until they are moved far")
 		}
 	}
 }

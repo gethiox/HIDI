@@ -188,6 +188,13 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 	case "toggle":
 		host.SetActive(!host.Snapshot().Active)
 		snapshot()
+	case "learn":
+		if host.SetLearning == nil {
+			out.Encode(response{Error: "this HIDI has no learning mode"})
+			return
+		}
+		host.SetLearning(!host.Snapshot().Learning)
+		snapshot()
 	case "preview":
 		if host.Preview == nil {
 			out.Encode(response{Error: "this HIDI cannot try profiles"})

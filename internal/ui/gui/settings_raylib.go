@@ -332,6 +332,21 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 		}
 	}
 
+	// How far an axis has to move in learning mode.
+	vx = row("Learning mode lets an axis through when it moved", "by this much of its range; the switch is at the top")
+	for _, percent := range []int{5, 10, 20, 30, 50} {
+		label := fmt.Sprintf("%d%%", percent)
+		if w.chip(label, s.Input.LearnThreshold == percent, vx, y) && editable && s.Input.LearnThreshold != percent {
+			s.Input.LearnThreshold = percent
+			w.save(s, soonNote)
+		}
+		vx += w.chipWidth(label) + 6
+	}
+	if !slices.Contains([]int{5, 10, 20, 30, 50}, s.Input.LearnThreshold) {
+		text(w.mono, fmt.Sprintf("now %d%%", s.Input.LearnThreshold), vx+6, y+3, sizeMono, col(colFaint))
+	}
+	y += 46
+
 	y = w.drawDeviceList(state, &s, editable, x, y, right)
 
 	// The MIDI ports that exist, and those the settings name that do not:

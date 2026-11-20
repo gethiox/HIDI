@@ -67,6 +67,14 @@ func (r *rig) set(code control.Code, value float64, want string) {
 func (r *rig) press(code control.Code, want string)   { r.t.Helper(); r.set(code, 1, want) }
 func (r *rig) release(code control.Code, want string) { r.t.Helper(); r.set(code, 0, want) }
 
+// expect checks the messages something other than an event produced.
+func (r *rig) expect(what string, msgs []midi.Message, want string) {
+	r.t.Helper()
+	if got := render(msgs); got != want {
+		r.t.Errorf("%s\n got: %s\nwant: %s", what, got, want)
+	}
+}
+
 func (r *rig) reset(want string) {
 	r.t.Helper()
 	if got := render(r.e.Reset(nil)); got != want {
@@ -651,8 +659,9 @@ func TestChord(t *testing.T) {
 	chord("+7")
 }
 
-// While the learn command is held, an axis gets through only when it is
-// moved more than halfway; a key that drives a controller always does.
+// In learning mode an axis stands still where it stood when the mode
+// began, until it is moved by more than the threshold; back within it, it
+// stands there again. A key that drives a controller always gets through.
 func TestLearn(t *testing.T) {
 	r := newRig(t, baseProfile(
 		key(keyUp, CommandLearn),
@@ -660,23 +669,50 @@ func TestLearn(t *testing.T) {
 		Binding{Source: Source{Code: trigger}, Action: ControlChange{Controller: 7}},
 		Binding{Source: Source{Code: stickX, Centered: true}, Action: ControlChange{Controller: 10}},
 	))
-	r.set(trigger, 0.25, "ControlChange ch=1 controller=7 value=32")
-	r.press(keyUp, "")
-	if !r.e.State().Learning {
-		t.Error("Learning is not set while the command is held")
+	learn := func(on bool, want string) {
+		t.Helper()
+		r.expect("SetLearning", r.e.SetLearning(on, 0.2, nil), want)
 	}
-	r.set(trigger, 0.3, "") // merely touched
-	r.set(stickX, 0.55, "") // does not rest quite still
-	r.set(stickX, 0.7, "")  // less than halfway out
+	r.set(trigger, 0.25, "ControlChange ch=1 controller=7 value=32")
+
+	// The command only asks; the mode is the owner's to turn on.
+	r.press(keyUp, "")
+	r.release(keyUp, "")
+	if !r.e.LearnRequested() || r.e.LearnRequested() || r.e.State().Learning {
+		t.Error("the command should ask once, and change nothing by itself")
+	}
+	learn(true, "")
+	if !r.e.State().Learning {
+		t.Error("Learning is not set")
+	}
+
+	r.set(trigger, 0.3, "")  // trembling
+	r.set(trigger, 0.44, "") // not a fifth of the range yet
+	r.set(trigger, 0.5, "ControlChange ch=1 controller=7 value=64")
 	r.set(trigger, 0.75, "ControlChange ch=1 controller=7 value=95")
-	r.set(stickX, 0.1, "ControlChange ch=1 controller=10 value=12")
+	r.set(trigger, 0.4, "ControlChange ch=1 controller=7 value=32") // back: where it stood
+	r.set(trigger, 0.2, "")
+	r.set(trigger, 0.0, "ControlChange ch=1 controller=7 value=0") // the other way out
+
+	// An axis that says its first word during learning stands there. A
+	// stick's range is twice as long, from one end to the other.
+	r.set(stickX, 0.55, "ControlChange ch=1 controller=10 value=70")
+	r.set(stickX, 0.7, "")
+	r.set(stickX, 0.4, "")
+	r.set(stickX, 0.8, "ControlChange ch=1 controller=10 value=102")
+	r.set(stickX, 0.6, "ControlChange ch=1 controller=10 value=70")
+
 	r.press(keyA, "ControlChange ch=1 controller=64 value=127")
 	r.release(keyA, "ControlChange ch=1 controller=64 value=0")
-	r.release(keyUp, "")
+
+	// The mode ends: every axis is where it really is.
+	r.set(trigger, 0.3, "ControlChange ch=1 controller=7 value=32")
+	learn(false, "ControlChange ch=1 controller=7 value=38; ControlChange ch=1 controller=10 value=76")
 	if r.e.State().Learning {
 		t.Error("Learning stayed set")
 	}
-	r.set(trigger, 0.3, "ControlChange ch=1 controller=7 value=38")
+	r.set(trigger, 0.31, "ControlChange ch=1 controller=7 value=39")
+	learn(false, "") // again changes nothing
 }
 
 func TestNewCommandNames(t *testing.T) {
@@ -808,21 +844,26 @@ func TestHalvesShareATarget(t *testing.T) {
 	r.reset("")
 }
 
-// A position kept back while learn is held arrives when learn is let go
-// of: a stick that went out and came back must not leave the pitch bent.
-func TestLearnCatchesUp(t *testing.T) {
+// A stick that was pushed out during learning and let go of ends at rest,
+// and what stands still does so through turning HIDI off and on.
+func TestLearnAtRestAndThroughReset(t *testing.T) {
 	r := newRig(t, baseProfile(
-		key(keyUp, CommandLearn),
 		Binding{Source: Source{Code: stickX, Centered: true}, Action: PitchBend{}},
 	))
-	r.press(keyUp, "")
+	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
+	r.expect("on", r.e.SetLearning(true, 0, nil), "") // no threshold given: a fifth
+	r.set(stickX, 0.65, "")                           // 0.3 of the range of 2: within
 	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
-	r.set(stickX, 0.6, "") // on its way back: kept
-	r.set(stickX, 0.5, "") // at rest: kept
-	r.release(keyUp, "PitchBend ch=1 bend=+0")
-	// Nothing is owed after that.
-	r.press(keyUp, "")
-	r.release(keyUp, "")
+	r.set(stickX, 0.6, "PitchBend ch=1 bend=+0") // back within: at rest
+	r.set(stickX, 0.5, "")
+	// Turned off and on, the stick starts from where it is then.
+	r.reset("")
+	if !r.e.State().Learning {
+		t.Error("a reset ended learning")
+	}
+	r.set(stickX, 0.75, "PitchBend ch=1 bend=+4096")
+	r.set(stickX, 0.8, "")
+	r.expect("off", r.e.SetLearning(false, 0, nil), "PitchBend ch=1 bend=+4915")
 }
 
 // A passed key sends nothing, and the engine tells which keys are passed

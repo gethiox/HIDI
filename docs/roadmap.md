@@ -317,6 +317,16 @@ And after that:
 Not tried: a Steam Controller. The profile is written from the kernel's
 driver, not from a device.
 
+Learning mode, asked for after that: a switch at the top of the window,
+an entry in the menu of the icon, which blinks green and yellow twice a
+second while HIDI is on and learning, and the `learn` command, on F10 in
+the keyboard profile. The command was a key to hold before and let an axis
+through beyond half its travel; it now turns a mode on and off that is one
+for all instruments. In it every axis stands where it stood when the mode
+began until it has moved by more than `learn_threshold` hundredths of its
+range, 20 unless set; back within that it stands there again; and when the
+mode ends, every axis says where it really is.
+
 The maintainer then tried the controller of 2026 on Windows, through its
 wireless receiver: HIDI showed its keyboard, and the controller went on
 moving the mouse. Windows has nothing like `hid-steam`, so HIDI now reads

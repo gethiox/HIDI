@@ -3,7 +3,9 @@ package instrument
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
@@ -165,4 +167,57 @@ func TestLightsShowPressedKeysWhileOff(t *testing.T) {
 	})
 	kbd.set(keyZ, 0)
 	eventually(t, "the released key to go dark", func() bool { s, _ := lamp.last(); return len(s.Pressed) == 0 })
+}
+
+// Learning mode is one for all instruments: the learn key of one turns it
+// on for every one, and axes then stand still until they are moved far.
+func TestLearningMode(t *testing.T) {
+	r := newRigWith(t, Options{LearnThreshold: 0.2})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	r.plug(kbd)
+	e := r.plug(pad)
+	learning := func() int {
+		n := 0
+		for _, st := range r.manager.Status() {
+			if st.State.Learning {
+				n++
+			}
+		}
+		return n
+	}
+	trigger := control.Axis(2) // ABS_Z: a controller in the general profile
+	pad.set(trigger, 0.5)
+	eventually(t, "the trigger to send", func() bool { return strings.Contains(sentText(e), "ControlChange") })
+	before := strings.Count(sentText(e), "ControlChange")
+
+	kbd.set(control.Key(68), 1) // F10: learn
+	kbd.set(control.Key(68), 0)
+	eventually(t, "both instruments to learn", func() bool { return r.manager.Learning() && learning() == 2 })
+
+	// Trembling and a small move send nothing; a far move does.
+	pad.set(trigger, 0.52)
+	pad.set(trigger, 0.6)
+	time.Sleep(30 * time.Millisecond)
+	if got := strings.Count(sentText(e), "ControlChange"); got != before {
+		t.Errorf("%d controller messages for moves within the threshold, want none", got-before)
+	}
+	pad.set(trigger, 0.9)
+	eventually(t, "the far move to send", func() bool { return strings.Count(sentText(e), "ControlChange") == before+1 })
+
+	// Ended from outside, the axis says where it is; here it is where
+	// it was last sent, so nothing follows.
+	pad.set(trigger, 0.8) // still far: sent
+	eventually(t, "the next far position", func() bool { return strings.Count(sentText(e), "ControlChange") == before+2 })
+	pad.set(trigger, 0.6) // back within: the place it stood at when learning began
+	eventually(t, "the return to where it stood", func() bool { return strings.Count(sentText(e), "ControlChange") == before+3 })
+	r.manager.SetLearning(false)
+	eventually(t, "learning to end with the axis where it really is", func() bool {
+		return !r.manager.Learning() && learning() == 0 && strings.Count(sentText(e), "ControlChange") == before+4
+	})
+}
+
+func sentText(e *fakeEndpoint) string {
+	sent, _ := e.state()
+	return sent
 }

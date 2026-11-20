@@ -420,3 +420,19 @@ func TestDevicesAndColoursSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestLearnThreshold(t *testing.T) {
+	s := Default()
+	if s.Input.LearnThreshold != 20 {
+		t.Errorf("the default is %d", s.Input.LearnThreshold)
+	}
+	s.Input.LearnThreshold = 35
+	if got, err := Parse(s.Text()); err != nil || got.Input.LearnThreshold != 35 {
+		t.Errorf("written and read back: %d, %v", got.Input.LearnThreshold, err)
+	}
+	for _, bad := range []string{"0", "101", "-5"} {
+		if _, err := Parse([]byte("schema = 1\n[input]\nlearn_threshold = " + bad + "\n")); err == nil || !strings.Contains(err.Error(), "learn_threshold") {
+			t.Errorf("learn_threshold = %s: %v", bad, err)
+		}
+	}
+}

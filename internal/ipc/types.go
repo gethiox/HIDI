@@ -11,6 +11,9 @@ type Snapshot struct {
 	Version string `json:"version"`
 	// Active says whether HIDI is turned on.
 	Active bool `json:"active"`
+	// Learning says that learning mode is on: axes stand still until
+	// they are moved far.
+	Learning bool `json:"learning,omitempty"`
 	// Instruments are the running instruments, ordered by name.
 	Instruments []Instrument `json:"instruments"`
 	// Devices are the devices that are instruments or could be: those
@@ -179,6 +182,9 @@ type Host struct {
 	Snapshot func() Snapshot
 	// SetActive turns HIDI on or off.
 	SetActive func(active bool)
+	// SetLearning turns learning mode on or off. Nil for a host that
+	// has none.
+	SetLearning func(on bool)
 	// Changes tells when a snapshot would be different from the last.
 	Changes *Notifier
 	// LogLines returns the kept log lines numbered from to to-1, and

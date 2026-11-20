@@ -69,11 +69,12 @@ func TestIcon(t *testing.T) {
 
 // fakeHIDI is a running HIDI that can be stopped and started.
 type fakeHIDI struct {
-	mu      sync.Mutex
-	running bool
-	active  bool
-	changed chan struct{}
-	toggles int
+	mu       sync.Mutex
+	running  bool
+	active   bool
+	changed  chan struct{}
+	toggles  int
+	learning bool
 }
 
 func newFakeHIDI() *fakeHIDI { return &fakeHIDI{changed: make(chan struct{})} }
@@ -89,12 +90,12 @@ func (f *fakeHIDI) set(running, active bool) {
 func (f *fakeHIDI) Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error {
 	for {
 		f.mu.Lock()
-		running, active, changed := f.running, f.active, f.changed
+		running, active, changed, learning := f.running, f.active, f.changed, f.learning
 		f.mu.Unlock()
 		if !running {
 			return errors.New("HIDI stopped")
 		}
-		onSnapshot(ipc.Snapshot{Active: active})
+		onSnapshot(ipc.Snapshot{Active: active, Learning: learning})
 		select {
 		case <-ctx.Done():
 			return nil
@@ -110,6 +111,15 @@ func (f *fakeHIDI) Toggle(ctx context.Context) (ipc.Snapshot, error) {
 	f.mu.Unlock()
 	f.set(true, active)
 	return ipc.Snapshot{Active: active}, nil
+}
+
+func (f *fakeHIDI) ToggleLearning(ctx context.Context) (ipc.Snapshot, error) {
+	f.mu.Lock()
+	f.learning = !f.learning
+	learning, running, active := f.learning, f.running, f.active
+	f.mu.Unlock()
+	f.set(running, active)
+	return ipc.Snapshot{Active: active, Learning: learning}, nil
 }
 
 // fakeHost records what it is shown.
@@ -202,4 +212,79 @@ func TestRunWithWindow(t *testing.T) {
 	if plain := ViewOf(nil); plain.click() != ActionToggle || plain.quit() != QuitLabel {
 		t.Errorf("an icon without a window clicks %v and quits with %q", plain.click(), plain.quit())
 	}
+}
+
+// In learning mode the icon of a HIDI that is on blinks between two
+// colours, and the menu turns the mode on and off.
+func TestRunLearning(t *testing.T) {
+	old := BlinkPhase
+	BlinkPhase = 5 * time.Millisecond
+	t.Cleanup(func() { BlinkPhase = old })
+
+	hidi := newFakeHIDI()
+	host := &fakeHost{shown: make(chan View, 256), actions: make(chan Action)}
+	done := make(chan error, 1)
+	go func() { done <- Run(t.Context(), hidi, host, slog.New(slog.DiscardHandler), Options{}) }()
+	// Drain what is shown beside the looking, so that Run never waits.
+	last := make(chan View, 1)
+	go func() {
+		for v := range host.shown {
+			select {
+			case <-last:
+			default:
+			}
+			last <- v
+		}
+	}()
+	see := func(what string, ok func(View) bool) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case v := <-last:
+				if ok(v) {
+					return
+				}
+			case <-deadline:
+				t.Fatalf("the icon never showed %s", what)
+			}
+		}
+	}
+
+	hidi.set(true, true)
+	see("HIDI on with a way into learning mode", func(v View) bool {
+		return v.Look == LookOn && v.Learn == "Turn learning mode on" && !v.Learning
+	})
+	host.actions <- ActionLearn
+	// Both colours, one after the other, and more than once.
+	for range 3 {
+		see("the colour of learning", func(v View) bool { return v.Look == LookLearning && v.Learn == "Turn learning mode off" })
+		see("the colour of on again", func(v View) bool { return v.Look == LookOn && v.Learning })
+	}
+	// Off, the icon is steady: grey, whatever the mode.
+	hidi.set(true, false)
+	see("off", func(v View) bool { return v.Look == LookOff })
+	time.Sleep(30 * time.Millisecond)
+	select {
+	case v := <-last:
+		if v.Look != LookOff {
+			t.Errorf("the icon of a HIDI that is off blinks: %d", v.Look)
+		}
+	default:
+	}
+
+	hidi.set(true, true)
+	host.actions <- ActionLearn
+	see("on and steady after learning ended", func(v View) bool { return v.Look == LookOn && !v.Learning })
+	time.Sleep(30 * time.Millisecond)
+	select {
+	case v := <-last:
+		if v.Look != LookOn {
+			t.Errorf("the icon still blinks after learning ended: %d", v.Look)
+		}
+	default:
+	}
+	host.actions <- ActionQuit
+	<-done
+	close(host.shown)
 }

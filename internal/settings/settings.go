@@ -100,6 +100,9 @@ type Input struct {
 	// well and types their keys again on a keyboard of HIDI's own, so
 	// that the tapped key can be hidden from the system there too.
 	AlwaysGrab bool
+	// LearnThreshold is how far an axis has to be moved to get through
+	// in learning mode, in hundredths of its range.
+	LearnThreshold int
 }
 
 // Output says where the instruments send, besides their own MIDI devices.
@@ -127,9 +130,10 @@ type Window struct {
 func Default() Settings {
 	return Settings{
 		Input: Input{
-			Toggle:        []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
-			GrabKeyboards: true,
-			StartOn:       true,
+			Toggle:         []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
+			GrabKeyboards:  true,
+			StartOn:        true,
+			LearnThreshold: 20,
 		},
 		Devices: Devices{Mode: Blacklist},
 		Lights:  Lights{Address: DefaultOpenRGBAddress, Colours: light.DefaultColours()},
@@ -141,12 +145,13 @@ func Default() Settings {
 type file struct {
 	Schema int `toml:"schema"`
 	Input  struct {
-		Toggle        *[]string `toml:"toggle"`
-		GrabKeyboards *bool     `toml:"grab_keyboards"`
-		GrabGamepads  *bool     `toml:"grab_gamepads"`
-		StartOn       *bool     `toml:"start_on"`
-		ToggleTap     *bool     `toml:"toggle_tap"`
-		AlwaysGrab    *bool     `toml:"always_grab"`
+		Toggle         *[]string `toml:"toggle"`
+		GrabKeyboards  *bool     `toml:"grab_keyboards"`
+		GrabGamepads   *bool     `toml:"grab_gamepads"`
+		StartOn        *bool     `toml:"start_on"`
+		ToggleTap      *bool     `toml:"toggle_tap"`
+		AlwaysGrab     *bool     `toml:"always_grab"`
+		LearnThreshold *int      `toml:"learn_threshold"`
 	} `toml:"input"`
 	Devices struct {
 		Mode *string   `toml:"mode"`
@@ -210,6 +215,10 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.StartOn, f.Input.StartOn)
 	set(&s.Input.ToggleTap, f.Input.ToggleTap)
 	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
+	set(&s.Input.LearnThreshold, f.Input.LearnThreshold)
+	if s.Input.LearnThreshold < 1 || s.Input.LearnThreshold > 100 {
+		problems = append(problems, fmt.Sprintf("input.learn_threshold: %d is not a number of hundredths from 1 to 100", s.Input.LearnThreshold))
+	}
 	set(&s.Devices.Mode, f.Devices.Mode)
 	set(&s.Devices.List, f.Devices.List)
 	if s.Devices.Mode != Blacklist && s.Devices.Mode != Whitelist {
@@ -367,6 +376,12 @@ toggle_tap = %t
 # It needs access to /dev/uinput.
 always_grab = %t
 
+# Learning mode makes every axis stand still until it is moved by more
+# than this many hundredths of its range. It is for teaching a program
+# which controller to listen to, when the program takes the first one that
+# changes at all.
+learn_threshold = %d
+
 [devices]
 # Which devices become instruments, by their names as HIDI shows them.
 # With "blacklist" every keyboard and game controller plays except the
@@ -414,7 +429,7 @@ log_height = %d
 # notes are: by the names of their devices. The window keeps these lists.
 show_input = %s
 show_output = %s
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab,
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.LearnThreshold,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight,

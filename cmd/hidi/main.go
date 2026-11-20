@@ -445,18 +445,19 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		return func(info control.DeviceInfo) bool { return d.Allowed(logging.Printable(info.Name)) }
 	}
 	manager := instrument.NewManager(instrument.Options{
-		Allow:         allowed(pl.settings.Devices),
-		Profiles:      profiles,
-		OpenEndpoint:  openEndpoint,
-		Logger:        logs.Logger("instrument"),
-		Grab:          grab,
-		Toggle:        toggle,
-		ToggleTap:     *toggleTap,
-		HideToggle:    hidesToggle(*alwaysGrab),
-		StartInactive: *startOff,
-		Lights:        lights,
-		LogMIDI:       *logMIDI,
-		Changed:       changes.Notify,
+		Allow:          allowed(pl.settings.Devices),
+		LearnThreshold: float64(pl.settings.Input.LearnThreshold) / 100,
+		Profiles:       profiles,
+		OpenEndpoint:   openEndpoint,
+		Logger:         logs.Logger("instrument"),
+		Grab:           grab,
+		Toggle:         toggle,
+		ToggleTap:      *toggleTap,
+		HideToggle:     hidesToggle(*alwaysGrab),
+		StartInactive:  *startOff,
+		Lights:         lights,
+		LogMIDI:        *logMIDI,
+		Changed:        changes.Notify,
 	})
 	var shownToggle atomic.Pointer[string]
 	showToggle := func(keys []control.Code) {
@@ -552,6 +553,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		// What was last taken over, to tell what a change is about: the
 		// window writes this file for things only it cares about, too.
 		devicesNow, coloursNow := pl.settings.Devices, pl.settings.Lights.Colours
+		learnNow := pl.settings.Input.LearnThreshold
 		inputNow := fmt.Sprint(toggle, !*noGrab, *grabGamepads, *toggleTap, *alwaysGrab)
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
@@ -596,6 +598,11 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 				manager.SetAllow(allowed(s.Devices))
 				changes.Notify()
 				configLog.Info("settings changed", "devices", s.Devices.Mode, "listed", len(s.Devices.List))
+			}
+			if s.Input.LearnThreshold != learnNow {
+				learnNow = s.Input.LearnThreshold
+				manager.SetLearnThreshold(float64(learnNow) / 100)
+				configLog.Info("settings changed", "learn_threshold", learnNow)
 			}
 			if hub != nil && s.Lights.Colours != coloursNow {
 				coloursNow = s.Lights.Colours

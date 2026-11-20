@@ -109,6 +109,7 @@ The instruments run, and an icon appears in the tray. No window opens.
 
 - A click on the icon opens the window.
 - A click with the middle button turns HIDI off and on.
+- While learning mode is on, the icon blinks between green and yellow.
 - The icon's menu lists the instruments, turns HIDI on and off, and ends it
   with "Quit HIDI".
 - The colour of the icon tells whether HIDI is on or off.
@@ -180,6 +181,12 @@ stand out. Where HIDI lights the keyboard through OpenRGB, the keys also
 glow in the colours of their lights, so the drawing shows what the keyboard
 shows. Every other device shows the buttons and axes it has reported so far.
 While HIDI is off, what is pressed shows in grey.
+
+The small switch beside it is learning mode, for teaching a program which
+controller to listen to: every axis stands still until it is moved by more
+than a fifth of its range, so that the program hears only the one you mean.
+The icon in the tray blinks green and yellow meanwhile, and its menu has the
+switch too.
 
 ![The instruments as they are first shown, in two lines each](docs/images/gui-compact.png)
 

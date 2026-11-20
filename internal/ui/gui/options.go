@@ -14,6 +14,7 @@ import (
 type Controller interface {
 	Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error
 	Toggle(ctx context.Context) (ipc.Snapshot, error)
+	ToggleLearning(ctx context.Context) (ipc.Snapshot, error)
 	// Preview makes HIDI use text in place of a profile file until the
 	// file changes; an empty text ends that.
 	Preview(ctx context.Context, file, text string) error
