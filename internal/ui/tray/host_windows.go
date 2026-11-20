@@ -43,6 +43,7 @@ const (
 	wmNull      = 0x0000
 	wmLButtonUp = 0x0202
 	wmRButtonUp = 0x0205
+	wmMButtonUp = 0x0208
 	wmApp       = 0x8000
 	wmTray      = wmApp + 1 // what the icon reports with
 	wmShow      = wmApp + 2 // a new view is waiting
@@ -250,6 +251,10 @@ func trayWindowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 				h.act(h.shown.click())
 			case wmRButtonUp:
 				h.menu()
+			case wmMButtonUp:
+				// The middle button turns HIDI off and on, whatever a
+				// plain click does.
+				h.act(ActionToggle)
 			}
 			return 0
 		case wmShow:

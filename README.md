@@ -108,6 +108,7 @@ hidi
 The instruments run, and an icon appears in the tray. No window opens.
 
 - A click on the icon opens the window.
+- A click with the middle button turns HIDI off and on.
 - The icon's menu lists the instruments, turns HIDI on and off, and ends it
   with "Quit HIDI".
 - The colour of the icon tells whether HIDI is on or off.
