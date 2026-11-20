@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/control"
@@ -16,6 +17,9 @@ type Server interface {
 	Controllers() ([]openrgb.Controller, error)
 	SetCustomMode(index int) error
 	SetLEDs(index int, colours []openrgb.RGB) error
+	// Sync returns once the server has taken everything sent to a
+	// controller so far.
+	Sync(index int) error
 	Close() error
 }
 
@@ -32,8 +36,17 @@ type Options struct {
 	Colours Colours
 	// Logger receives what the hub reports. Nil discards it.
 	Logger *slog.Logger
-	// Interval is how often changed lights are sent. Zero means 25 ms.
+	// Changed, if set, is called when what a lamp shows has changed. It
+	// must return quickly.
+	Changed func()
+	// Interval is how often the hub looks after what is not a change of
+	// the lights: the server, keyboards that show up, and the repeats of
+	// what was sent last. Zero means 25 ms. A changed scene is sent at
+	// once.
 	Interval time.Duration
+	// Repeats are the times after a change at which what was sent is
+	// sent once more. Nil means [DefaultRepeats]; empty, never.
+	Repeats []time.Duration
 	// Retry is how long the hub waits before it looks for the server, or
 	// for a keyboard's lights, again. Zero means three seconds.
 	Retry time.Duration
@@ -41,13 +54,32 @@ type Options struct {
 
 // Hub lights the keyboards of the instruments through one OpenRGB server.
 // The server may start later than HIDI, or go away and come back.
+//
+// How fast the lights follow is up to the keyboard: writing all its keys
+// takes some tens of milliseconds on most. The hub sends a changed scene
+// at once and then waits until the server has taken it before it sends
+// the next, which is then the newest one: nothing queues up behind a slow
+// keyboard, and no change is shown later than one write of the keyboard
+// after it happened.
 type Hub struct {
 	opts Options
 	log  *slog.Logger
+	// colours are the colours in use; [Hub.SetColours] replaces them.
+	colours atomic.Pointer[Colours]
+	// wake tells the hub's goroutine that a lamp has something new.
+	wake chan struct{}
 
 	mu    sync.Mutex
 	lamps []*Lamp
 }
+
+// DefaultRepeats are the times after a change at which the same colours
+// are sent once more. Released versions of OpenRGB lose an update that
+// arrives while the keyboard is still being written with the one before:
+// they note that there is something to write, and forget the note when
+// the write in progress ends. A key would then stay lit until something
+// else changed. The repeats make what was sent last arrive in the end.
+var DefaultRepeats = []time.Duration{40 * time.Millisecond, 120 * time.Millisecond, 350 * time.Millisecond, time.Second}
 
 // Lamp is the lights of one instrument's keyboard.
 type Lamp struct {
@@ -58,14 +90,32 @@ type Lamp struct {
 	scene  Scene
 	dirty  bool
 	closed bool
+	// lit says that the keyboard shows what the hub sends, painted is
+	// the colour of every key that has one of its own, and rest that of
+	// the other keys. A painted map is never changed once it is here.
+	lit     bool
+	painted map[control.Code]RGB
+	rest    RGB
 
 	// The fields below belong to the hub's goroutine.
-	bound  bool
-	index  int
-	name   string
-	keys   []ledKey      // for each light, its key
-	sent   []openrgb.RGB // what the lights were last set to
-	missed bool          // no lights were found for it, and that was said
+	bound    bool
+	index    int
+	name     string
+	keys     []ledKey      // for each light, its key
+	sent     []openrgb.RGB // what the lights were last set to
+	sentAt   time.Time     // when they last changed
+	repeated int           // how many of the repeats were sent since
+	missed   bool          // no lights were found for it, and that was said
+}
+
+// Painted returns what the keyboard shows: the colour of every key that
+// has one of its own and the colour of all other keys. lit is false while
+// the hub does not control the keyboard's lights; the colours mean nothing
+// then. The map must not be changed.
+func (l *Lamp) Painted() (keys map[control.Code]RGB, rest RGB, lit bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.painted, l.rest, l.lit && !l.closed
 }
 
 type ledKey struct {
@@ -81,6 +131,12 @@ func NewHub(opts Options) *Hub {
 	if opts.Colours == (Colours{}) {
 		opts.Colours = DefaultColours()
 	}
+	if opts.Repeats == nil {
+		opts.Repeats = DefaultRepeats
+	}
+	if opts.Changed == nil {
+		opts.Changed = func() {}
+	}
 	if opts.Interval == 0 {
 		opts.Interval = 25 * time.Millisecond
 	}
@@ -91,7 +147,29 @@ func NewHub(opts Options) *Hub {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Hub{opts: opts, log: log}
+	h := &Hub{opts: opts, log: log, wake: make(chan struct{}, 1)}
+	h.colours.Store(&opts.Colours)
+	return h
+}
+
+// SetColours replaces the colours. The keyboards follow at once.
+func (h *Hub) SetColours(c Colours) {
+	h.colours.Store(&c)
+	h.mu.Lock()
+	for _, l := range h.lamps {
+		l.mu.Lock()
+		l.dirty = true
+		l.mu.Unlock()
+	}
+	h.mu.Unlock()
+	h.poke()
+}
+
+func (h *Hub) poke() {
+	select {
+	case h.wake <- struct{}{}:
+	default: // the hub is about to look anyway
+	}
 }
 
 // Attach returns the lamp for an instrument's device. It lights up when
@@ -105,13 +183,14 @@ func (h *Hub) Attach(info control.DeviceInfo) *Lamp {
 }
 
 // Show makes the lamp show a scene. It returns at once; the lights follow
-// within a moment.
+// as fast as the keyboard takes them.
 func (l *Lamp) Show(s Scene) {
 	l.mu.Lock()
 	if !l.closed {
 		l.scene, l.dirty = s, true
 	}
 	l.mu.Unlock()
+	l.hub.poke()
 }
 
 // Close ends the lamp. The hub lights its keys evenly, as while HIDI is
@@ -139,6 +218,7 @@ func (h *Hub) Run(ctx context.Context) {
 		open, _ := h.current()
 		for _, l := range open {
 			l.bound, l.missed = false, false
+			h.unlit(l)
 		}
 	}
 	ticker := time.NewTicker(h.opts.Interval)
@@ -161,6 +241,7 @@ func (h *Hub) Run(ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
+		case <-h.wake:
 		}
 		lamps, closed := h.current()
 		if server != nil {
@@ -201,7 +282,7 @@ func (h *Hub) Run(ctx context.Context) {
 		}
 		for _, l := range lamps {
 			if l.bound {
-				if err := h.send(server, l); err != nil {
+				if err := h.send(server, l, time.Now()); err != nil {
 					drop(err)
 					break
 				}
@@ -231,10 +312,23 @@ func (h *Hub) current() (open, closed []*Lamp) {
 func (h *Hub) leave(server Server, l *Lamp) {
 	l.mu.Lock()
 	l.closed = true
-	l.scene.Active, l.dirty = false, true
+	l.scene.Active, l.scene.Pressed, l.dirty = false, nil, true
 	l.mu.Unlock()
 	if l.bound {
-		h.send(server, l)
+		h.send(server, l, time.Now())
+	}
+	h.unlit(l)
+}
+
+// unlit records that a lamp's keyboard no longer shows what the hub
+// sends.
+func (h *Hub) unlit(l *Lamp) {
+	l.mu.Lock()
+	was := l.lit
+	l.lit, l.painted = false, nil
+	l.mu.Unlock()
+	if was {
+		h.opts.Changed()
 	}
 }
 
@@ -287,16 +381,24 @@ func (h *Hub) bind(server Server, lamps []*Lamp) error {
 }
 
 // send sets the lights of a lamp if its scene changed and the colours are
-// not what the lights have already.
-func (h *Hub) send(server Server, l *Lamp) error {
+// not what the lights have already, and repeats what was last sent when
+// that is due. It returns when the server has taken what was sent.
+func (h *Hub) send(server Server, l *Lamp, now time.Time) error {
 	l.mu.Lock()
 	scene, dirty := l.scene, l.dirty
 	l.dirty = false
 	l.mu.Unlock()
 	if !dirty {
-		return nil
+		if l.sent == nil || l.repeated >= len(h.opts.Repeats) || now.Sub(l.sentAt) < h.opts.Repeats[l.repeated] {
+			return nil
+		}
+		l.repeated++
+		if err := server.SetLEDs(l.index, l.sent); err != nil {
+			return err
+		}
+		return server.Sync(l.index)
 	}
-	c := h.opts.Colours
+	c := *h.colours.Load()
 	painted := Paint(scene, c)
 	rest := c.Unbound
 	if !scene.Active {
@@ -319,6 +421,12 @@ func (h *Hub) send(server Server, l *Lamp) error {
 	if err := server.SetLEDs(l.index, colours); err != nil {
 		return err
 	}
-	l.sent = colours
-	return nil
+	l.sent, l.sentAt, l.repeated = colours, now, 0
+	l.mu.Lock()
+	l.lit, l.painted, l.rest = true, painted, rest
+	l.mu.Unlock()
+	h.opts.Changed()
+	// Not before the server has taken this: what comes next is then the
+	// newest scene, not one of a row that waits for the keyboard.
+	return server.Sync(l.index)
 }

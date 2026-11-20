@@ -51,20 +51,41 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (17 November 2026, evening)
+## Where things stand (20 November 2026)
 
-Two pull requests carry everything since pull request 49, to be merged
-in this order:
+`dev` holds everything up to the review of the whole code (pull requests
+50 and 51). One pull request is open on top of it:
 
-1. `v2/round4`: the fourth round. The udev rule for `/dev/uinput`, the
-   Windows input fixes and the recovery of MIDI devices, the window
-   (settings as a sheet, upright axes, two frame limits), `hidi` as the
-   application with icon and window, options with two dashes, the README
-   for users, and configuring in the window (the toggle by key press,
-   MIDI ports from a list, axes and controllers in the profile editor).
-2. `v2/review`: the review of the whole code, five commits of fixes, on
-   top of the first. The fix for the silent grabbed keyboard on Windows
-   is only complete with this one.
+- `v2/round5`: the fifth round. Lights that keep up with the keyboard and
+  cannot stay behind, with colours that can be chosen; keys a profile
+  leaves to the system (`"passthrough"`); a list of the devices that play;
+  and the window: instruments in two lines with their input and notes
+  shown on request, horizontal axes, keys coloured by what they do and
+  glowing as the keyboard's lights do, grey while HIDI is off.
+
+Apart from HIDI itself: a change to raylib's Win32 backend is on the
+maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
+`win32-modal-loop-frames`), and `v2/round5-raylib-resize` is this round
+built with it and raylib-go 0.63.0. Tried by the maintainer on Windows 11,
+it does what it is for:
+
+- The window keeps drawing while it is moved or resized, and a frame is
+  drawn for every new size before Windows goes on with the resize.
+- The window follows the mouse whatever the frame rate: the application
+  gets a frame only when one is due.
+- Holding the title bar without moving no longer stops the window for
+  half a second.
+
+One pause is left and stays: with a large drag distance set in Windows, a
+slow move of the held title bar stops the window for up to half a second
+where it begins to move. Windows waits there for the mouse to cross the
+drag distance, measured from where the mouse is when the window is told
+to move; getting round that takes made-up mouse input or moving the
+window without Windows' own loop, which loses snapping.
+
+The branch is not for merging as it is: raylib-go 0.63.0 replaces GLFW by
+backends of its own, needs `libEGL` on Linux, and only its Windows amd64
+library was rebuilt with the change.
 
 ### Waiting for the maintainer
 
@@ -74,11 +95,16 @@ To be tried on Windows, none of which has run there:
   it, "Quit HIDI", and how much of a console window is seen.
 - A grabbed keyboard: playing, the three-key toggle, and
   `hidi.exe --toggle=KEY_CAPSLOCK --toggle-tap`.
+- A key bound to `"passthrough"`: does it type while the others play.
 - The four hats of the Gladiator, and whether its buttons play.
 - `taskkill /F /IM midisrv.exe` while HIDI runs: do the instruments come
   back, and does the DAW find them again.
 - An Xbox controller.
 - The window at 120 Hz: is motion smooth now.
+
+To be tried with a keyboard OpenRGB lights, which was not at hand: that a
+released key goes dark at once, how fast the lights follow while playing,
+and the glow in the window beside the real keyboard.
 
 To be decided:
 
@@ -91,19 +117,24 @@ To be decided:
 - Whether the rest of the profile editor belongs in the beta.
 - If the console window that flashes on a double click disturbs: a
   second program file without a console.
-- The branches `v2/docs` and `v2/windows-round3` on GitHub are left over
-  and can be deleted; `v2/docs` holds what the two pull requests hold.
+- Whether the raylib change goes to raylib, and when HIDI moves to
+  raylib-go 0.63.
 
 ### Left to do
 
 - The rest of configuring in the window: the two halves of an axis bound
   apart, program changes, keys with modifiers, the options of a note,
-  adding and removing layouts, a new profile for a device, and the
-  lights on the settings sheet.
-- A running HIDI follows changed `connect` ports only at its next start.
+  renaming a layout, and a new profile for a device.
+- A profile that is tried and not saved stays in use if the window ends
+  without a word, by a crash for one, until its file changes or HIDI
+  starts again. A window that is closed takes it back.
+- A running HIDI follows changed `connect` ports, and the switch and the
+  address of OpenRGB, only at its next start.
+- Two keyboards with lights are written one after the other, so each
+  follows at half the pace it could.
 - No start at login yet.
 - What the review found and left as it is; see below.
-- What comes back from the Windows tests above.
+- What comes back from the tests above.
 - Turning on immutable releases, the first tag (which is also the first
   run of the release workflow), and the pull request from `dev` into
   `main`.
@@ -252,6 +283,76 @@ Found and left as it is, by choice:
   without end; the router holds its lock while it lists and connects.
 - An entry of `connect` is a part of a name, so a port whose name is the
   beginning of another's selects both.
+
+### Fifth round (20 November 2026): what was asked for, and what was done
+
+| Asked for | What was done |
+|---|---|
+| The lights of a keyboard lag, and a released key can stay lit for up to a second. | Two causes, both in how OpenRGB takes updates that come faster than the keyboard is written. Released versions lose an update that arrives during a write; current ones take it only after the write, so updates queue up. The hub now sends a change at once, waits for the server to take it before sending the next (which is then the newest scene), and repeats what it sent last four times within a second. |
+| Instruments compact by default; input and output shown by a switch. | Two lines per instrument. "show: input, output" on every card, remembered per device in `settings.toml`. |
+| The numbers for input and MIDI tinted while not zero. | Done. |
+| Axes horizontal again, more of them in a row, values in the fixed-width font. | A row takes as many as fit: five in the window's first size. |
+| A blacklist or whitelist of devices in the settings. | `[devices]` with `mode` and `list`, by name; the settings sheet lists the devices that are connected and, in grey, those met before (kept in `.devices.json`). A running HIDI follows. |
+| Keys in the main view coloured as in the profile editor, and glowing as the keyboard's lights do. | The snapshot carries what every key does and what the hub last sent to the lights. The glow is a blurred dot stretched over the key, added to the colour of the cap. |
+| What is pressed shown in grey while HIDI is off. | Keys, buttons and axes. |
+| A key held while HIDI is off lights up on the keyboard. | The colour `pressed`. |
+| Keys a layout leaves to the system. | `KEY_SPACE = "passthrough"`. The device is shared instead of grabbed: the hook lets the key through on Windows, and on Linux it is typed again through `/dev/uinput`. The profile editor has a button for it. |
+| The colours of the lights can be chosen, the one of passed keys too. | `[lights.colours]`, twelve colours, with sliders on the settings sheet; a running HIDI follows. The sixteen channel colours stay as they are. |
+
+Not tried: anything of this on Windows, and the lights on a real keyboard;
+the hub was tried against servers made for the tests, one of them slow.
+
+Later the same day, into the same pull request:
+
+| Asked for | What was done |
+|---|---|
+| A middle click on the icon turns HIDI off and on. | Linux did; Windows does now. |
+| A much darker window. | Near black, with the panels a step above it. |
+| Behind the two lines of an instrument, how much came in and went out, input green and MIDI yellow; the numbers tinted alike, in the terminal too. | The rates are worked out ten times a second over the second that just ended, and the window keeps twelve seconds of them per instrument. The status lines of the terminal colour the two numbers the same way. |
+| The profile editor saves when asked, takes changes back, and a running HIDI plays with what is not saved. | Changes are kept in the window. A disk saves, yellow while there is something to save; Undo and Redo as buttons and as Ctrl+Z and Ctrl+Y. What is shown and not saved is given to HIDI over the control socket (`preview`) and stands in for the file until the file changes. A page left with changes keeps them, and a yellow dot marks the way back. |
+| Layouts can be added, removed, put in another order, and one chosen to start with. | In the text of the file, like every other change: `config.AddLayout`, `RemoveLayout`, `MoveLayout`, and `layout` under `[defaults]`. |
+| The colours of what the keys do, at half strength in the main view. | Done. |
+| The settings open over the profile editor too. | The sheet lies over whatever is shown. |
+| "blacklist" and "whitelist" as the names of the two modes. | Done. |
+| Scrolling as a movement. | The target moves at once and the position follows it, by the time that passed and not by the frame: nine tenths of the way in 80 ms at any frame rate. In the instruments, the settings and the profile editor. |
+| What all instruments together take in and send, at the top. | Before the version. |
+
+Not tried: Windows; the keys of the editor with a keyboard HIDI has
+grabbed, which do not reach the window, as the page says.
+
+And after that:
+
+| Asked for | What was done |
+|---|---|
+| The curves without averaging, a tenth of a second at a time. | An instrument keeps the last 122 steps of a tenth of a second, each the events of that step alone, and sends them with its state. The two numbers stay counted over a second. |
+| The curves run evenly although they gain a value only ten times a second. | They are drawn moved to the left by the part of a step that has passed, with one value out of view at each end, so that none appears or goes at once. |
+| The window between the two darknesses. | Half way. |
+| The Steam Controller. | On Linux the kernel's `hid-steam` already presents Valve's controllers as game controllers; what HIDI lacked was a profile that knows what their controls are, since the general one takes a trackpad for a direction pad, and the names of the paddles (`BTN_GRIPL` and the other three, from a newer kernel header). Both are there. On Windows it stays for after 2.0; see there. |
+
+Not tried: a Steam Controller. The profile is written from the kernel's
+driver, not from a device.
+
+Learning mode, asked for after that: a switch at the top of the window,
+an entry in the menu of the icon, which blinks green and yellow twice a
+second while HIDI is on and learning, and the `learn` command, on F10 in
+the keyboard profile. The command was a key to hold before and let an axis
+through beyond half its travel; it now turns a mode on and off that is one
+for all instruments. In it every axis stands where it stood when the mode
+began until it has moved by more than `learn_threshold` hundredths of its
+range, 20 unless set; back within that it stands there again; and when the
+mode ends, every axis says where it really is.
+
+The maintainer then tried the controller of 2026 on Windows, through its
+wireless receiver: HIDI showed its keyboard, and the controller went on
+moving the mouse. Windows has nothing like `hid-steam`, so HIDI now reads
+that controller itself there (`rawinput/steam.go`): it asks Raw Input for
+the interface the controller keeps for itself, sends the two commands that
+end its being a mouse and keyboard, as the kernel does, and turns its
+reports into the same buttons and axes the kernel makes of them. The
+keyboard it pretends to be is no longer taken for an instrument. What turns
+reports into events is tested; what talks to Windows and to the controller
+has never run. The controller of 2015 and the Steam Deck use an older form
+of the reports and are not read on Windows.
 
 ## Done
 

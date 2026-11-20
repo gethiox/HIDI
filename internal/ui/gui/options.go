@@ -14,6 +14,10 @@ import (
 type Controller interface {
 	Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error
 	Toggle(ctx context.Context) (ipc.Snapshot, error)
+	ToggleLearning(ctx context.Context) (ipc.Snapshot, error)
+	// Preview makes HIDI use text in place of a profile file until the
+	// file changes; an empty text ends that.
+	Preview(ctx context.Context, file, text string) error
 }
 
 // Options change how the window behaves.
@@ -44,6 +48,9 @@ type Options struct {
 	// Ports, if set, lists the MIDI ports that exist, for choosing those
 	// every instrument also sends to.
 	Ports func() ([]output.Port, error)
+	// ShowAll draws the input and the notes of every instrument,
+	// whatever the settings say. It is for pictures.
+	ShowAll bool
 	// EditProfile, if set, is a profile file the window opens with, ready
 	// to be changed.
 	EditProfile string

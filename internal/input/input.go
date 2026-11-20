@@ -43,11 +43,18 @@ type Device interface {
 // that are kept back. HIDI uses it for a key that turns it off and on with
 // a tap, which the system should not see.
 //
-// Pass, Grab and Release each end what the others began.
+// Share is the other way round: the device is kept from the system as by
+// a grab, except for some keys that still reach it. HIDI uses it for the
+// keys a profile leaves to the system while the others play.
+//
+// Pass, Share, Grab and Release each end what the others began.
 type Passer interface {
 	// Pass gives the device's input to the rest of the system except for
 	// the hidden keys, which reach only HIDI.
 	Pass(hidden []control.Code) error
+	// Share takes the device away from the rest of the system like Grab,
+	// except for the open keys, which the system gets as well as HIDI.
+	Share(open []control.Code) error
 	// Type presses or releases a key for the rest of the system, as if on
 	// this device.
 	Type(key control.Code, down bool) error

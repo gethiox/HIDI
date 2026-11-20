@@ -69,6 +69,7 @@ const (
 	idToggle  = 1
 	idQuit    = 2
 	idOpen    = 5
+	idLearn   = 6
 	firstLine = 100
 )
 
@@ -319,6 +320,9 @@ func (h *linuxHost) layout() (uint32, menuItem) {
 	if v.Toggle != "" {
 		children = append(children, item(idToggle, map[string]any{"label": v.Toggle}))
 	}
+	if v.Learn != "" {
+		children = append(children, item(idLearn, map[string]any{"label": v.Learn}))
+	}
 	children = append(children, separator(4), item(idQuit, map[string]any{"label": v.quit()}))
 	root := menuItem{ID: 0, Props: map[string]dbus.Variant{"children-display": dbus.MakeVariant("submenu")}, Children: children}
 	return revision, root
@@ -409,6 +413,8 @@ func (m menuMethods) Event(id int32, event string, data dbus.Variant, timestamp 
 		m.h.act(ActionToggle)
 	case idOpen:
 		m.h.act(ActionOpen)
+	case idLearn:
+		m.h.act(ActionLearn)
 	case idQuit:
 		m.h.act(ActionQuit)
 	}

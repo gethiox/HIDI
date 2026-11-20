@@ -404,11 +404,15 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	case pl.settings.Lights.OpenRGB:
 		lightsAddress = pl.settings.Lights.Address
 	}
+	var changes ipc.Notifier
 	var lights func(control.DeviceInfo) instrument.Light
+	var hub *light.Hub
 	lightsDone := make(chan struct{})
 	if lightsAddress != "" {
-		hub := light.NewHub(light.Options{
+		hub = light.NewHub(light.Options{
 			Connect: func() (light.Server, error) { return openrgb.Connect(lightsAddress, "HIDI") },
+			Colours: pl.settings.Lights.Colours,
+			Changed: changes.Notify,
 			Logger:  logs.Logger("lights"),
 		})
 		go func() {
@@ -436,19 +440,24 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}
 		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(connect, ", "))
 	}
-	var changes ipc.Notifier
+	// Which devices play is a matter of the settings alone.
+	allowed := func(d settings.Devices) func(control.DeviceInfo) bool {
+		return func(info control.DeviceInfo) bool { return d.Allowed(logging.Printable(info.Name)) }
+	}
 	manager := instrument.NewManager(instrument.Options{
-		Profiles:      profiles,
-		OpenEndpoint:  openEndpoint,
-		Logger:        logs.Logger("instrument"),
-		Grab:          grab,
-		Toggle:        toggle,
-		ToggleTap:     *toggleTap,
-		HideToggle:    hidesToggle(*alwaysGrab),
-		StartInactive: *startOff,
-		Lights:        lights,
-		LogMIDI:       *logMIDI,
-		Changed:       changes.Notify,
+		Allow:          allowed(pl.settings.Devices),
+		LearnThreshold: float64(pl.settings.Input.LearnThreshold) / 100,
+		Profiles:       profiles,
+		OpenEndpoint:   openEndpoint,
+		Logger:         logs.Logger("instrument"),
+		Grab:           grab,
+		Toggle:         toggle,
+		ToggleTap:      *toggleTap,
+		HideToggle:     hidesToggle(*alwaysGrab),
+		StartInactive:  *startOff,
+		Lights:         lights,
+		LogMIDI:        *logMIDI,
+		Changed:        changes.Notify,
 	})
 	var shownToggle atomic.Pointer[string]
 	showToggle := func(keys []control.Code) {
@@ -485,7 +494,23 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		close(footerDone)
 	}
 	served := make(chan struct{})
-	host := controlHost(manager, logs, &changes)
+	// Profiles the window tries before they are saved take the place of
+	// their files.
+	tried := &previews{profiles: profiles}
+	host := controlHost(manager, logs, &changes, loadSeen(pl.paths.Seen))
+	host.Preview = func(file, text string) error {
+		now, err := tried.set(file, text)
+		if err != nil {
+			return err
+		}
+		manager.SetProfiles(now)
+		if text == "" {
+			configLog.Info("a profile is no longer tried; its file counts again", "file", file)
+		} else {
+			configLog.Debug("trying a profile that is not saved", "file", file)
+		}
+		return nil
+	}
 	if server != nil {
 		go func() {
 			defer close(served)
@@ -516,7 +541,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		go config.Watch(ctx, pl.profiles, time.Second, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
 			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
-			manager.SetProfiles(profiles)
+			manager.SetProfiles(tried.loaded(profiles))
 		})
 	}
 	if pl.settingsFile != "" {
@@ -525,6 +550,11 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		// combination and what is grabbed. What the command line set
 		// stays as it was set there.
 		settingsFile := pl.settingsFile
+		// What was last taken over, to tell what a change is about: the
+		// window writes this file for things only it cares about, too.
+		devicesNow, coloursNow := pl.settings.Devices, pl.settings.Lights.Colours
+		learnNow := pl.settings.Input.LearnThreshold
+		inputNow := fmt.Sprint(toggle, !*noGrab, *grabGamepads, *toggleTap, *alwaysGrab)
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
 				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
@@ -555,11 +585,30 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 				configLog.Error("the changed settings are not used: toggle_tap needs a toggle of exactly one key", "file", settingsFile)
 				return
 			}
-			manager.SetToggleTap(tap, hidesToggle(always))
-			manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
-			showToggle(newToggle)
-			configLog.Info("settings changed",
-				"toggle", formatToggle(newToggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
+			if input := fmt.Sprint(newToggle, keyboards, gamepads, tap, always); input != inputNow {
+				inputNow = input
+				manager.SetToggleTap(tap, hidesToggle(always))
+				manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
+				showToggle(newToggle)
+				configLog.Info("settings changed",
+					"toggle", formatToggle(newToggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
+			}
+			if s.Devices.Mode != devicesNow.Mode || !slices.Equal(s.Devices.List, devicesNow.List) {
+				devicesNow = s.Devices
+				manager.SetAllow(allowed(s.Devices))
+				changes.Notify()
+				configLog.Info("settings changed", "devices", s.Devices.Mode, "listed", len(s.Devices.List))
+			}
+			if s.Input.LearnThreshold != learnNow {
+				learnNow = s.Input.LearnThreshold
+				manager.SetLearnThreshold(float64(learnNow) / 100)
+				configLog.Info("settings changed", "learn_threshold", learnNow)
+			}
+			if hub != nil && s.Lights.Colours != coloursNow {
+				coloursNow = s.Lights.Colours
+				hub.SetColours(s.Lights.Colours)
+				configLog.Info("settings changed: the colours of the keys")
+			}
 		})
 	}
 	manager.Run(ctx, source.Devices)

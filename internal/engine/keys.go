@@ -34,3 +34,24 @@ func (e *Engine) Keys() (keys []KeyRole, layout, layouts int) {
 	slices.SortFunc(keys, func(a, b KeyRole) int { return cmp.Compare(a.Code.Num, b.Code.Num) })
 	return keys, e.layout, len(e.profile.Layouts)
 }
+
+// Passed returns the keys the selected layout leaves to the rest of the
+// system (see [Passthrough]), ordered by code.
+func (e *Engine) Passed() []control.Code {
+	var out []control.Code
+	for key, bindings := range e.index[e.layout] {
+		if key.part != "" || key.code.Kind != control.KindKey {
+			continue
+		}
+		for _, b := range bindings {
+			if len(b.Source.Modifiers) == 0 && b.Source.Range == RangeWhole {
+				if _, passed := b.Action.(Passthrough); passed {
+					out = append(out, key.code)
+				}
+				break
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b control.Code) int { return cmp.Compare(a.Num, b.Num) })
+	return out
+}

@@ -44,7 +44,7 @@ func footerLines(s ipc.Snapshot, toggle string, colour bool) []string {
 		// from one drawing to the next.
 		line := fmt.Sprintf("%s %s ch %2d  oct %+3d  notes %2d  ",
 			paint("1", fit(in.Name, 28)), faint(fit(in.Type, 8)), in.Channel, in.Octave, in.Sounding)
-		line += busy(paint, "in", in.InputRate) + "  " + busy(paint, "MIDI", in.MIDIRate)
+		line += busy(paint, "in", in.InputRate, "32") + "  " + busy(paint, "MIDI", in.MIDIRate, "33")
 		line += faint("  " + in.Layout)
 		lines = append(lines, line)
 	}
@@ -54,13 +54,15 @@ func footerLines(s ipc.Snapshot, toggle string, colour bool) []string {
 	return lines
 }
 
-// busy writes a rate, faint while nothing happens.
-func busy(paint func(code, text string) string, label string, rate int) string {
+// busy writes a rate: faint while nothing happens, and otherwise in its
+// colour, green for what comes in and yellow for what goes out as MIDI,
+// as in the window.
+func busy(paint func(code, text string) string, label string, rate int, code string) string {
 	text := fmt.Sprintf("%s %4d/s", label, rate)
 	if rate == 0 {
 		return paint("90", text)
 	}
-	return text
+	return paint(code, text)
 }
 
 // fit makes text exactly n characters wide, cutting it short or filling

@@ -73,7 +73,8 @@ func (s *Source) selfCentering() bool {
 func (s *Source) bipolar() bool { return s.Range == RangeWhole && s.Centered }
 
 // Action is what a binding does. The implementations are [Note],
-// [ControlChange], [PitchBend], [ProgramChange] and [Command].
+// [ControlChange], [PitchBend], [ProgramChange], [Command] and
+// [Passthrough].
 type Action interface {
 	// momentary reports whether the action reads its source as pressed or
 	// released, as opposed to following its position.
@@ -131,6 +132,17 @@ type ProgramChange struct {
 	ChannelOffset uint8
 }
 
+// Passthrough leaves a key to the rest of the system: the key plays
+// nothing and types what it always types, also while HIDI is on and the
+// other keys of the device do not. That is for the keys a program needs
+// while it is played into, the space bar that starts and stops a
+// recording for one. The engine does nothing for it; whoever holds the
+// device passes the key on (see [Engine.Passed]).
+type Passthrough struct{}
+
+// PassthroughName is how a passed key is written in a profile.
+const PassthroughName = "passthrough"
+
 // Command changes the state of the instrument when the source is pressed.
 //
 // The Up and Down commands of a pair reset the value to the profile's
@@ -163,11 +175,10 @@ const (
 	// every note played sounds with those intervals above it. Pressed
 	// while fewer notes are held, it forgets the chord.
 	CommandChord
-	// CommandLearn, while held, lets an axis through only when it is moved
-	// more than halfway. That is for teaching a program which controller
-	// to listen to: the program takes the first one it hears, and an axis
-	// that is merely touched, or does not rest quite still, must not be
-	// that one.
+	// CommandLearn asks for learning mode to be turned on, or off if it
+	// is on: see [Engine.SetLearning]. The mode is one for all
+	// instruments, so the engine only notes the wish
+	// ([Engine.LearnRequested]).
 	CommandLearn
 
 	commandCount
@@ -217,6 +228,7 @@ func (c Command) opposite() Command {
 func (Note) momentary() bool          { return true }
 func (ProgramChange) momentary() bool { return true }
 func (Command) momentary() bool       { return true }
+func (Passthrough) momentary() bool   { return true }
 func (ControlChange) momentary() bool { return false }
 func (PitchBend) momentary() bool     { return false }
 
@@ -425,6 +437,10 @@ func (b *Binding) validate() error {
 	case Command:
 		if a == 0 || a >= commandCount {
 			return fmt.Errorf("%v: invalid command %d", s.Code, a)
+		}
+	case Passthrough:
+		if s.Code.Kind != control.KindKey || s.Part != "" || len(s.Modifiers) != 0 {
+			return fmt.Errorf("%v: only a key of the main part, pressed alone, can be passed through", s.Code)
 		}
 	default:
 		return fmt.Errorf("%v: unsupported action type %T", s.Code, a)

@@ -12,6 +12,7 @@ import (
 type Controller interface {
 	Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error
 	Toggle(ctx context.Context) (ipc.Snapshot, error)
+	ToggleLearning(ctx context.Context) (ipc.Snapshot, error)
 }
 
 const (
@@ -21,6 +22,11 @@ const (
 	// askTimeout limits a request to HIDI.
 	askTimeout = 2 * time.Second
 )
+
+// BlinkPhase is how long the icon of a HIDI that is on and in learning
+// mode shows each of its two colours. Twice a second is nothing to a
+// notification area: an icon there is a few hundred pixels.
+var BlinkPhase = 500 * time.Millisecond
 
 // Options change what the icon offers.
 type Options struct {
@@ -82,15 +88,47 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger, opts
 		return err
 	}
 	running := false
+	// While HIDI is on and learning, the icon blinks between the colour
+	// of on and that of learning.
+	var (
+		shown  View
+		blink  <-chan time.Time
+		ticker *time.Ticker
+		other  bool // the half of the blinking that is the learning colour
+	)
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
+	show := func() {
+		v := shown
+		if blinks := v.Learning && v.Look == LookOn; blinks && other {
+			v.Look = LookLearning
+		}
+		if err := host.Show(v); err != nil {
+			log.Warn("the icon could not be updated", "error", err)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case s := <-states:
 			running = s != nil
-			if err := host.Show(view(s)); err != nil {
-				log.Warn("the icon could not be updated", "error", err)
+			shown = view(s)
+			switch blinks := shown.Learning && shown.Look == LookOn; {
+			case blinks && ticker == nil:
+				ticker = time.NewTicker(BlinkPhase)
+				blink, other = ticker.C, true
+			case !blinks && ticker != nil:
+				ticker.Stop()
+				ticker, blink, other = nil, nil, false
 			}
+			show()
+		case <-blink:
+			other = !other
+			show()
 		case action, ok := <-host.Actions():
 			if !ok {
 				return nil
@@ -101,6 +139,16 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger, opts
 			case ActionOpen:
 				if opts.Open != nil {
 					opts.Open()
+				}
+			case ActionLearn:
+				if !running {
+					continue
+				}
+				askCtx, done := context.WithTimeout(ctx, askTimeout)
+				_, err := hidi.ToggleLearning(askCtx)
+				done()
+				if err != nil && ctx.Err() == nil {
+					log.Warn("learning mode could not be turned on or off", "error", err)
 				}
 			case ActionToggle:
 				if !running {

@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/light"
 )
 
 // Schema is the version of the settings file this HIDI writes.
@@ -19,10 +23,47 @@ const Schema = 1
 
 // Settings are HIDI's own settings.
 type Settings struct {
-	Input  Input
-	Output Output
-	Lights Lights
-	Window Window
+	Input   Input
+	Devices Devices
+	Output  Output
+	Lights  Lights
+	Window  Window
+	Shown   Shown
+}
+
+// The two ways the list of devices is read.
+const (
+	// Blacklist: every device plays except those listed.
+	Blacklist = "blacklist"
+	// Whitelist: only the listed devices play.
+	Whitelist = "whitelist"
+)
+
+// Devices says which devices become instruments, by their names.
+type Devices struct {
+	// Mode is [Blacklist] or [Whitelist].
+	Mode string
+	// List holds the names of devices, as HIDI shows them.
+	List []string
+}
+
+// Allowed reports whether the device with this name may be an instrument.
+func (d Devices) Allowed(name string) bool {
+	listed := false
+	for _, entry := range d.List {
+		if entry == name {
+			listed = true
+		}
+	}
+	return listed == (d.Mode == Whitelist)
+}
+
+// Shown says for which instruments the window shows more than the two
+// lines every one of them has, by the names of their devices.
+type Shown struct {
+	// Input lists the devices whose keys, buttons and axes are drawn,
+	// and Output those whose keyboard of notes is.
+	Input, Output []string
 }
 
 // Lights says whether and how HIDI lights the keys of keyboards.
@@ -31,6 +72,8 @@ type Lights struct {
 	OpenRGB bool
 	// Address is where that server listens.
 	Address string
+	// Colours are the colours of the keys.
+	Colours light.Colours
 }
 
 // DefaultOpenRGBAddress is where an OpenRGB server listens unless it is
@@ -57,6 +100,9 @@ type Input struct {
 	// well and types their keys again on a keyboard of HIDI's own, so
 	// that the tapped key can be hidden from the system there too.
 	AlwaysGrab bool
+	// LearnThreshold is how far an axis has to be moved to get through
+	// in learning mode, in hundredths of its range.
+	LearnThreshold int
 }
 
 // Output says where the instruments send, besides their own MIDI devices.
@@ -84,11 +130,13 @@ type Window struct {
 func Default() Settings {
 	return Settings{
 		Input: Input{
-			Toggle:        []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
-			GrabKeyboards: true,
-			StartOn:       true,
+			Toggle:         []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
+			GrabKeyboards:  true,
+			StartOn:        true,
+			LearnThreshold: 20,
 		},
-		Lights: Lights{Address: DefaultOpenRGBAddress},
+		Devices: Devices{Mode: Blacklist},
+		Lights:  Lights{Address: DefaultOpenRGBAddress, Colours: light.DefaultColours()},
 	}
 }
 
@@ -97,25 +145,33 @@ func Default() Settings {
 type file struct {
 	Schema int `toml:"schema"`
 	Input  struct {
-		Toggle        *[]string `toml:"toggle"`
-		GrabKeyboards *bool     `toml:"grab_keyboards"`
-		GrabGamepads  *bool     `toml:"grab_gamepads"`
-		StartOn       *bool     `toml:"start_on"`
-		ToggleTap     *bool     `toml:"toggle_tap"`
-		AlwaysGrab    *bool     `toml:"always_grab"`
+		Toggle         *[]string `toml:"toggle"`
+		GrabKeyboards  *bool     `toml:"grab_keyboards"`
+		GrabGamepads   *bool     `toml:"grab_gamepads"`
+		StartOn        *bool     `toml:"start_on"`
+		ToggleTap      *bool     `toml:"toggle_tap"`
+		AlwaysGrab     *bool     `toml:"always_grab"`
+		LearnThreshold *int      `toml:"learn_threshold"`
 	} `toml:"input"`
+	Devices struct {
+		Mode *string   `toml:"mode"`
+		List *[]string `toml:"list"`
+	} `toml:"devices"`
 	Output struct {
 		Connect *[]string `toml:"connect"`
 	} `toml:"output"`
 	Lights struct {
-		OpenRGB *bool   `toml:"openrgb"`
-		Address *string `toml:"address"`
+		OpenRGB *bool             `toml:"openrgb"`
+		Address *string           `toml:"address"`
+		Colours map[string]string `toml:"colours"`
 	} `toml:"lights"`
 	Window struct {
-		ShowAtStart   *bool `toml:"show_at_start"`
-		FPS           *int  `toml:"fps"`
-		BackgroundFPS *int  `toml:"background_fps"`
-		LogHeight     *int  `toml:"log_height"`
+		ShowAtStart   *bool     `toml:"show_at_start"`
+		FPS           *int      `toml:"fps"`
+		BackgroundFPS *int      `toml:"background_fps"`
+		LogHeight     *int      `toml:"log_height"`
+		ShowInput     *[]string `toml:"show_input"`
+		ShowOutput    *[]string `toml:"show_output"`
 	} `toml:"window"`
 }
 
@@ -159,9 +215,35 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.StartOn, f.Input.StartOn)
 	set(&s.Input.ToggleTap, f.Input.ToggleTap)
 	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
+	set(&s.Input.LearnThreshold, f.Input.LearnThreshold)
+	if s.Input.LearnThreshold < 1 || s.Input.LearnThreshold > 100 {
+		problems = append(problems, fmt.Sprintf("input.learn_threshold: %d is not a number of hundredths from 1 to 100", s.Input.LearnThreshold))
+	}
+	set(&s.Devices.Mode, f.Devices.Mode)
+	set(&s.Devices.List, f.Devices.List)
+	if s.Devices.Mode != Blacklist && s.Devices.Mode != Whitelist {
+		problems = append(problems, fmt.Sprintf("devices.mode: %q is neither %q nor %q", s.Devices.Mode, Blacklist, Whitelist))
+	}
 	set(&s.Output.Connect, f.Output.Connect)
 	set(&s.Lights.OpenRGB, f.Lights.OpenRGB)
 	set(&s.Lights.Address, f.Lights.Address)
+	named := map[string]*light.RGB{}
+	for _, n := range s.Lights.Colours.Named() {
+		named[n.Name] = n.Colour
+	}
+	for _, name := range slices.Sorted(maps.Keys(f.Lights.Colours)) {
+		target, known := named[name]
+		if !known {
+			problems = append(problems, fmt.Sprintf("unknown setting %q", "lights.colours."+name))
+			continue
+		}
+		colour, err := ParseColour(f.Lights.Colours[name])
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("lights.colours.%s: %v", name, err))
+			continue
+		}
+		*target = colour
+	}
 	if _, _, err := net.SplitHostPort(s.Lights.Address); err != nil {
 		problems = append(problems, fmt.Sprintf("lights.address: %q is not a host and a port, such as %q", s.Lights.Address, DefaultOpenRGBAddress))
 	}
@@ -169,6 +251,8 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Window.FPS, f.Window.FPS)
 	set(&s.Window.BackgroundFPS, f.Window.BackgroundFPS)
 	set(&s.Window.LogHeight, f.Window.LogHeight)
+	set(&s.Shown.Input, f.Window.ShowInput)
+	set(&s.Shown.Output, f.Window.ShowOutput)
 	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 || s.Window.LogHeight < 0 {
 		problems = append(problems, "window: fps, background_fps and log_height cannot be negative")
 	}
@@ -186,6 +270,22 @@ func set[T any](dst *T, src *T) {
 		*dst = *src
 	}
 }
+
+// ParseColour reads a colour written as "#rrggbb".
+func ParseColour(text string) (light.RGB, error) {
+	var c light.RGB
+	if len(text) != 7 || text[0] != '#' {
+		return c, fmt.Errorf("%q is not a colour written as \"#rrggbb\"", text)
+	}
+	v, err := strconv.ParseUint(text[1:], 16, 32)
+	if err != nil {
+		return c, fmt.Errorf("%q is not a colour written as \"#rrggbb\"", text)
+	}
+	return light.RGB{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v)}, nil
+}
+
+// FormatColour writes a colour as "#rrggbb".
+func FormatColour(c light.RGB) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
 // Check returns what is wrong with settings that each make sense alone.
 func (s Settings) Check() []string {
@@ -231,6 +331,10 @@ func (s Settings) Text() []byte {
 	for i, code := range s.Input.Toggle {
 		toggle[i] = code.String()
 	}
+	var colours strings.Builder
+	for _, n := range s.Lights.Colours.Named() {
+		fmt.Fprintf(&colours, "# %s\n%s = %s\n", n.About, n.Name, tomlString(FormatColour(*n.Colour)))
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `# HIDI's own settings. The profiles, which say how a device plays, are the
 # files in the directory "profiles" beside this one.
@@ -272,6 +376,19 @@ toggle_tap = %t
 # It needs access to /dev/uinput.
 always_grab = %t
 
+# Learning mode makes every axis stand still until it is moved by more
+# than this many hundredths of its range. It is for teaching a program
+# which controller to listen to, when the program takes the first one that
+# changes at all.
+learn_threshold = %d
+
+[devices]
+# Which devices become instruments, by their names as HIDI shows them.
+# With "blacklist" every keyboard and game controller plays except the
+# listed ones; with "whitelist" only the listed ones do.
+mode = %s
+list = %s
+
 [output]
 # Existing MIDI ports that every instrument also sends to, by a part of
 # their name or by their ID as "hidi ports" lists them.
@@ -285,6 +402,11 @@ openrgb = %t
 # Where the OpenRGB server listens.
 address = %s
 
+# The colours of the keys, each as "#rrggbb". Keys that change the MIDI
+# channel take the colour of the channel instead, and a note another
+# program sends on another channel that of its channel.
+[lights.colours]
+%s
 [window]
 # Open the window when HIDI starts. Without this HIDI starts as an icon in
 # the tray, and the window is opened from there.
@@ -302,8 +424,16 @@ background_fps = %d
 # The height of the log when the window opens, in pixels. 0 shows only its
 # last line.
 log_height = %d
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab,
-		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight)
+
+# The instruments whose input is drawn in the window, and those whose
+# notes are: by the names of their devices. The window keeps these lists.
+show_input = %s
+show_output = %s
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.LearnThreshold,
+		tomlString(s.Devices.Mode), list(s.Devices.List),
+		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
+		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight,
+		list(s.Shown.Input), list(s.Shown.Output))
 	return []byte(b.String())
 }
 

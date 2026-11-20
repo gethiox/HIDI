@@ -13,8 +13,11 @@ type RGB struct{ R, G, B uint8 }
 // Scene is everything the colours of a keyboard depend on.
 type Scene struct {
 	// Active says whether HIDI is on. While it is off the keyboard types,
-	// and is lit evenly.
+	// and is lit evenly, except for the keys that are down.
 	Active bool
+	// Pressed are the keys of the device that are down. They show while
+	// HIDI is off.
+	Pressed []control.Code
 	// Keys is what every bound key does in the selected layout.
 	Keys []engine.KeyRole
 	// Layout is the selected layout and Layouts how many there are.
@@ -39,8 +42,20 @@ type Colours struct {
 	// instrument, and External one whose note another program sent on
 	// the instrument's channel.
 	Playing, External RGB
-	// Idle colours every key while HIDI is off.
-	Idle RGB
+	// Idle colours every key while HIDI is off, and Pressed a key that
+	// is down then.
+	Idle, Pressed RGB
+	// Command colours the keys that change the instrument. They show how
+	// far a value has gone, in three steps of brightness: this colour is
+	// the brightest.
+	Command RGB
+	// Panic colours the key that silences the instrument.
+	Panic RGB
+	// Other colours a key that sends something else, a controller for
+	// one.
+	Other RGB
+	// Passthrough colours a key that is left to the system.
+	Passthrough RGB
 }
 
 // DefaultColours are the colours of HIDI 1.x.
@@ -49,17 +64,47 @@ func DefaultColours() Colours {
 		White: RGB{0x00, 0x55, 0x00}, Black: RGB{0x00, 0x00, 0x55}, C: RGB{0x55, 0x55, 0x00},
 		Unbound: RGB{0x44, 0x00, 0x00},
 		Playing: RGB{0xff, 0xff, 0xff}, External: RGB{0xff, 0xff, 0xff},
-		Idle: RGB{0x18, 0x18, 0x18},
+		Idle: RGB{0x18, 0x18, 0x18}, Pressed: RGB{0xff, 0xff, 0xff},
+		Command: RGB{0xff, 0xff, 0xff}, Panic: RGB{0xff, 0x00, 0x00},
+		Other: RGB{0x00, 0x30, 0x30}, Passthrough: RGB{0x40, 0x00, 0x40},
 	}
 }
 
-// Three steps of white for the command keys: there, used once, used more.
-var (
-	dim    = RGB{27, 27, 27}
-	medium = RGB{100, 100, 100}
-	bright = RGB{255, 255, 255}
-	red    = RGB{255, 0, 0}
-	other  = RGB{0, 48, 48} // a key that sends something else, a controller for one
+// Named gives the colours by the names they have in the settings, in the
+// order they are shown.
+func (c *Colours) Named() []struct {
+	Name, About string
+	Colour      *RGB
+} {
+	return []struct {
+		Name, About string
+		Colour      *RGB
+	}{
+		{"white", "keys that play white keys", &c.White},
+		{"black", "keys that play black keys", &c.Black},
+		{"c", "keys that play a C", &c.C},
+		{"unbound", "keys that do nothing", &c.Unbound},
+		{"playing", "a key whose note sounds", &c.Playing},
+		{"external", "a note another program sent", &c.External},
+		{"command", "command keys, at their brightest", &c.Command},
+		{"panic", "the panic key", &c.Panic},
+		{"other", "keys that send something else", &c.Other},
+		{"passthrough", "keys left to the system", &c.Passthrough},
+		{"idle", "every key while HIDI is off", &c.Idle},
+		{"pressed", "a key held while HIDI is off", &c.Pressed},
+	}
+}
+
+// scale returns a colour at a part of its brightness, in 255ths.
+func scale(c RGB, by int) RGB {
+	return RGB{uint8(int(c.R) * by / 255), uint8(int(c.G) * by / 255), uint8(int(c.B) * by / 255)}
+}
+
+// The three steps of the command keys: there, used once, used more.
+const (
+	dim    = 27
+	medium = 100
+	bright = 255
 )
 
 // ChannelColour gives each of the sixteen MIDI channels a colour of its
@@ -99,7 +144,7 @@ func has(set [2]uint64, note int) bool { return set[note/64]&(1<<(note%64)) != 0
 
 // steps picks a white for one of a pair of keys that move a value up and
 // down: brighter the further the value has gone in the key's direction.
-func steps(value int) RGB {
+func steps(value int) int {
 	switch {
 	case value >= 2:
 		return bright
@@ -109,13 +154,13 @@ func steps(value int) RGB {
 	return dim
 }
 
-// Paint returns the colour of every bound key. Keys it does not name are
-// unbound; while HIDI is off, they are idle like all others.
+// Paint returns the colour of every key that has one of its own. Keys it
+// does not name are unbound; while HIDI is off, they are idle.
 func Paint(s Scene, c Colours) map[control.Code]RGB {
 	out := make(map[control.Code]RGB, len(s.Keys))
 	if !s.Active {
-		for _, key := range s.Keys {
-			out[key.Code] = c.Idle
+		for _, key := range s.Pressed {
+			out[key] = c.Pressed
 		}
 		return out
 	}
@@ -125,9 +170,11 @@ func Paint(s Scene, c Colours) map[control.Code]RGB {
 		case engine.Note:
 			out[key.Code] = paintNote(s, c, action)
 		case engine.Command:
-			out[key.Code] = paintCommand(s, action, channelColour)
+			out[key.Code] = paintCommand(s, c, action, channelColour)
+		case engine.Passthrough:
+			out[key.Code] = c.Passthrough
 		default:
-			out[key.Code] = other
+			out[key.Code] = c.Other
 		}
 	}
 	return out
@@ -170,28 +217,29 @@ func isBlack(note int) bool {
 	return false
 }
 
-func paintCommand(s Scene, command engine.Command, channelColour RGB) RGB {
+func paintCommand(s Scene, c Colours, command engine.Command, channelColour RGB) RGB {
+	level := medium
 	switch command {
 	case engine.CommandPanic:
-		return red
+		return c.Panic
 	case engine.CommandOctaveUp:
-		return steps(s.State.Octave)
+		level = steps(s.State.Octave)
 	case engine.CommandOctaveDown:
-		return steps(-s.State.Octave)
+		level = steps(-s.State.Octave)
 	case engine.CommandTransposeUp:
-		return steps(s.State.Transpose)
+		level = steps(s.State.Transpose)
 	case engine.CommandTransposeDown:
-		return steps(-s.State.Transpose)
+		level = steps(-s.State.Transpose)
 	case engine.CommandLayoutNext:
+		level = bright
 		if s.Layout >= s.Layouts-1 {
-			return dim // nowhere further to go
+			level = dim // nowhere further to go
 		}
-		return bright
 	case engine.CommandLayoutPrevious:
+		level = bright
 		if s.Layout <= 0 {
-			return dim
+			level = dim
 		}
-		return bright
 	case engine.CommandChannelUp:
 		if s.State.Channel >= 15 {
 			return third(channelColour)
@@ -203,15 +251,15 @@ func paintCommand(s Scene, command engine.Command, channelColour RGB) RGB {
 		}
 		return channelColour
 	case engine.CommandChord:
+		level = dim
 		if s.State.Chord != "" {
-			return bright
+			level = bright
 		}
-		return dim
 	case engine.CommandLearn:
+		level = dim
 		if s.State.Learning {
-			return bright
+			level = bright
 		}
-		return dim
 	}
-	return medium
+	return scale(c.Command, level)
 }

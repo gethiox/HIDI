@@ -109,13 +109,16 @@ var actionKeys = []string{"note", "cc", "pitch_bend", "program", "command"}
 func (r *reader) action(at string, source *engine.Source, raw any) (engine.Action, bool) {
 	switch v := raw.(type) {
 	case string:
-		// A bare string is a command name or a note name.
+		// A bare string is "passthrough", a command name or a note name.
+		if v == engine.PassthroughName {
+			return engine.Passthrough{}, true
+		}
 		if command, err := engine.ParseCommand(v); err == nil {
 			return command, true
 		}
 		note, err := midi.ParseNote(v)
 		if err != nil {
-			r.failf(at, "%q is neither a command nor a note (%v)", v, err)
+			r.failf(at, "%q is neither a command, a note nor %q (%v)", v, engine.PassthroughName, err)
 			return nil, false
 		}
 		return engine.Note{Note: note}, true

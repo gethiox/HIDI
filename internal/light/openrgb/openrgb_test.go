@@ -7,7 +7,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 )
 
 // builder writes a controller description the way the server does.
@@ -171,16 +170,6 @@ func (s *server) serve(conn net.Conn) {
 	}
 }
 
-func eventually(t *testing.T, what string, ok func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if ok() {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for %s", what)
-}
-
 func TestClient(t *testing.T) {
 	for _, serverVersion := range []uint32{0, 1, 4} {
 		s := startServer(t, serverVersion)
@@ -211,11 +200,17 @@ func TestClient(t *testing.T) {
 		if err := c.SetLEDs(1, want); err != nil {
 			t.Fatal(err)
 		}
-		eventually(t, "the colours to arrive", func() bool {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			return slices.Equal(s.colours[1], want) && slices.Equal(s.custom, []uint32{1}) && s.name == "HIDI"
-		})
+		// After Sync nothing is left to wait for: the server answers in
+		// order, so it has taken what was sent before.
+		if err := c.Sync(1); err != nil {
+			t.Fatalf("server version %d: Sync: %v", serverVersion, err)
+		}
+		s.mu.Lock()
+		arrived := slices.Equal(s.colours[1], want) && slices.Equal(s.custom, []uint32{1}) && s.name == "HIDI"
+		s.mu.Unlock()
+		if !arrived {
+			t.Errorf("server version %d: Sync returned before the colours had arrived", serverVersion)
+		}
 		c.Close()
 	}
 }

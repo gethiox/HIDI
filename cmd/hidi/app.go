@@ -115,6 +115,13 @@ func (l localHIDI) Toggle(ctx context.Context) (ipc.Snapshot, error) {
 	return l.host.Snapshot(), nil
 }
 
+func (l localHIDI) ToggleLearning(ctx context.Context) (ipc.Snapshot, error) {
+	if l.host.SetLearning != nil {
+		l.host.SetLearning(!l.host.Snapshot().Learning)
+	}
+	return l.host.Snapshot(), nil
+}
+
 // newTrayHost shows the icon; tests replace it.
 var newTrayHost = tray.NewHost
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1047,6 +1048,18 @@ func (l *fakeLight) Show(s light.Scene) {
 	l.mu.Unlock()
 }
 
+func (l *fakeLight) Painted() (map[control.Code]light.RGB, light.RGB, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	// What a lamp would tell: one colour for a key that is down while
+	// HIDI is off, another for every other key.
+	keys := map[control.Code]light.RGB{}
+	for _, code := range l.scene.Pressed {
+		keys[code] = light.RGB{R: 255}
+	}
+	return keys, light.RGB{B: 1}, l.shown > 0 && !l.closed
+}
+
 func (l *fakeLight) Close() {
 	l.mu.Lock()
 	l.closed = true
@@ -1231,9 +1244,23 @@ func TestRatesAndMIDILog(t *testing.T) {
 			st := r.manager.Status()
 			return len(st) == 1 && st[0].InputRate > 0 && st[0].MIDIRate > 0
 		})
+		// The trail has the step in which it happened, as a rate of that
+		// step alone: one event in a tenth of the period is ten a period.
+		eventually(t, "the event in the trail", func() bool {
+			st := r.manager.Status()
+			if len(st) != 1 || len(st[0].Trail.Input) != TrailLen || len(st[0].Trail.MIDI) != TrailLen || st[0].Trail.Step != ratePeriod/rateSteps {
+				return false
+			}
+			return slices.Max(st[0].Trail.Input) == rateSteps && slices.Max(st[0].Trail.MIDI) == rateSteps
+		})
+		seq := r.manager.Status()[0].Trail.Seq
 		eventually(t, "the rate to fall back to nothing", func() bool {
 			st := r.manager.Status()
 			return len(st) == 1 && st[0].InputRate == 0 && st[0].MIDIRate == 0
+		})
+		eventually(t, "the event to leave the trail, which goes on", func() bool {
+			tr := r.manager.Status()[0].Trail
+			return slices.Max(tr.Input) == 0 && slices.Max(tr.MIDI) == 0 && tr.Seq > seq+TrailLen
 		})
 		r.stop()
 		if got := strings.Contains(buf.String(), "NoteOn"); got != logMIDI {
@@ -1262,11 +1289,14 @@ func (s *syncBuffer) String() string {
 // passingDevice is a fake device that can also hide keys from the system.
 type passingDevice struct {
 	*fakeDevice
-	pmu     sync.Mutex
-	passing bool
-	hidden  []control.Code
-	typed   []string
-	passErr error
+	pmu      sync.Mutex
+	passing  bool
+	hidden   []control.Code
+	open     []control.Code // the keys a grab lets through
+	shares   int
+	shareErr error
+	typed    []string
+	passErr  error
 }
 
 func (d *passingDevice) Pass(hidden []control.Code) error {
@@ -1280,16 +1310,33 @@ func (d *passingDevice) Pass(hidden []control.Code) error {
 	return nil
 }
 
+func (d *passingDevice) Share(open []control.Code) error {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	if d.shareErr != nil {
+		return d.shareErr
+	}
+	d.passing, d.open = false, open
+	d.shares++
+	return d.fakeDevice.Grab()
+}
+
+func (d *passingDevice) openKeys() []control.Code {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	return d.open
+}
+
 func (d *passingDevice) Grab() error {
 	d.pmu.Lock()
-	d.passing = false
+	d.passing, d.open = false, nil
 	d.pmu.Unlock()
 	return d.fakeDevice.Grab()
 }
 
 func (d *passingDevice) Release() error {
 	d.pmu.Lock()
-	d.passing = false
+	d.passing, d.open = false, nil
 	d.pmu.Unlock()
 	return d.fakeDevice.Release()
 }

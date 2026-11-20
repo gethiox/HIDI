@@ -15,12 +15,92 @@ import (
 
 // ProfileDoc is a profile file that is open for changing in the window.
 // Every change is made in the text of the file, one key at a time, so
-// that what a person wrote there by hand stays; the file is written at
-// once, and a running HIDI takes it over like any other change to it.
+// that what a person wrote there by hand stays. The changes are kept here
+// and can be taken back; the file is written when [ProfileDoc.Save] is
+// called.
 type ProfileDoc struct {
 	Path    string
 	Profile *config.Profile
-	text    []byte
+	// text is the profile as it is shown, and saved as it is in the file,
+	// as far as the window knows.
+	text, saved []byte
+	// undo holds the texts before each change, the newest last, and redo
+	// those that were taken back.
+	undo, redo [][]byte
+	// Elsewhere says that the file was changed by other hands while
+	// there are changes here that are not saved: saving would write over
+	// what they did.
+	Elsewhere bool
+}
+
+// maxUndo bounds how many changes can be taken back.
+const maxUndo = 200
+
+// Text returns the profile as it is shown, saved or not.
+func (d *ProfileDoc) Text() []byte { return d.text }
+
+// Dirty reports whether there are changes that are not saved.
+func (d *ProfileDoc) Dirty() bool { return !bytes.Equal(d.text, d.saved) }
+
+// CanUndo and CanRedo report whether there is a change to take back, and
+// one that was taken back to make again.
+func (d *ProfileDoc) CanUndo() bool { return len(d.undo) > 0 }
+func (d *ProfileDoc) CanRedo() bool { return len(d.redo) > 0 }
+
+// show makes text what is shown. The text is a valid profile.
+func (d *ProfileDoc) show(text []byte) {
+	p, err := config.Parse(text)
+	if err != nil {
+		return // it was valid when it was kept
+	}
+	p.Source = d.Path
+	d.text, d.Profile = text, p
+}
+
+// Undo takes the last change back and reports whether there was one.
+func (d *ProfileDoc) Undo() bool {
+	n := len(d.undo)
+	if n == 0 {
+		return false
+	}
+	d.redo = append(d.redo, d.text)
+	before := d.undo[n-1]
+	d.undo = d.undo[:n-1]
+	d.show(before)
+	return true
+}
+
+// Redo makes the change again that was last taken back.
+func (d *ProfileDoc) Redo() bool {
+	n := len(d.redo)
+	if n == 0 {
+		return false
+	}
+	d.undo = append(d.undo, d.text)
+	again := d.redo[n-1]
+	d.redo = d.redo[:n-1]
+	d.show(again)
+	return true
+}
+
+// Save writes the profile to its file, whole or not at all. A running
+// HIDI takes the file over like any other change to it.
+func (d *ProfileDoc) Save() error {
+	if err := writeWhole(d.Path, d.text); err != nil {
+		return err
+	}
+	d.saved, d.Elsewhere = d.text, false
+	return nil
+}
+
+// Revert drops every change that is not saved.
+func (d *ProfileDoc) Revert() {
+	if !d.Dirty() {
+		return
+	}
+	d.undo = append(d.undo, d.text)
+	d.redo = nil
+	d.show(d.saved)
 }
 
 // OpenProfile reads a profile file for changing.
@@ -34,7 +114,7 @@ func OpenProfile(path string) (*ProfileDoc, error) {
 		return nil, err
 	}
 	p.Source = path
-	return &ProfileDoc{Path: path, Profile: p, text: text}, nil
+	return &ProfileDoc{Path: path, Profile: p, text: text, saved: text}, nil
 }
 
 // Layouts returns the names of the profile's layouts, in order.
@@ -61,6 +141,8 @@ const (
 	RoleController
 	// RoleBend: the control bends the pitch.
 	RoleBend
+	// RolePass: the key is left to the system.
+	RolePass
 )
 
 // Role is what a control does when it is used alone, and where in the
@@ -161,8 +243,21 @@ func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 	case engine.PitchBend:
 		role.Kind, role.Text = RoleBend, "pitch bend"
 		role.Offset, role.Down = a.ChannelOffset, a.Down
+	case engine.Passthrough:
+		role.Kind, role.Text = RolePass, "system"
 	}
 	return role
+}
+
+// SetPassthrough leaves a key to the system: it plays nothing and types
+// what it always types, also while HIDI is on.
+func (d *ProfileDoc) SetPassthrough(layout string, code control.Code) error {
+	if code.Kind != control.KindKey {
+		return fmt.Errorf("%s is not a key; only a key can be left to the system", code)
+	}
+	return d.change(func(text []byte) ([]byte, error) {
+		return config.Set(text, d.Role(layout, code).Section, code.String(), strconv.Quote(engine.PassthroughName))
+	})
 }
 
 // offset writes the channel a binding is moved by, if it is.
@@ -246,21 +341,85 @@ func (d *ProfileDoc) Clear(layout string, code control.Code) error {
 	})
 }
 
-// Reload reads the file anew if it was changed by other hands since the
-// window last read or wrote it. It reports whether it did. A file that
-// has mistakes now is not taken over, and the mistakes are returned.
+// Reload looks whether the file was changed by other hands since the
+// window last read or wrote it. If nothing here waits to be saved, the
+// file is taken over as it is now, and Reload reports that. If something
+// does, what is shown stays and [ProfileDoc.Elsewhere] is set. A file
+// that has mistakes now is not taken over, and the mistakes are returned.
 func (d *ProfileDoc) Reload() (bool, error) {
 	fresh, err := os.ReadFile(d.Path)
-	if err != nil || bytes.Equal(fresh, d.text) {
+	if err != nil || bytes.Equal(fresh, d.saved) {
 		return false, err
+	}
+	if d.Dirty() {
+		// Our own save is not other hands.
+		d.Elsewhere = !bytes.Equal(fresh, d.text)
+		return false, nil
 	}
 	p, err := config.Parse(fresh)
 	if err != nil {
 		return false, fmt.Errorf("the file was changed meanwhile and has mistakes now:\n%w", err)
 	}
 	p.Source = d.Path
-	d.text, d.Profile = fresh, p
+	d.text, d.saved, d.Profile = fresh, fresh, p
+	d.undo, d.redo, d.Elsewhere = nil, nil, false
 	return true, nil
+}
+
+// AddLayout adds an empty layout behind the others.
+func (d *ProfileDoc) AddLayout(name string) error {
+	return d.change(func(text []byte) ([]byte, error) { return config.AddLayout(text, name) })
+}
+
+// RemoveLayout takes a layout out, with its bindings. If the profile
+// starts with it, it starts with its first layout from then on.
+func (d *ProfileDoc) RemoveLayout(name string) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		if d.Profile.Engine.Defaults.Layout == name {
+			var err error
+			if text, err = removeDefaultLayout(text, name); err != nil {
+				return nil, err
+			}
+		}
+		return config.RemoveLayout(text, name)
+	})
+}
+
+// removeDefaultLayout takes the layout a profile starts with out of its
+// defaults, where the file names it.
+func removeDefaultLayout(text []byte, name string) ([]byte, error) {
+	out, err := config.Remove(text, config.Defaults, "layout")
+	if err != nil && bytes.Contains(text, []byte("[defaults]")) {
+		return nil, err
+	}
+	if err != nil {
+		return text, nil // no such section: nothing names it
+	}
+	return out, nil
+}
+
+// MoveLayout moves a layout one place towards the start (-1) or the end
+// (1) of the row the player steps through.
+func (d *ProfileDoc) MoveLayout(name string, by int) error {
+	return d.change(func(text []byte) ([]byte, error) { return config.MoveLayout(text, name, by) })
+}
+
+// DefaultLayout returns the layout an instrument starts with.
+func (d *ProfileDoc) DefaultLayout() string {
+	if name := d.Profile.Engine.Defaults.Layout; name != "" {
+		return name
+	}
+	if layouts := d.Layouts(); len(layouts) > 0 {
+		return layouts[0]
+	}
+	return ""
+}
+
+// SetDefaultLayout makes a layout the one an instrument starts with.
+func (d *ProfileDoc) SetDefaultLayout(name string) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		return config.Set(text, config.Defaults, "layout", strconv.Quote(name))
+	})
 }
 
 // SetDefault sets one of the numbers an instrument starts with: "octave",
@@ -271,12 +430,13 @@ func (d *ProfileDoc) SetDefault(key string, value int) error {
 	})
 }
 
-// change applies a change to the text, writes the file, and reads the
-// profile anew. On an error nothing is written and nothing changes.
+// change applies a change to the text that is shown and remembers how it
+// was before, so that the change can be taken back. On an error nothing
+// changes. Nothing is written; see [ProfileDoc.Save].
 //
-// The change is made to the file as it is now. Whoever edits it in an
-// editor beside the window, as the window itself tells to for what it
-// cannot change, must not lose that to the next click here.
+// If nothing here waits to be saved, the change is made to the file as it
+// is now: whoever edits it in an editor beside the window, as the window
+// itself tells to for what it cannot change, must not lose that.
 func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
 	if _, err := d.Reload(); err != nil {
 		return err
@@ -285,13 +445,18 @@ func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
 	if err != nil {
 		return err
 	}
+	if bytes.Equal(text, d.text) {
+		return nil
+	}
 	p, err := config.Parse(text)
 	if err != nil {
 		return err
 	}
-	if err := writeWhole(d.Path, text); err != nil {
-		return err
+	d.undo = append(d.undo, d.text)
+	if len(d.undo) > maxUndo {
+		d.undo = d.undo[len(d.undo)-maxUndo:]
 	}
+	d.redo = nil
 	p.Source = d.Path
 	d.text, d.Profile = text, p
 	return nil

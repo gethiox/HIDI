@@ -11,8 +11,57 @@ type Snapshot struct {
 	Version string `json:"version"`
 	// Active says whether HIDI is turned on.
 	Active bool `json:"active"`
+	// Learning says that learning mode is on: axes stand still until
+	// they are moved far.
+	Learning bool `json:"learning,omitempty"`
 	// Instruments are the running instruments, ordered by name.
 	Instruments []Instrument `json:"instruments"`
+	// Devices are the devices that are instruments or could be: those
+	// connected, and those HIDI has seen before.
+	Devices []Device `json:"devices,omitempty"`
+}
+
+// Device is a keyboard, a game controller or another device that a
+// profile selects.
+type Device struct {
+	Name string `json:"name"`
+	// Type is the kind of device, as in [Instrument].
+	Type string `json:"type"`
+	// Connected says that the device is there now.
+	Connected bool `json:"connected"`
+	// Allowed says that the settings let the device be an instrument.
+	Allowed bool `json:"allowed"`
+}
+
+// Trail is how busy an instrument was, step by step: the events of each
+// step alone, as a rate per second, the newest step last.
+type Trail struct {
+	// Seq counts the steps; it grows by one with each that is added.
+	Seq uint64 `json:"seq"`
+	// StepMS is the time one value covers, in milliseconds.
+	StepMS int `json:"step_ms"`
+	// Input is what came in from the device, and MIDI what went out.
+	Input []int `json:"input"`
+	MIDI  []int `json:"midi"`
+}
+
+// Key is what a key of the device does in the selected layout.
+type Key struct {
+	// Name is the key's name, such as "KEY_A".
+	Name string `json:"name"`
+	// Role is "note", "command", "passthrough", "controller", "bend" or
+	// "program".
+	Role string `json:"role"`
+	// Note, for a note, is its number before the instrument's octave and
+	// transposition are added.
+	Note int `json:"note,omitempty"`
+}
+
+// KeyLight is the colour of the light under a key.
+type KeyLight struct {
+	Name string `json:"name"`
+	// Colour is written as "#rrggbb".
+	Colour string `json:"colour"`
 }
 
 // Instrument is one running instrument.
@@ -53,6 +102,16 @@ type Instrument struct {
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate int `json:"input_rate"`
 	MIDIRate  int `json:"midi_rate"`
+	// Trail is how busy the instrument was over the last seconds.
+	Trail *Trail `json:"trail,omitempty"`
+	// Keys is what the bound keys do in the selected layout.
+	Keys []Key `json:"keys,omitempty"`
+	// Lit says that HIDI controls the lights of the keyboard. Lights are
+	// then the colours of the keys that have one of their own, and
+	// LightRest is the colour of every other key.
+	Lit       bool       `json:"lit,omitempty"`
+	Lights    []KeyLight `json:"lights,omitempty"`
+	LightRest string     `json:"light_rest,omitempty"`
 	// Buttons and Axes are the controls the device has reported so far,
 	// and where each stands: its raw input, before the profile.
 	Buttons []Button `json:"buttons"`
@@ -99,7 +158,16 @@ type request struct {
 	// EveryMS, for "watch", is the least time between two snapshots, in
 	// milliseconds. Zero leaves it to HIDI.
 	EveryMS int `json:"every_ms,omitempty"`
+	// File and Text, for "preview", are a profile file and the text HIDI
+	// is to use in its place until the file changes on disk; an empty
+	// Text ends that.
+	File string `json:"file,omitempty"`
+	Text string `json:"text,omitempty"`
 }
+
+// previewHead is how a preview request begins, byte for byte: such a
+// request may be longer than any other, and the server tells by this.
+const previewHead = `{"op":"preview"`
 
 // response is one answer. Exactly one field is set.
 type response struct {
@@ -114,6 +182,9 @@ type Host struct {
 	Snapshot func() Snapshot
 	// SetActive turns HIDI on or off.
 	SetActive func(active bool)
+	// SetLearning turns learning mode on or off. Nil for a host that
+	// has none.
+	SetLearning func(on bool)
 	// Changes tells when a snapshot would be different from the last.
 	Changes *Notifier
 	// LogLines returns the kept log lines numbered from to to-1, and
@@ -121,6 +192,10 @@ type Host struct {
 	// without a log.
 	LogLines func(from, to int) []LogLine
 	LogTotal func() int
+	// Preview makes HIDI use text in place of a profile file, without
+	// the file being written, until the file changes on disk or Preview
+	// is called with an empty text. Nil for a host that cannot.
+	Preview func(file, text string) error
 }
 
 // Notifier tells any number of listeners that something changed, without

@@ -192,6 +192,34 @@ func TestInstanceID(t *testing.T) {
 	}
 }
 
+// An open key gets through a grab, with its release; closed again, it is
+// swallowed like the others.
+func TestGateLetsOpenKeysThrough(t *testing.T) {
+	const space, a = 0x20, 0x41
+	var g gate
+	g.grabs.Add(1)
+	open := map[uint16]bool{57: true} // KEY_SPACE
+	g.open.Store(&open)
+	if g.swallowKey(space, 57, true, false) {
+		t.Error("the open key was swallowed")
+	}
+	if !g.swallowKey(a, 30, true, false) {
+		t.Error("another key got through the grab")
+	}
+	if g.swallowKey(space, 57, true, true) || !g.swallowKey(a, 30, true, true) {
+		t.Error("the releases did not follow the presses")
+	}
+	// A key whose code is not known cannot be an open one.
+	if !g.swallow(space, false) {
+		t.Error("a key without a known code got through")
+	}
+	g.swallow(space, true)
+	g.open.Store(nil)
+	if !g.swallowKey(space, 57, true, false) {
+		t.Error("the key still gets through after the grab was closed")
+	}
+}
+
 // A hidden key is swallowed without any grab; other keys pass.
 func TestGateHidesKeys(t *testing.T) {
 	var g gate

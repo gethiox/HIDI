@@ -79,11 +79,15 @@ type sourceState struct {
 	target    target
 	centering bool
 
-	// heldBack is the binding whose position was last kept back because
-	// the learn command was held, with that position; nil when the last
-	// position got through.
-	heldBack  *Binding
-	heldBackX float64
+	// last is the binding the source last drove with and lastX the
+	// position it had then, as the device reported it: what is sent may
+	// differ while the instrument is learning.
+	last  *Binding
+	lastX float64
+	// base is where the source stood when learning began, or when it
+	// first reported after that; hasBase says that there is one.
+	base    float64
+	hasBase bool
 }
 
 // State is a snapshot of an instrument, for display. It is comparable, so a
@@ -102,7 +106,8 @@ type State struct {
 	// Chord is the remembered chord as its intervals in semitones above
 	// the note played, such as "+4 +7", or empty when there is none.
 	Chord string
-	// Learning reports that axes are let through only when moved far.
+	// Learning reports that the instrument is in learning mode: axes
+	// stand still until they are moved far.
 	Learning bool
 	// Notes has a bit set for every note number that is on, on whatever
 	// channel: bit n%64 of element n/64 for note n.
@@ -158,6 +163,61 @@ type Engine struct {
 	now time.Time
 	// usedChannels has a bit set for every channel a note was sent on.
 	usedChannels uint16
+	// learning says that the instrument is in learning mode, and
+	// learnThreshold how far an axis has to move to get through then, as
+	// a part of its whole range. learnAsked says that the learn command
+	// was pressed and nobody has asked about it yet.
+	learning       bool
+	learnThreshold float64
+	learnAsked     bool
+}
+
+// DefaultLearnThreshold is how far an axis has to be moved to get through
+// in learning mode, unless it is set: a fifth of its range.
+const DefaultLearnThreshold = 0.2
+
+// SetLearning turns learning mode on or off and sets how far an axis has
+// to move in it, as a part of its whole range from 0 to 1.
+//
+// Learning mode is for teaching a program which controller to listen to.
+// Such a program takes the first controller it hears, and an axis that
+// trembles by one step, or a stick that is brushed, must not be that one.
+// So when the mode begins, every axis is taken to stand where it stands,
+// and what it sends stays exactly there until the axis has moved by more
+// than the threshold. From then on it sends where it is. When it comes
+// back within the threshold it sends the place it stood at again, and
+// stands still there. Keys are not affected.
+//
+// When the mode ends, every axis sends where it really is.
+func (e *Engine) SetLearning(on bool, threshold float64, out []midi.Message) []midi.Message {
+	if !(threshold > 0 && threshold <= 1) {
+		threshold = DefaultLearnThreshold
+	}
+	e.learnThreshold = threshold
+	if on == e.learning {
+		return out
+	}
+	e.learning = on
+	for _, st := range e.stateOrder {
+		switch {
+		case on:
+			st.base, st.hasBase = st.lastX, st.driving && st.last != nil
+		case st.driving && st.last != nil:
+			st.hasBase = false
+			out = e.drive(st, st.last, st.lastX, out)
+		}
+	}
+	return out
+}
+
+// LearnRequested reports whether the learn command was pressed since the
+// last call. The command asks for learning mode to be turned on or off;
+// whoever owns the engine does that, for all instruments at once, with
+// [Engine.SetLearning].
+func (e *Engine) LearnRequested() bool {
+	asked := e.learnAsked
+	e.learnAsked = false
+	return asked
 }
 
 // New returns an engine for the profile, in the profile's default state. It
@@ -213,7 +273,7 @@ func (e *Engine) State() State {
 		Sounding:  e.soundingNotes,
 		Notes:     e.noteBits,
 		Chord:     e.chordText,
-		Learning:  e.held[CommandLearn] > 0,
+		Learning:  e.learning,
 	}
 }
 
@@ -396,23 +456,8 @@ func (e *Engine) release(st *sourceState, out []midi.Message) []midi.Message {
 		if e.held[a] > 0 {
 			e.held[a]--
 		}
-		if a == CommandLearn && e.held[a] == 0 {
-			out = e.catchUp(out)
-		}
 	}
 	st.pressed, st.latched = false, nil
-	return out
-}
-
-// catchUp sends the positions that were kept back while the learn command
-// was held, now that it is not.
-func (e *Engine) catchUp(out []midi.Message) []midi.Message {
-	for _, st := range e.stateOrder {
-		if b := st.heldBack; b != nil {
-			st.heldBack = nil
-			out = e.drive(st, b, st.heldBackX, out)
-		}
-	}
 	return out
 }
 
@@ -487,16 +532,22 @@ func (e *Engine) noteOff(ref noteRef, out []midi.Message) []midi.Message {
 // drive sends the position x of a source to the target of its
 // position-following action.
 func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Message) []midi.Message {
+	st.last, st.lastX = b, x
 	// A key that drives a controller is deliberate and always gets
 	// through; so does its release.
-	if e.held[CommandLearn] > 0 && b.Source.Code.Kind == control.KindAxis && math.Abs(x) <= learnThreshold {
-		// Kept back, and remembered: when the command is let go of, the
-		// target must end where the axis is. A stick that was pushed out
-		// and came back to rest meanwhile would leave the pitch bent.
-		st.heldBack, st.heldBackX = b, x
-		return out
+	if e.learning && b.Source.Code.Kind == control.KindAxis {
+		if !st.hasBase {
+			st.base, st.hasBase = x, true // its first word since learning began
+		}
+		// The range of a centered source runs from -1 to 1.
+		span := 1.0
+		if b.Source.bipolar() {
+			span = 2
+		}
+		if math.Abs(x-st.base) <= e.learnThreshold*span {
+			x = st.base
+		}
 	}
-	st.heldBack = nil
 	var t target
 	var value, rest uint32
 	switch a := b.Action.(type) {
@@ -616,6 +667,8 @@ func (e *Engine) commandPress(c Command, out []midi.Message) []midi.Message {
 		out = e.panic(out)
 	case CommandChord:
 		e.rememberChord()
+	case CommandLearn:
+		e.learnAsked = true
 	}
 	return out
 }
@@ -643,10 +696,6 @@ func touchVelocity(travel time.Duration) uint8 {
 	fraction := math.Log(float64(travel)/float64(fastTouch)) / math.Log(float64(slowTouch)/float64(fastTouch))
 	return uint8(127 - fraction*126 + 0.5)
 }
-
-// learnThreshold is how far an axis has to be moved to get through while
-// CommandLearn is held: more than halfway from rest.
-const learnThreshold = 0.5
 
 // rememberChord takes the chord from the notes that are held: the
 // intervals of the notes played above the lowest of them. Notes that sound
@@ -764,7 +813,7 @@ func (e *Engine) Reset(out []midi.Message) []midi.Message {
 		if st.pressed {
 			out = e.release(st, out)
 		}
-		st.driving, st.heldBack = false, nil
+		st.driving, st.hasBase = false, false
 	}
 	for _, t := range e.targetOrder {
 		out = e.rest(t, out)

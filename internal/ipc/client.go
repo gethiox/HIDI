@@ -65,6 +65,41 @@ func (c *Client) ask(ctx context.Context, op string) (Snapshot, error) {
 	return *resp.Snapshot, nil
 }
 
+// Preview makes the running HIDI use text in place of a profile file,
+// without the file being written: for trying a change before it is saved.
+// It lasts until the file changes on disk; an empty text ends it at once.
+func (c *Client) Preview(ctx context.Context, file, text string) error {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	// Written by hand so that it begins the way the server tells it by.
+	rest, err := json.Marshal(struct {
+		File string `json:"file"`
+		Text string `json:"text"`
+	}{file, text})
+	if err != nil {
+		return err
+	}
+	if _, err := conn.Write(append([]byte(previewHead+","), append(rest[1:], '\n')...)); err != nil {
+		return fmt.Errorf("asking HIDI: %w", err)
+	}
+	var resp response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return fmt.Errorf("reading HIDI's answer: %w", err)
+	}
+	if resp.Error != "" {
+		return errors.New("HIDI answered: " + resp.Error)
+	}
+	return nil
+}
+
+// ToggleLearning turns learning mode on if it is off and off if it is on,
+// and returns the state afterwards.
+func (c *Client) ToggleLearning(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "learn") }
+
 // Status returns the current state.
 func (c *Client) Status(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "status") }
 

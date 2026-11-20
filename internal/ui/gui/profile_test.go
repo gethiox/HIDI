@@ -60,6 +60,9 @@ func TestProfileDoc(t *testing.T) {
 	}
 
 	// The file has them, a fresh reading agrees, and the rest is as it was.
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
 	again, err := OpenProfile(path)
 	if err != nil {
 		t.Fatalf("the changed file: %v", err)
@@ -79,6 +82,7 @@ func TestProfileDoc(t *testing.T) {
 	if again.Profile.Engine.Defaults.Velocity != 99 {
 		t.Errorf("velocity = %d", again.Profile.Engine.Defaults.Velocity)
 	}
+	doc.Save()
 	text, _ := os.ReadFile(path)
 	if !strings.HasPrefix(string(text), "# Changed by hand, and it has to stay.\n") {
 		t.Error("the note at the top of the file is gone")
@@ -150,6 +154,9 @@ func TestProfileDocAxes(t *testing.T) {
 		t.Error("controller 128 was accepted")
 	}
 
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
 	again, err := OpenProfile(path)
 	if err != nil {
 		t.Fatalf("the changed file is not a profile any more: %v", err)
@@ -163,6 +170,7 @@ func TestProfileDocAxes(t *testing.T) {
 	if r := again.Role(layout, absX); r.Kind != RoleController || r.Shape.Deadzone != 0 || !r.Shape.Centered {
 		t.Errorf("ABS_X afterwards: %+v", r)
 	}
+	doc.Save()
 	text, _ := os.ReadFile(path)
 	for _, want := range []string{"ABS_Z = { cc = 74, invert = true }", "ABS_MISC = { pitch_bend = true, centered = true, deadzone = 0.05 }", "ABS_X = { cc = 0, centered = true }"} {
 		if !strings.Contains(string(text), want) {
@@ -223,6 +231,7 @@ func TestProfileDocKeepsOptions(t *testing.T) {
 	if err := doc.SetBend("L", absY, y.Shape); err != nil {
 		t.Fatal(err)
 	}
+	doc.Save()
 	text, _ := os.ReadFile(doc.Path)
 	for _, want := range []string{
 		`KEY_A = { note = "C#3", velocity = 90, channel_offset = 2 }`,
@@ -243,7 +252,7 @@ func TestProfileDocOtherSpelling(t *testing.T) {
 	if err := doc.SetNote("L", south, 64); err != nil {
 		t.Fatal(err)
 	}
-	if text, _ := os.ReadFile(doc.Path); !strings.Contains(string(text), `BTN_A = "E3"`) {
+	if text := doc.Text(); !strings.Contains(string(text), `BTN_A = "E3"`) {
 		t.Errorf("the line of BTN_A was not changed:\n%s", text)
 	}
 	if err := doc.Clear("L", south); err != nil {
@@ -254,8 +263,9 @@ func TestProfileDocOtherSpelling(t *testing.T) {
 	}
 }
 
-// A change made to the file in an editor while the page is open is kept
-// by the next change made in the window, and shown.
+// A change made to the file in an editor while the page is open and has
+// nothing unsaved is kept by the next change made in the window, and
+// shown.
 func TestProfileDocKeepsHandEdits(t *testing.T) {
 	doc := openText(t, optionsProfile)
 	byHand := optionsProfile + "KEY_Z = \"C1\" # by hand\n"
@@ -263,6 +273,9 @@ func TestProfileDocKeepsHandEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := doc.SetDefault("octave", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Save(); err != nil {
 		t.Fatal(err)
 	}
 	text, _ := os.ReadFile(doc.Path)
@@ -273,14 +286,131 @@ func TestProfileDocKeepsHandEdits(t *testing.T) {
 		t.Errorf("the key added by hand is not shown: %+v", r)
 	}
 
-	// A file that was broken meanwhile is not written over.
+	// A file that was broken meanwhile is not taken over, and nothing is
+	// changed on top of it.
 	if err := os.WriteFile(doc.Path, []byte("schema = 1\nnonsense = true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := doc.SetDefault("octave", 2); err == nil {
-		t.Error("a change was written into a file with mistakes")
+		t.Error("a change was made on top of a file with mistakes")
 	}
-	if text, _ := os.ReadFile(doc.Path); !strings.Contains(string(text), "nonsense") {
-		t.Error("the broken file was written over")
+	if doc.Dirty() {
+		t.Error("the refused change waits to be saved")
+	}
+}
+
+// Changes wait to be saved, can be taken back and made again, and the
+// file is written only when asked.
+func TestProfileDocUndoAndSave(t *testing.T) {
+	doc := openText(t, optionsProfile)
+	onDisk := func() string { text, _ := os.ReadFile(doc.Path); return string(text) }
+	if doc.Dirty() || doc.CanUndo() || doc.CanRedo() || doc.Undo() || doc.Redo() {
+		t.Fatal("a file that was just opened has changes")
+	}
+	keyQ := control.Key(16)
+	if err := doc.SetNote("L", keyQ, 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetNote("L", keyQ, 62); err != nil {
+		t.Fatal(err)
+	}
+	if !doc.Dirty() || onDisk() != optionsProfile {
+		t.Fatal("a change was written without being saved, or does not count as unsaved")
+	}
+	// Back one step, back two, forward one.
+	if !doc.Undo() || doc.Role("L", keyQ).Note != 60 {
+		t.Errorf("after one step back: %+v", doc.Role("L", keyQ))
+	}
+	if !doc.Undo() || doc.Role("L", keyQ).Kind != RoleNone || doc.Dirty() {
+		t.Errorf("after two steps back: %+v, unsaved %v", doc.Role("L", keyQ), doc.Dirty())
+	}
+	if !doc.Redo() || doc.Role("L", keyQ).Note != 60 || !doc.CanRedo() {
+		t.Errorf("after one step forward: %+v", doc.Role("L", keyQ))
+	}
+	// A new change ends what could be made again.
+	if err := doc.SetNote("L", keyQ, 64); err != nil {
+		t.Fatal(err)
+	}
+	if doc.CanRedo() {
+		t.Error("a change that was taken back can be made again after a new one")
+	}
+	// A change that changes nothing is none.
+	steps := len(doc.undo)
+	if err := doc.SetNote("L", keyQ, 64); err != nil || len(doc.undo) != steps {
+		t.Errorf("the same note again: %v, %d steps, want %d", err, len(doc.undo), steps)
+	}
+
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Dirty() || onDisk() != string(doc.Text()) || !strings.Contains(onDisk(), `KEY_Q = "E3"`) {
+		t.Errorf("after saving: unsaved %v\n%s", doc.Dirty(), onDisk())
+	}
+	// Saved is not the end of taking back.
+	if !doc.Undo() || !doc.Dirty() {
+		t.Error("nothing to take back after saving")
+	}
+	doc.Revert()
+	if doc.Dirty() || doc.Role("L", keyQ).Note != 64 {
+		t.Errorf("after dropping what is not saved: %+v", doc.Role("L", keyQ))
+	}
+
+	// Other hands change the file while something waits here: what is
+	// shown stays, and the page knows.
+	if err := doc.SetNote("L", keyQ, 65); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(doc.Path, []byte(optionsProfile+"KEY_Z = \"C1\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := doc.Reload(); changed || err != nil || !doc.Elsewhere || doc.Role("L", keyQ).Note != 65 {
+		t.Errorf("Reload with unsaved changes: %v %v, elsewhere %v", changed, err, doc.Elsewhere)
+	}
+	if err := doc.Save(); err != nil || doc.Elsewhere || strings.Contains(onDisk(), "KEY_Z") {
+		t.Errorf("saving over the other change: %v, elsewhere %v", err, doc.Elsewhere)
+	}
+}
+
+// Layouts are added, removed, put in another order, and one is chosen to
+// start with.
+func TestProfileDocLayouts(t *testing.T) {
+	doc := openText(t, optionsProfile)
+	if doc.DefaultLayout() != "L" {
+		t.Fatalf("the profile starts with %q", doc.DefaultLayout())
+	}
+	if err := doc.AddLayout("Second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.AddLayout("Third"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(doc.Layouts(), ","); got != "L,Second,Third" {
+		t.Errorf("layouts: %s", got)
+	}
+	if err := doc.SetNote("Third", control.Key(16), 60); err != nil {
+		t.Errorf("a note in a new layout: %v", err)
+	}
+	if err := doc.MoveLayout("Third", -1); err != nil || strings.Join(doc.Layouts(), ",") != "L,Third,Second" {
+		t.Errorf("moved: %v, %v", doc.Layouts(), err)
+	}
+	if err := doc.SetDefaultLayout("Third"); err != nil || doc.DefaultLayout() != "Third" {
+		t.Errorf("default: %q, %v", doc.DefaultLayout(), err)
+	}
+	// Removing the layout the profile starts with leaves it starting
+	// with the first.
+	if err := doc.RemoveLayout("Third"); err != nil || doc.DefaultLayout() != "L" {
+		t.Errorf("removed: %v, starts with %q, %v", doc.Layouts(), doc.DefaultLayout(), err)
+	}
+	if err := doc.RemoveLayout("Second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.RemoveLayout("L"); err == nil {
+		t.Error("the last layout was removed")
+	}
+	// Every step can be taken back.
+	for doc.Undo() {
+	}
+	if string(doc.Text()) != optionsProfile {
+		t.Errorf("taking everything back does not give the file as it was:\n%s", doc.Text())
 	}
 }

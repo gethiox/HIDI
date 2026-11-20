@@ -26,7 +26,7 @@ func Devices(problem func(what string, err error)) (*Source, error) {
 	if err != nil {
 		pads = nil
 	}
-	w, err := rawinput.Watch(rawinput.Options{SkipXInput: pads != nil})
+	w, err := rawinput.Watch(rawinput.Options{SkipXInput: pads != nil, Problem: problem})
 	if err != nil {
 		if pads != nil {
 			pads.Close()

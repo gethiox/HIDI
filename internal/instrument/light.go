@@ -3,6 +3,8 @@ package instrument
 import (
 	"sync"
 
+	"github.com/gethiox/HIDI/internal/control"
+
 	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/midi"
 )
@@ -11,6 +13,9 @@ import (
 type Light interface {
 	// Show makes the lights show a scene. It must return at once.
 	Show(light.Scene)
+	// Painted returns what the keyboard shows, as [light.Lamp.Painted]
+	// does.
+	Painted() (keys map[control.Code]light.RGB, rest light.RGB, lit bool)
 	// Close ends the use of the lights.
 	Close()
 }

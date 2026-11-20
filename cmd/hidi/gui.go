@@ -24,6 +24,7 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 	fs.IntVar(&opts.LogHeight, "log-height", 0, "open the window with the log pulled up this many pixels")
 	fs.StringVar(&opts.Screenshot, "screenshot", "", "save a picture of the window to this file after a moment, then close it")
 	fs.BoolVar(&opts.ShowSettings, "settings", false, "open the window with the settings showing")
+	fs.BoolVar(&opts.ShowAll, "show-all", false, "draw the input and the notes of every instrument, whatever the settings say")
 	fs.StringVar(&opts.EditProfile, "edit", "", "open the window with this profile `file`, ready to be changed")
 	root, _ := placeFlags(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {

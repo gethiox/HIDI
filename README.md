@@ -108,6 +108,8 @@ hidi
 The instruments run, and an icon appears in the tray. No window opens.
 
 - A click on the icon opens the window.
+- A click with the middle button turns HIDI off and on.
+- While learning mode is on, the icon blinks between green and yellow.
 - The icon's menu lists the instruments, turns HIDI on and off, and ends it
   with "Quit HIDI".
 - The colour of the icon tells whether HIDI is on or off.
@@ -163,10 +165,32 @@ turns HIDI off and on" in the
 
 ## The window
 
-Each instrument shows its state, what its device reports, and the notes that
-are played because of it. A keyboard is drawn as a full-size keyboard with
-the keys that are down lit. Every other device shows the buttons and axes it
-has reported so far. The switch at the top turns HIDI on and off.
+Each instrument has two lines: its name and profile, and its state. Behind
+them runs a curve of the last twelve seconds, a tenth of a second at a
+time: green for what came in from the device, yellow for what went out as
+MIDI. The two numbers for it take
+the same colours while they are not zero, and the top of the window has them
+for all instruments together.
+The switches "input" and "output" beside "show" add what the device reports
+and the notes that are played because of it; the window remembers them for
+every device.
+
+A keyboard is drawn as a full-size keyboard. Every key has the colour of
+what it does in the layout that is selected, and the keys that are down
+stand out. Where HIDI lights the keyboard through OpenRGB, the keys also
+glow in the colours of their lights, so the drawing shows what the keyboard
+shows. Every other device shows the buttons and axes it has reported so far.
+While HIDI is off, what is pressed shows in grey.
+
+The small switch beside it is learning mode, for teaching a program which
+controller to listen to: every axis stands still until it is moved by more
+than a fifth of its range, so that the program hears only the one you mean.
+The icon in the tray blinks green and yellow meanwhile, and its menu has the
+switch too.
+
+![The instruments as they are first shown, in two lines each](docs/images/gui-compact.png)
+
+The switch at the top turns HIDI on and off.
 
 The log lives in the bar at the bottom, which shows its last line, faint.
 Pull the bar up, or click it, for the whole log, and choose the least severe
@@ -181,15 +205,21 @@ instruments. A click beside the sheet closes it.
 
 ![The settings](docs/images/gui-settings.png)
 
-Everything in `settings.toml` except the lights can be changed there. A
-running HIDI takes most of it over within a few seconds; the page says what
-matters only at the next start.
+What is in `settings.toml` can be changed there. A running HIDI takes most
+of it over within a few seconds; the page says what matters only at the next
+start.
 
 - "Change" beside the toggle combination takes a new one from the keyboard:
   press the keys together and let go. One key alone works too, and can then
   be made to work by a tap.
+- "Devices that play" chooses which devices become instruments: with
+  "blacklist" every one except those you tick, with "whitelist" only those
+  you tick. The list has the devices
+  that are connected and, in grey, those HIDI has seen before.
 - "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
   makes every instrument send there as well.
+- "Colours of the keys" are the colours of the lights. Click one and move
+  the three sliders; the keyboard follows when you let go.
 
 Below them are the places where
 settings and profiles are kept, with buttons that open them in the file
@@ -213,11 +243,26 @@ reversed, and a dead zone.
 
 ![Changing a keyboard's profile](docs/images/gui-profile.png)
 
-Every change is written to the file at once, as a change of that one line:
-notes you wrote into the file by hand stay. A running HIDI follows within a
-few seconds. Program changes, keys that need a modifier, the two directions
-of an axis bound apart, and the options of a note are shown where they apply
-and changed in the file. So are adding a layout and making a new profile.
+Nothing is written until you save, with the disk in the corner or Ctrl+S.
+The disk is yellow while there is something to save. A running HIDI plays
+with the profile as it is shown, saved or not, so a change can be tried at
+once; the file counts again when you take the changes back. "Undo" and
+"Redo", or Ctrl+Z and Ctrl+Y, go back and forth through the changes. If you
+leave the page with changes on it they stay there, and a yellow dot on the
+way back to it says so.
+
+The row of layouts chooses the one that is shown. The box beside a layout
+makes it the one an instrument starts with. Below it are the buttons that
+move the layout earlier or later in the row the player steps through, remove
+it, and add a new one.
+
+The keys for all this reach the window only while the keyboard is not
+HIDI's alone: turn HIDI off, or use the buttons.
+
+Saving changes the lines that changed and nothing else: notes you wrote into
+the file by hand stay. Program changes, keys that need a modifier, the two
+directions of an axis bound apart, and the options of a note are shown where
+they apply and changed in the file. So is making a new profile.
 
 The window needs 64-bit Linux or Windows with OpenGL 3.3.
 
@@ -353,7 +398,17 @@ also when it starts later.
 - The command keys show state: the octave and transpose keys grow brighter
   the further they have been used, the layout keys dim at the first and last
   layout, the channel keys take the colour of the channel, panic is red.
-- While HIDI is off the keyboard is lit evenly, and types.
+- Keys that are left to the system have a colour of their own.
+- While HIDI is off the keyboard is lit evenly, and types; a key that is
+  held lights up.
+
+Every one of these colours can be changed, in the window's settings or under
+`[lights.colours]` in `settings.toml`.
+
+How fast the lights follow is up to the keyboard, which takes some tens of
+milliseconds to be written. HIDI sends a change at once and the next one as
+soon as OpenRGB has taken the one before, so nothing queues up behind a slow
+keyboard.
 
 With the lights on, each instrument's MIDI device can also be sent to. Notes
 another program sends there, a DAW playing a track for one, light the keys
@@ -445,6 +500,37 @@ Windows MIDI Services.
 
 `hidi --headless -v` logs every device HIDI looked at and why it left it
 alone, and `--log-midi` every MIDI message it sends.
+
+### Valve's Steam Controller
+
+On Linux the kernel's `hid-steam` driver presents Valve's controllers as
+game controllers, and HIDI plays them with a profile of its own, "Steam
+Controller": the stick bends the pitch, the trackpads and triggers send
+controllers, the buttons and paddles play notes.
+
+- Steam must not be running. While it is, it takes the controller for
+  itself and the kernel takes the game controller away.
+- The controller of 2015 works with any current kernel. While HIDI has it
+  open, its pads stop moving the mouse.
+- The controller of 2026 and the Steam Deck's controls need a kernel that
+  knows them; for the controller of 2026 that is a very recent one. They
+  start as a mouse and keyboard, and send nothing to HIDI until you hold
+  the button with the three lines (Start) for half a second, which
+  switches them to being a game controller. The same again switches back.
+- The motion sensors show up as a part called "Motion Sensors"; the
+  profile does not use them.
+
+On Windows HIDI reads the controller of 2026 itself, by cable, by Bluetooth
+and through its wireless receiver. Windows only sees a mouse and a keyboard
+in it; HIDI tells the controller to stop being those and listens to what it
+reports of its own. When HIDI ends, the controller is a mouse and a keyboard
+again. Close Steam first: two programs telling the controller what to be do
+not get along. This part was written from the Linux driver without a
+controller at hand, so tell what you find.
+
+The controller of 2015 and the Steam Deck's controls are not read on Windows
+yet. With Steam running and its controller support turned on, Steam presents
+them as an Xbox controller, which HIDI plays like any other.
 
 ### Beside an input remapper
 

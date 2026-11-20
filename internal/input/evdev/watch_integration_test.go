@@ -402,3 +402,71 @@ func TestDevicePass(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// A shared device is held from the system like a grabbed one, except for
+// the open keys, which are typed again on a keyboard of HIDI's own.
+func TestDeviceShare(t *testing.T) {
+	const keyA, keyB, keySpace = 30, 48, 57
+	board := createVirtualDevice(t, virtualSpec{name: "HIDI test share", phys: "hidi-share-test/input0", keys: []uint16{keyA, keyB, keySpace}})
+	w := startWatcher(t)
+	d := awaitDevice(t, w, "HIDI test share")
+	direct := startReader(openNode(t, board.path))
+
+	// A key the device does not have is no reason to fail.
+	if err := d.Share([]control.Code{control.Key(keySpace), control.Key(200)}); err != nil {
+		t.Fatal(err)
+	}
+	d.pass.mu.Lock()
+	through := startReader(openNode(t, d.pass.out.Path))
+	d.pass.mu.Unlock()
+
+	// An ordinary key reaches HIDI and nobody else.
+	board.emit(evKey, keyA, 1)
+	board.emit(evKey, keyA, 0)
+	awaitEvent(t, d)
+	awaitEvent(t, d)
+	if !through.quiet() || !direct.quiet() {
+		t.Error("a key that is not open reached the system")
+	}
+
+	// The open key reaches both, the system through HIDI's keyboard.
+	board.emit(evKey, keySpace, 1)
+	if got := awaitEvent(t, d); got.Code != control.Key(keySpace) || !got.Pressed() {
+		t.Errorf("HIDI got %v, want KEY_SPACE pressed", got)
+	}
+	if got := through.next(t); got.Code != control.Key(keySpace) || !got.Pressed() {
+		t.Errorf("passed on %v, want KEY_SPACE pressed", got)
+	}
+	if !direct.quiet() {
+		t.Error("the device itself still delivers keys to others")
+	}
+
+	// Shared anew without it while it is down: the system gets its
+	// release, and nothing of it after that.
+	if err := d.Share([]control.Code{control.Key(keyB)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := through.next(t); got.Code != control.Key(keySpace) || got.Pressed() {
+		t.Errorf("on the change the system got %v, want KEY_SPACE released", got)
+	}
+	board.emit(evKey, keySpace, 0)
+	awaitEvent(t, d)
+	board.emit(evKey, keyB, 1)
+	awaitEvent(t, d)
+	if got := through.next(t); got.Code != control.Key(keyB) || !got.Pressed() {
+		t.Errorf("passed on %v, want KEY_B pressed", got)
+	}
+
+	// A plain grab ends the sharing and lets go of what was passed on.
+	if err := d.Grab(); err != nil {
+		t.Fatal(err)
+	}
+	if got := through.next(t); got.Code != control.Key(keyB) || got.Pressed() {
+		t.Errorf("on the grab the system got %v, want KEY_B released", got)
+	}
+	board.emit(evKey, keyB, 0)
+	awaitEvent(t, d)
+	if !through.quiet() || !direct.quiet() {
+		t.Error("keys reached the system while the device was grabbed")
+	}
+}

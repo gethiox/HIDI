@@ -11,12 +11,15 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/config"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
+	"github.com/gethiox/HIDI/internal/settings"
 )
 
 // socketFlag adds the option that names the control socket.
@@ -29,11 +32,12 @@ func socketFlag(fs *pflag.FlagSet) *string {
 }
 
 // controlHost is the running HIDI as the control interface sees it.
-func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.Notifier) ipc.Host {
+func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.Notifier, seen *seenDevices) ipc.Host {
 	return ipc.Host{
-		Snapshot:  func() ipc.Snapshot { return snapshot(manager) },
-		SetActive: manager.SetActive,
-		Changes:   changes,
+		Snapshot:    func() ipc.Snapshot { return withDevices(snapshot(manager), manager, seen) },
+		SetActive:   manager.SetActive,
+		SetLearning: manager.SetLearning,
+		Changes:     changes,
 		LogLines: func(from, to int) []ipc.LogLine {
 			lines, first := logs.Lines(from, to)
 			out := make([]ipc.LogLine, len(lines))
@@ -46,8 +50,49 @@ func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.No
 	}
 }
 
+// withDevices adds the devices to a snapshot: those connected, and those
+// met before that are not, ordered by name.
+func withDevices(s ipc.Snapshot, manager *instrument.Manager, seen *seenDevices) ipc.Snapshot {
+	connected := map[seenDevice]bool{}
+	for _, d := range manager.Devices() {
+		known := seenDevice{Name: logging.Printable(d.Info.Name), Type: d.Info.Type.String()}
+		if connected[known] {
+			continue // two of a model show as one
+		}
+		connected[known] = true
+		seen.note(known)
+		s.Devices = append(s.Devices, ipc.Device{Name: known.Name, Type: known.Type, Connected: true, Allowed: d.Allowed})
+	}
+	for _, d := range seen.all() {
+		if !connected[d] {
+			s.Devices = append(s.Devices, ipc.Device{Name: d.Name, Type: d.Type})
+		}
+	}
+	slices.SortFunc(s.Devices, func(a, b ipc.Device) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Type, b.Type))
+	})
+	return s
+}
+
+// keyRole names what a key does, for the snapshot.
+func keyRole(action engine.Action) (role string, note int) {
+	switch a := action.(type) {
+	case engine.Note:
+		return "note", int(a.Note)
+	case engine.Command:
+		return "command", 0
+	case engine.Passthrough:
+		return "passthrough", 0
+	case engine.ControlChange:
+		return "controller", 0
+	case engine.PitchBend:
+		return "bend", 0
+	}
+	return "program", 0
+}
+
 func snapshot(manager *instrument.Manager) ipc.Snapshot {
-	s := ipc.Snapshot{Version: buildinfo.Get().String(), Active: manager.Active(), Instruments: []ipc.Instrument{}}
+	s := ipc.Snapshot{Version: buildinfo.Get().String(), Active: manager.Active(), Learning: manager.Learning(), Instruments: []ipc.Instrument{}}
 	for _, st := range manager.Status() {
 		buttons := make([]ipc.Button, len(st.Input.Buttons))
 		for i, b := range st.Input.Buttons {
@@ -57,7 +102,27 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 		for i, a := range st.Input.Axes {
 			axes[i] = ipc.Axis{Name: a.Code.String(), Part: a.Part, Value: a.Value}
 		}
+		keys := make([]ipc.Key, len(st.Keys))
+		for i, k := range st.Keys {
+			role, note := keyRole(k.Action)
+			keys[i] = ipc.Key{Name: k.Code.String(), Role: role, Note: note}
+		}
+		var lights []ipc.KeyLight
+		rest := ""
+		if st.Lit {
+			rest = settings.FormatColour(st.LightRest)
+			lights = make([]ipc.KeyLight, 0, len(st.Lights))
+			for code, colour := range st.Lights {
+				lights = append(lights, ipc.KeyLight{Name: code.String(), Colour: settings.FormatColour(colour)})
+			}
+			slices.SortFunc(lights, func(a, b ipc.KeyLight) int { return cmp.Compare(a.Name, b.Name) })
+		}
 		s.Instruments = append(s.Instruments, ipc.Instrument{
+			Trail:       &ipc.Trail{Seq: st.Trail.Seq, StepMS: int(st.Trail.Step / time.Millisecond), Input: st.Trail.Input, MIDI: st.Trail.MIDI},
+			Keys:        keys,
+			Lit:         st.Lit,
+			Lights:      lights,
+			LightRest:   rest,
 			Buttons:     buttons,
 			Axes:        axes,
 			Name:        logging.Printable(st.Device.Name),
@@ -114,7 +179,7 @@ func describe(w io.Writer, s ipc.Snapshot) {
 			fmt.Fprintf(w, "  chord %s\n", in.Chord)
 		}
 		if in.Learning {
-			fmt.Fprintln(w, "  learning: axes get through only when moved far")
+			fmt.Fprintln(w, "  learning: axes stand still until they are moved far")
 		}
 	}
 }
