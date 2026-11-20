@@ -476,3 +476,22 @@ func TestParsePassthrough(t *testing.T) {
 		}
 	}
 }
+
+// Valve's controllers get the profile made for them, whichever of them it
+// is; other game controllers keep the general one.
+func TestBuiltinSteamController(t *testing.T) {
+	profiles, err := Builtin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, product := range []uint16{0x1102, 0x1142, 0x1205, 0x1302} {
+		info := control.DeviceInfo{Type: control.DeviceGamepad, Hardware: control.HardwareID{Bus: 3, Vendor: 0x28de, Product: product}}
+		if p := Select(profiles, info); p == nil || p.Name != "Steam Controller" {
+			t.Errorf("product %#04x gets %v", product, p)
+		}
+	}
+	other := control.DeviceInfo{Type: control.DeviceGamepad, Hardware: control.HardwareID{Bus: 3, Vendor: 0x045e, Product: 0x028e}}
+	if p := Select(profiles, other); p == nil || p.Name != "Default gamepad" {
+		t.Errorf("another game controller gets %v", p)
+	}
+}
