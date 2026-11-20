@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -132,6 +133,11 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	model.SetMinLevel(1) // from INFO up
 
 	rl.SetTraceLogLevel(rl.LogError)
+	if os.Getenv("HIDI_RAYLIB_LOG") != "" {
+		// For finding faults: everything the library that opens the
+		// window has to say, on the standard output.
+		rl.SetTraceLogLevel(rl.LogAll)
+	}
 	// Drawing waits for the monitor, whatever its refresh rate is. The
 	// library that opens the window does not keep the system or the
 	// display awake.

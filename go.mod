@@ -17,4 +17,4 @@ require (
 	github.com/jupiterrider/ffi v0.8.0 // indirect
 )
 
-replace github.com/gen2brain/raylib-go/raylib => github.com/gethiox/raylib-go/raylib v0.0.0-20261120172339-9201db56d9b4
+replace github.com/gen2brain/raylib-go/raylib => github.com/gethiox/raylib-go/raylib v0.0.0-20261120175209-db320c4ca904
