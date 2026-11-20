@@ -141,7 +141,16 @@ type request struct {
 	// EveryMS, for "watch", is the least time between two snapshots, in
 	// milliseconds. Zero leaves it to HIDI.
 	EveryMS int `json:"every_ms,omitempty"`
+	// File and Text, for "preview", are a profile file and the text HIDI
+	// is to use in its place until the file changes on disk; an empty
+	// Text ends that.
+	File string `json:"file,omitempty"`
+	Text string `json:"text,omitempty"`
 }
+
+// previewHead is how a preview request begins, byte for byte: such a
+// request may be longer than any other, and the server tells by this.
+const previewHead = `{"op":"preview"`
 
 // response is one answer. Exactly one field is set.
 type response struct {
@@ -163,6 +172,10 @@ type Host struct {
 	// without a log.
 	LogLines func(from, to int) []LogLine
 	LogTotal func() int
+	// Preview makes HIDI use text in place of a profile file, without
+	// the file being written, until the file changes on disk or Preview
+	// is called with an empty text. Nil for a host that cannot.
+	Preview func(file, text string) error
 }
 
 // Notifier tells any number of listeners that something changed, without

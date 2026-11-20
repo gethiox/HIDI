@@ -493,7 +493,23 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		close(footerDone)
 	}
 	served := make(chan struct{})
+	// Profiles the window tries before they are saved take the place of
+	// their files.
+	tried := &previews{profiles: profiles}
 	host := controlHost(manager, logs, &changes, loadSeen(pl.paths.Seen))
+	host.Preview = func(file, text string) error {
+		now, err := tried.set(file, text)
+		if err != nil {
+			return err
+		}
+		manager.SetProfiles(now)
+		if text == "" {
+			configLog.Info("a profile is no longer tried; its file counts again", "file", file)
+		} else {
+			configLog.Debug("trying a profile that is not saved", "file", file)
+		}
+		return nil
+	}
 	if server != nil {
 		go func() {
 			defer close(served)
@@ -524,7 +540,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		go config.Watch(ctx, pl.profiles, time.Second, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
 			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
-			manager.SetProfiles(profiles)
+			manager.SetProfiles(tried.loaded(profiles))
 		})
 	}
 	if pl.settingsFile != "" {

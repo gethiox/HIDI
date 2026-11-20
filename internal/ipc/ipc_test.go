@@ -23,6 +23,8 @@ type fakeHost struct {
 	active bool
 	notes  int
 	log    []LogLine
+	// previewed is what was last asked to be tried.
+	previewed [2]string
 }
 
 func (h *fakeHost) host() Host {
@@ -41,6 +43,15 @@ func (h *fakeHost) host() Host {
 			h.changes.Notify()
 		},
 		Changes: &h.changes,
+		Preview: func(file, text string) error {
+			if text == "broken" {
+				return errors.New("line 1: this is no profile")
+			}
+			h.mu.Lock()
+			h.previewed = [2]string{file, text}
+			h.mu.Unlock()
+			return nil
+		},
 		LogLines: func(from, to int) []LogLine {
 			h.mu.Lock()
 			defer h.mu.Unlock()
@@ -456,5 +467,39 @@ func TestListenAtTheSameMoment(t *testing.T) {
 				s.Close()
 			}
 		}
+	}
+}
+
+// A profile is tried through the socket: its text arrives whole, also when
+// it is far longer than any other request may be, and what HIDI makes of
+// it comes back.
+func TestPreview(t *testing.T) {
+	h, client, _ := start(t)
+	ctx := t.Context()
+	long := "name = \"A \\\"long\\\" profile\"\n" + strings.Repeat("# a line of a profile that has many of them\n", 5000)
+	if len(long) < 20*maxRequest {
+		t.Fatal("the text is not long enough to mean anything")
+	}
+	if err := client.Preview(ctx, "/profiles/keyboard.toml", long); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got := h.previewed
+	h.mu.Unlock()
+	if got[0] != "/profiles/keyboard.toml" || got[1] != long {
+		t.Errorf("the host got file %q and %d bytes of text, want %d", got[0], len(got[1]), len(long))
+	}
+	if err := client.Preview(ctx, "/profiles/keyboard.toml", "broken"); err == nil || !strings.Contains(err.Error(), "this is no profile") {
+		t.Errorf("a text that is no profile: %v", err)
+	}
+	// Ending it is the same request without a text.
+	if err := client.Preview(ctx, "/profiles/keyboard.toml", ""); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got = h.previewed
+	h.mu.Unlock()
+	if got[1] != "" {
+		t.Errorf("after ending, the host still has %d bytes", len(got[1]))
 	}
 }
