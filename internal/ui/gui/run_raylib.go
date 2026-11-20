@@ -5,6 +5,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/gethiox/HIDI/internal/assets/fonts"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
+	"github.com/gethiox/HIDI/internal/settings"
 )
 
 // Measures of the window, in pixels before scaling for a dense display.
@@ -51,11 +53,13 @@ var (
 	colBackground = RGB{0x1b, 0x1f, 0x26}
 	colPanel      = RGB{0x25, 0x2a, 0x33}
 	colPanelEdge  = RGB{0x33, 0x3a, 0x46}
-	colBar        = RGB{0x14, 0x17, 0x1c}
 	colFaint      = RGB{0x8b, 0x94, 0xa3}
 	colOn         = RGB{0x21, 0xa3, 0x5a}
 	colOff        = RGB{0x5c, 0x63, 0x6e}
 	colAccent     = RGB{0x3d, 0xc9, 0x7b}
+	colBusy       = RGB{0xa5, 0xe8, 0xc0} // a number that says something is going on
+	colIdleDown   = RGB{0x9a, 0xa1, 0xac} // a control that is down while HIDI is off
+	colKeyInk     = RGB{0xb9, 0xc0, 0xcc} // the lettering of a key that does something
 	colWhiteKey   = RGB{0xdd, 0xe1, 0xe7}
 	colBlackKey   = RGB{0x16, 0x19, 0x1e}
 )
@@ -75,6 +79,13 @@ type window struct {
 	logScroll   float32 // lines scrolled back from the newest
 	cardScroll  float32
 	toggling    chan struct{}
+
+	// active says whether HIDI is on, as of the frame being drawn.
+	active bool
+	// shown says what is drawn of which instrument.
+	shown settings.Shown
+	// glow is the picture of a light under a key.
+	glow rl.Texture2D
 
 	gear     gear
 	settings settingsView
@@ -127,6 +138,14 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	w := &window{hidi: hidi, model: model, opts: opts, ctx: ctx, toggling: make(chan struct{}, 1)}
 	w.loadFonts()
 	defer w.unloadFonts()
+	w.glow = loadGlow()
+	defer rl.UnloadTexture(w.glow)
+	if opts.Paths.Root != "" {
+		if s, err := settings.Load(opts.Paths.Settings); err == nil {
+			w.shown = s.Shown
+		}
+	}
+
 	w.savedHeight = 220
 	if opts.LogHeight > 0 {
 		w.logHeight, w.savedHeight = float32(opts.LogHeight), float32(opts.LogHeight)
@@ -433,11 +452,12 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 		text(w.sans, "No instruments. Connect a keyboard or a game controller.", margin, area.Y+8, sizeText, col(colFaint))
 		return
 	}
+	w.active = state.Active
 	cardW := area.Width - 2*margin
 	heights := make([]float32, len(state.Instruments))
 	total := float32(margin) - cardGap
 	for i, in := range state.Instruments {
-		heights[i] = cardTop + w.inputHeight(in, cardW-2*cardPad) + 10 + pianoH + 12
+		heights[i] = w.cardHeight(in, cardW-2*cardPad)
 		total += heights[i] + cardGap
 	}
 	w.cardScroll -= wheel(area) * 40
@@ -456,6 +476,40 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 
 const cardPad = 14
 
+// cardHeight is the height of an instrument's card: its two lines, and
+// below them what the user asked to see of it.
+func (w *window) cardHeight(in ipc.Instrument, inner float32) float32 {
+	h := float32(cardTop)
+	if w.isShown(w.shown.Input, in.Name) {
+		h += w.inputHeight(in, inner) + 10
+	}
+	if w.isShown(w.shown.Output, in.Name) {
+		h += pianoH + 12
+	}
+	return h
+}
+
+func (w *window) isShown(list []string, name string) bool {
+	return w.opts.ShowAll || slices.Contains(list, name)
+}
+
+// chip draws a small switch with a name, lit when it is on, and reports a
+// click on it.
+func (w *window) chip(label string, on bool, x, y float32) bool {
+	r := rl.NewRectangle(x, y, w.chipWidth(label), chipH)
+	if hovered(r) {
+		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+	}
+	if on {
+		rl.DrawRectangleRounded(r, 0.4, 6, col(colAccent))
+		text(w.mono, label, x+7, y+3, sizeMono, col(colBar))
+	} else {
+		rl.DrawRectangleRoundedLinesEx(r, 0.4, 6, 1, col(colPanelEdge))
+		text(w.mono, label, x+7, y+3, sizeMono, col(colFaint))
+	}
+	return clicked(r)
+}
+
 func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	rl.DrawRectangleRounded(r, 16/r.Height, 8, col(colPanel))
 	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, 1, col(colPanelEdge))
@@ -464,43 +518,87 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	text(w.bold, in.Name, x, y, sizeName, col(colText))
 	about := in.Type + " · profile " + in.Profile
 	text(w.sans, about, x+width(w.bold, in.Name, sizeName)+12, y+3, sizeText, col(colFaint))
-	// The way to the instrument's profile, in the corner of its card.
+	// In the corner of the card: the way to the instrument's profile,
+	// and the switches for what is drawn of the instrument.
+	right := r.X + r.Width - cardPad
 	if in.ProfileFile != "" {
 		label := "Edit profile"
-		if hit, _ := w.button(label, r.X+r.Width-cardPad-width(w.sans, label, sizeText)-20, r.Y+9); hit {
+		right -= width(w.sans, label, sizeText) + 20
+		if hit, _ := w.button(label, right, r.Y+9); hit {
 			w.editProfile(in.ProfileFile)
 		}
+		right -= 14
 	}
+	showInput, showOutput := w.isShown(w.shown.Input, in.Name), w.isShown(w.shown.Output, in.Name)
+	right -= w.chipWidth("output")
+	if w.chip("output", showOutput, right, r.Y+11) {
+		w.shown.Output = flip(w.shown.Output, in.Name)
+		w.saveShown()
+	}
+	right -= w.chipWidth("input") + 6
+	if w.chip("input", showInput, right, r.Y+11) {
+		w.shown.Input = flip(w.shown.Input, in.Name)
+		w.saveShown()
+	}
+	text(w.sans, "show", right-width(w.sans, "show", sizeText)-8, r.Y+13, sizeText, col(colFaint))
 
 	// The numbers are set in the fixed-width font with a fixed number of
 	// places, so that nothing moves sideways when one of them changes.
 	y += 30
-	for _, field := range []struct{ label, value string }{
-		{"octave", fmt.Sprintf("%+3d", in.Octave)},
-		{"transpose", fmt.Sprintf("%+4d", in.Transpose)},
-		{"channel", fmt.Sprintf("%2d", in.Channel)},
-		{"velocity", fmt.Sprintf("%3d", in.Velocity)},
-		{"notes", fmt.Sprintf("%2d", in.Sounding)},
-		{"input", fmt.Sprintf("%4d/s", in.InputRate)},
-		{"MIDI", fmt.Sprintf("%4d/s", in.MIDIRate)},
-		{"layout", in.Layout},
-		{"chord", in.Chord},
-		{"", map[bool]string{true: "learning"}[in.Learning]},
+	for _, field := range []struct {
+		label, value string
+		busy         bool // something is going on: the number is tinted
+	}{
+		{"octave", fmt.Sprintf("%+3d", in.Octave), false},
+		{"transpose", fmt.Sprintf("%+4d", in.Transpose), false},
+		{"channel", fmt.Sprintf("%2d", in.Channel), false},
+		{"velocity", fmt.Sprintf("%3d", in.Velocity), false},
+		{"notes", fmt.Sprintf("%2d", in.Sounding), false},
+		{"input", fmt.Sprintf("%4d/s", in.InputRate), in.InputRate > 0},
+		{"MIDI", fmt.Sprintf("%4d/s", in.MIDIRate), in.MIDIRate > 0},
+		{"layout", in.Layout, false},
+		{"chord", in.Chord, false},
+		{"", map[bool]string{true: "learning"}[in.Learning], false},
 	} {
 		if field.value == "" {
 			continue // no chord remembered, not learning
 		}
 		text(w.sans, field.label, x, y, sizeText, col(colFaint))
 		x += width(w.sans, field.label, sizeText) + 6
-		text(w.mono, field.value, x, y+1, sizeMono, col(colText))
+		ink := colText
+		if field.busy {
+			ink = colBusy
+		}
+		text(w.mono, field.value, x, y+1, sizeMono, col(ink))
 		x += width(w.mono, field.value, sizeMono) + 20
 	}
 
 	// What the device itself reports, then what is played because of it.
 	inner := r.Width - 2*cardPad
-	inputH := w.inputHeight(in, inner)
-	w.drawInput(in, r.X+cardPad, r.Y+cardTop, inner)
-	w.drawPiano(in, rl.NewRectangle(r.X+cardPad, r.Y+cardTop+inputH+10, inner, pianoH))
+	y = r.Y + cardTop
+	if showInput {
+		w.drawInput(in, r.X+cardPad, y, inner)
+		y += w.inputHeight(in, inner) + 10
+	}
+	if showOutput {
+		w.drawPiano(in, rl.NewRectangle(r.X+cardPad, y, inner, pianoH))
+	}
+}
+
+// saveShown keeps what is shown of which instrument in the settings file,
+// where there is one. The file is read first: it may have been changed
+// since the window last looked.
+func (w *window) saveShown() {
+	p := w.opts.Paths
+	if p.Root == "" || !settings.Managed(p) {
+		return
+	}
+	s, err := settings.Load(p.Settings)
+	if err != nil {
+		return // a file with mistakes is the user's to mend, not to overwrite
+	}
+	s.Shown = w.shown
+	settings.Save(p.Settings, s)
 }
 
 // drawPiano draws the keyboard of notes, with those that are on lit.
@@ -561,33 +659,30 @@ func (w *window) chipRows(in ipc.Instrument, inner float32) int {
 	return rows
 }
 
-// An axis is drawn as an upright bar with its name and its value below.
+// An axis is drawn as a line of its own: its name, a bar that fills from
+// the left, and its value.
 const (
-	axisBarH  = 40
-	axisBarW  = 8
-	axisSize  = 10 // of the lettering
-	axisCellH = axisBarH + 4 + 2*(axisSize+2) + 6
+	axisBarMin = 64 // the least width of the bar
+	axisBarH   = 8
+	axisSize   = 12 // of the lettering
+	axisGap    = 22 // between two axes beside each other
 )
 
-// axisLabel is the name of an axis as it stands under its bar: without
+// axisLabel is the name of an axis as it stands before its bar: without
 // the "ABS_" every one of them begins with.
 func axisLabel(part, name string) string {
 	return controlName(part, strings.TrimPrefix(name, "ABS_"))
 }
 
-// axisCell is the width every axis of an instrument gets: that of the
-// longest name among them.
-func (w *window) axisCell(in ipc.Instrument) float32 {
-	cell := width(w.mono, "0.00", axisSize)
+// axisLayout says how the axes of an instrument are set out: how many
+// beside each other, how wide each of them, and how wide the names.
+func (w *window) axisLayout(in ipc.Instrument, inner float32) (cols int, cell, label float32) {
 	for _, a := range in.Axes {
-		cell = max(cell, width(w.mono, axisLabel(a.Part, a.Name), axisSize))
+		label = max(label, width(w.mono, axisLabel(a.Part, a.Name), axisSize))
 	}
-	return cell + 10
-}
-
-// axisColumns is how many axes fit beside each other.
-func (w *window) axisColumns(in ipc.Instrument, inner float32) int {
-	return max(int(inner/w.axisCell(in)), 1)
+	least := label + 8 + axisBarMin + 8 + width(w.mono, "0.00", axisSize) + axisGap
+	cols = max(int((inner+axisGap)/least), 1)
+	return cols, (inner + axisGap) / float32(cols), label
 }
 
 // inputHeight is the height the raw input of a device takes.
@@ -601,10 +696,19 @@ func (w *window) inputHeight(in ipc.Instrument, inner float32) float32 {
 	}
 	h := float32(w.chipRows(in, inner)) * (chipH + 6)
 	if n := len(in.Axes); n > 0 {
-		cols := w.axisColumns(in, inner)
-		h += float32((n+cols-1)/cols) * axisCellH
+		cols, _, _ := w.axisLayout(in, inner)
+		h += float32((n+cols-1)/cols) * axisRowH
 	}
 	return h
+}
+
+// pressed is the colour of a control that is down: the accent while the
+// devices play, a grey while they do not.
+func (w *window) pressed() RGB {
+	if w.active {
+		return colAccent
+	}
+	return colIdleDown
 }
 
 func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
@@ -626,7 +730,7 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 		}
 		chip := rl.NewRectangle(cx, cy, cw, chipH)
 		if b.Down {
-			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
+			rl.DrawRectangleRounded(chip, 0.4, 6, col(w.pressed()))
 			text(w.mono, label, cx+7, cy+3, sizeMono, col(colBar))
 		} else {
 			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
@@ -637,30 +741,32 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 	if len(in.Buttons) > 0 {
 		cy += chipH + 6
 	}
-	// The axes: an upright bar for the position, the name and the number.
-	cell := w.axisCell(in)
-	cols := w.axisColumns(in, inner)
+	// The axes: the name, a bar for the position, and the number.
+	cols, cell, labelW := w.axisLayout(in, inner)
+	valueW := width(w.mono, "0.00", axisSize)
 	for i, a := range in.Axes {
 		ax := x + float32(i%cols)*cell
-		ay := cy + float32(i/cols)*axisCellH
-		bar := rl.NewRectangle(float32(int(ax+(cell-10-axisBarW)/2)), ay, axisBarW, axisBarH)
+		ay := cy + float32(i/cols)*axisRowH
+		label := axisLabel(a.Part, a.Name)
+		text(w.mono, label, ax+labelW-width(w.mono, label, axisSize), ay+3, axisSize, col(colFaint))
+		bar := rl.NewRectangle(float32(int(ax+labelW+8)), ay+(axisRowH-axisBarH)/2, cell-axisGap-labelW-16-valueW, axisBarH)
 		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
 		value := float32(min(max(a.Value, 0), 1))
-		if filled := bar.Height * value; filled >= 1 {
-			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y+bar.Height-filled, bar.Width, filled), 1, 4, col(colAccent))
+		if filled := bar.Width * value; filled >= 1 {
+			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, filled, bar.Height), 1, 4, col(w.pressed()))
 		}
 		// A mark in the middle, where a stick rests.
-		rl.DrawRectangleRec(rl.NewRectangle(bar.X-2, bar.Y+bar.Height/2, bar.Width+4, 1), col(colOff))
-		label := axisLabel(a.Part, a.Name)
-		ly := ay + axisBarH + 4
-		text(w.mono, label, ax+(cell-10-width(w.mono, label, axisSize))/2, ly, axisSize, col(colFaint))
-		number := fmt.Sprintf("%.2f", a.Value)
-		text(w.mono, number, ax+(cell-10-width(w.mono, number, axisSize))/2, ly+axisSize+2, axisSize, col(colText))
+		rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
+		text(w.mono, fmt.Sprintf("%.2f", a.Value), bar.X+bar.Width+8, ay+3, axisSize, col(colText))
 	}
 }
 
-// drawKeyboard draws a full-size keyboard with the keys that are down lit.
-// Keys that are down and not on the drawing are named in a line below it.
+// drawKeyboard draws a full-size keyboard. Every key has the colour of
+// what it does in the layout that is selected, as in the view that
+// changes a profile. Where HIDI sets the lights of the keyboard itself,
+// every key also glows in the colour of its light, so that the drawing
+// shows what the keyboard shows. Keys that are down stand out, and those
+// that are not on the drawing are named in a line below it.
 func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 	down := map[string]bool{}
 	for _, b := range in.Buttons {
@@ -668,21 +774,79 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 			down[controlName(b.Part, b.Name)] = true
 		}
 	}
+	roles := make(map[string]ipc.Key, len(in.Keys))
+	for _, k := range in.Keys {
+		roles[k.Name] = k
+	}
+	var lights map[string]RGB
+	var rest RGB
+	if in.Lit {
+		rest = ParseColour(in.LightRest)
+		lights = make(map[string]RGB, len(in.Lights))
+		for _, l := range in.Lights {
+			lights[l.Name] = ParseColour(l.Colour)
+		}
+	}
+	// light is the colour a key glows in; black for none.
+	light := func(name string) RGB {
+		if !in.Lit {
+			return RGB{}
+		}
+		if c, own := lights[name]; own {
+			return Glow(c)
+		}
+		return Glow(rest)
+	}
 	unit := min(inner/KeyboardUnitsW, keyUnit)
 	labelSize := min(float32(10), unit*0.42)
-	for _, key := range Keyboard() {
-		rect := rl.NewRectangle(x+key.X*unit+1, y+key.Y*unit+1, key.W*unit-2, key.H*unit-2)
-		lit := down[key.Name]
+	keys := Keyboard()
+	rect := func(key KeyCap) rl.Rectangle {
+		return rl.NewRectangle(x+key.X*unit+1, y+key.Y*unit+1, key.W*unit-2, key.H*unit-2)
+	}
+	pressed := w.pressed()
+
+	// The caps first, then the glow of every light, which adds to what
+	// is under it as light does, then what stands on the caps.
+	for _, key := range keys {
+		role := roles[key.Name]
+		fill := KeyColour(role.Role, role.Note, in.Octave, in.Transpose)
+		if down[key.Name] && !in.Lit {
+			fill = pressed
+		}
+		rl.DrawRectangleRounded(rect(key), 0.25, 4, col(fill))
+	}
+	if in.Lit {
+		rl.BeginBlendMode(rl.BlendAdditive)
+		src := rl.NewRectangle(0, 0, float32(w.glow.Width), float32(w.glow.Height))
+		for _, key := range keys {
+			if c := light(key.Name); c != (RGB{}) {
+				rl.DrawTexturePro(w.glow, src, rect(key), rl.NewVector2(0, 0), 0, col(c))
+			}
+		}
+		rl.EndBlendMode()
+	}
+	for _, key := range keys {
+		r := rect(key)
+		isDown := down[key.Name]
 		delete(down, key.Name)
 		ink := colFaint
-		if lit {
-			rl.DrawRectangleRounded(rect, 0.25, 4, col(colAccent))
+		switch c := light(key.Name); {
+		case in.Lit && isDown:
+			rl.DrawRectangleRoundedLinesEx(r, 0.25, 4, 2, col(pressed))
+			fallthrough
+		case in.Lit:
+			// Dark letters on a bright light, bright ones on a dim one.
+			ink = colText
+			if (int(c.R)*299+int(c.G)*587+int(c.B)*114)/1000 > 150 {
+				ink = colBar
+			}
+		case isDown:
 			ink = colBar
-		} else {
-			rl.DrawRectangleRounded(rect, 0.25, 4, col(colBar))
+		case roles[key.Name].Role != "":
+			ink = colKeyInk
 		}
 		if key.Label != "" && unit >= 16 {
-			text(w.mono, key.Label, rect.X+(rect.Width-width(w.mono, key.Label, labelSize))/2, rect.Y+(rect.Height-labelSize)/2, labelSize, col(ink))
+			text(w.mono, key.Label, r.X+(r.Width-width(w.mono, key.Label, labelSize))/2, r.Y+(r.Height-labelSize)/2, labelSize, col(ink))
 		}
 	}
 	// What is left is down and has no key on the drawing.
@@ -702,10 +866,36 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 		if ox+cw > x+inner {
 			break
 		}
-		rl.DrawRectangleRounded(rl.NewRectangle(ox, oy-2, cw, chipH), 0.4, 6, col(colAccent))
+		rl.DrawRectangleRounded(rl.NewRectangle(ox, oy-2, cw, chipH), 0.4, 6, col(pressed))
 		text(w.mono, name, ox+7, oy+1, sizeMono, col(colBar))
 		ox += cw + 6
 	}
+}
+
+// loadGlow makes the picture of a light under a key: brightest in the
+// middle and fading to nothing at the edge, as a blurred dot. It is
+// stretched over a key and tinted with the colour of the light.
+func loadGlow() rl.Texture2D {
+	const size = 64
+	img := rl.GenImageColor(size, size, rl.Blank)
+	for py := range size {
+		for px := range size {
+			dx, dy := (float64(px)+0.5)/size*2-1, (float64(py)+0.5)/size*2-1
+			// A bell over the whole key, and a small bright core.
+			d2 := dx*dx + dy*dy
+			level := 0.75*math.Exp(-d2/0.5) + 0.25*math.Exp(-d2/0.03)
+			// Nothing at the very edge, so that the rounded corners of
+			// the cap stay as they are.
+			edge := min(1-math.Abs(dx), 1-math.Abs(dy)) * 8
+			level *= min(max(edge, 0), 1)
+			v := uint8(min(level, 1)*255 + 0.5)
+			rl.ImageDrawPixel(img, int32(px), int32(py), rl.NewColor(v, v, v, 255))
+		}
+	}
+	tex := rl.LoadTextureFromImage(img)
+	rl.UnloadImage(img)
+	rl.SetTextureFilter(tex, rl.FilterBilinear)
+	return tex
 }
 
 // drawLog draws the status bar with the last line of the log and, above

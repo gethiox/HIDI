@@ -15,6 +15,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/ipc"
+	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
 )
@@ -39,13 +40,18 @@ type settingsView struct {
 	// be listed.
 	ports    []output.Port
 	portsErr string
+	// colour is the name of the colour of the lights that is being
+	// changed, and slide the slider that is held: 1, 2 or 3 for red,
+	// green and blue, 0 for none.
+	colour string
+	slide  int
 }
 
 const settingsRefresh = 2 * time.Second
 
 func (v *settingsView) refresh(p settings.Paths, list func() ([]output.Port, error), now time.Time, force bool) {
-	if !force && now.Sub(v.loaded) < settingsRefresh {
-		return
+	if !force && (now.Sub(v.loaded) < settingsRefresh || v.slide != 0) {
+		return // a colour that is being changed is not on disk yet
 	}
 	v.loaded = now
 	v.ports, v.portsErr = nil, ""
@@ -322,6 +328,8 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 		}
 	}
 
+	y = w.drawDeviceList(state, &s, editable, x, y, right)
+
 	// The MIDI ports that exist, and those the settings name that do not:
 	// a click adds or removes one.
 	vx = row("Also send to MIDI ports", "every instrument; HIDI follows when it starts again")
@@ -391,6 +399,8 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 		text(w.mono, "no MIDI ports found", vx, y+3, sizeMono, col(colFaint))
 	}
 	y = max(py+chipH+26, y+46)
+
+	y = w.drawLights(&s, editable, x, y, right)
 
 	// The two frame limits: one for always, one for while another window
 	// is the one in use.
@@ -494,6 +504,196 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 		}
 		y += 8
 	}
+}
+
+// checkbox draws a box that is ticked or not and reports a click on it or
+// on the text beside it, which is room wide.
+func (w *window) checkbox(ticked bool, x, y, room float32) bool {
+	box := rl.NewRectangle(x, y+1, 16, 16)
+	if ticked {
+		rl.DrawRectangleRounded(box, 0.3, 4, col(colAccent))
+		rl.DrawLineEx(rl.NewVector2(x+3.5, y+9), rl.NewVector2(x+7, y+12.5), 2, col(colBar))
+		rl.DrawLineEx(rl.NewVector2(x+7, y+12.5), rl.NewVector2(x+12.5, y+5), 2, col(colBar))
+	} else {
+		rl.DrawRectangleRoundedLinesEx(box, 0.3, 4, 1.5, col(colOff))
+	}
+	area := rl.NewRectangle(x, y, room, 18)
+	if hovered(area) {
+		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+	}
+	return clicked(area)
+}
+
+// drawDeviceList draws the choice of the devices that play: the way the
+// list is read, and the list itself, of the devices that are connected,
+// those HIDI has met before, and those the settings name.
+func (w *window) drawDeviceList(state *ipc.Snapshot, s *settings.Settings, editable bool, x, y, right float32) float32 {
+	text(w.sans, "Devices that play", x, y+2, sizeText, col(colText))
+	text(w.sans, "by name; HIDI follows within a few seconds", x, y+20, sizeText-2, col(colFaint))
+	vx := x + 300
+	for _, mode := range []struct{ value, label string }{
+		{settings.Blacklist, "all but the ticked"},
+		{settings.Whitelist, "only the ticked"},
+	} {
+		if w.chip(mode.label, s.Devices.Mode == mode.value, vx, y) && editable && s.Devices.Mode != mode.value {
+			s.Devices.Mode = mode.value
+			w.save(*s, soonNote)
+		}
+		vx += w.chipWidth(mode.label) + 6
+	}
+	y += 30
+
+	type entry struct {
+		name, about string
+		there       bool
+	}
+	var entries []entry
+	listed := map[string]bool{}
+	if state != nil {
+		for _, d := range state.Devices {
+			if listed[d.Name] {
+				continue
+			}
+			listed[d.Name] = true
+			about := d.Type
+			if !d.Connected {
+				about += ", not connected"
+			}
+			entries = append(entries, entry{d.Name, about, d.Connected})
+		}
+	}
+	// What the settings name and HIDI does not know stays in view, so
+	// that it can be taken off the list.
+	for _, name := range s.Devices.List {
+		if !listed[name] {
+			listed[name] = true
+			entries = append(entries, entry{name, "not connected", false})
+		}
+	}
+	vx = x + 300
+	if len(entries) == 0 {
+		hint := "no devices yet"
+		if state == nil {
+			hint = "start HIDI to see the devices"
+		}
+		text(w.mono, hint, vx, y+3, sizeMono, col(colFaint))
+		return y + 34
+	}
+	for _, e := range entries {
+		ticked := slices.Contains(s.Devices.List, e.name)
+		ink := colText
+		if !e.there {
+			ink = colOff
+		}
+		room := 24 + width(w.sans, e.name, sizeText) + 10 + width(w.sans, e.about, sizeText-2)
+		if w.checkbox(ticked, vx, y, min(room, right-vx)) && editable {
+			s.Devices.List = flip(s.Devices.List, e.name)
+			w.save(*s, soonNote)
+		}
+		text(w.sans, e.name, vx+24, y+1, sizeText, col(ink))
+		text(w.sans, e.about, vx+24+width(w.sans, e.name, sizeText)+10, y+3, sizeText-2, col(colOff))
+		y += 24
+	}
+	return y + 16
+}
+
+// drawLights draws the settings of the lights: whether the keys are lit,
+// and the colours, of which the one that is clicked can be changed.
+func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right float32) float32 {
+	v := &w.settings
+	text(w.sans, "Light the keys through OpenRGB", x, y+2, sizeText, col(colText))
+	text(w.sans, "needs an OpenRGB server; HIDI follows when it starts again", x, y+20, sizeText-2, col(colFaint))
+	vx := x + 300
+	if w.pill(s.Lights.OpenRGB, vx, y) && editable {
+		s.Lights.OpenRGB = !s.Lights.OpenRGB
+		w.save(*s, restartNote)
+	}
+	text(w.mono, s.Lights.Address, vx+54, y+3, sizeMono, col(colFaint))
+	y += 46
+
+	text(w.sans, "Colours of the keys", x, y+2, sizeText, col(colText))
+	text(w.sans, "click one to change it; HIDI follows within a few seconds", x, y+20, sizeText-2, col(colFaint))
+	// The colours are changed in what the page holds, and written when a
+	// slider is let go of.
+	colours := v.values.Lights.Colours.Named()
+	const cellW = 150
+	cols := max(int((right-vx)/cellW), 1)
+	for i, n := range colours {
+		cx, cy := vx+float32(i%cols)*cellW, y+float32(i/cols)*26
+		cell := rl.NewRectangle(cx-4, cy-3, cellW-6, 24)
+		if hovered(cell) {
+			rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		}
+		if clicked(cell) && editable && v.slide == 0 {
+			if v.colour == n.Name {
+				v.colour = ""
+			} else {
+				v.colour = n.Name
+			}
+		}
+		if v.colour == n.Name {
+			rl.DrawRectangleRounded(cell, 0.3, 4, col(colPanelEdge))
+		}
+		swatch := rl.NewRectangle(cx, cy, 18, 18)
+		rl.DrawRectangleRounded(swatch, 0.3, 4, col(Glow(RGB(*n.Colour))))
+		rl.DrawRectangleRoundedLinesEx(swatch, 0.3, 4, 1, col(colOff))
+		text(w.mono, n.Name, cx+26, cy+2, sizeMono, col(colText))
+	}
+	y += float32((len(colours)+cols-1)/cols)*26 + 8
+
+	for _, n := range colours {
+		if n.Name != v.colour {
+			continue
+		}
+		text(w.sans, n.About, vx, y+2, sizeText-2, col(colFaint))
+		text(w.mono, settings.FormatColour(*n.Colour), vx+width(w.sans, n.About, sizeText-2)+12, y+1, sizeMono, col(colText))
+		y += 24
+		released := false
+		for i, part := range []struct {
+			label string
+			value *uint8
+			ink   RGB
+		}{{"R", &n.Colour.R, RGB{0xe0, 0x5a, 0x5a}}, {"G", &n.Colour.G, RGB{0x4c, 0xc2, 0x7a}}, {"B", &n.Colour.B, RGB{0x5a, 0x9b, 0xe0}}} {
+			text(w.mono, part.label, vx, y+2, sizeMono, col(colFaint))
+			track := rl.NewRectangle(vx+20, y+7, 200, 6)
+			grip := rl.NewRectangle(track.X-8, y, track.Width+16, 20)
+			if hovered(grip) {
+				rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			}
+			if clicked(grip) && editable {
+				v.slide = i + 1
+			}
+			if v.slide == i+1 {
+				if rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+					at := (rl.GetMousePosition().X - track.X) / track.Width
+					*part.value = uint8(min(max(at, 0), 1)*255 + 0.5)
+				} else {
+					v.slide, released = 0, true
+				}
+			}
+			at := track.X + track.Width*float32(*part.value)/255
+			rl.DrawRectangleRounded(track, 1, 4, col(colPanelEdge))
+			rl.DrawRectangleRounded(rl.NewRectangle(track.X, track.Y, at-track.X, track.Height), 1, 4, col(part.ink))
+			rl.DrawCircleV(rl.NewVector2(at, track.Y+3), 7, col(colText))
+			text(w.mono, fmt.Sprintf("%3d", *part.value), track.X+track.Width+16, y+2, sizeMono, col(colText))
+			y += 24
+		}
+		if released {
+			w.save(v.values, soonNote)
+		}
+		defaults := light.DefaultColours()
+		for _, d := range defaults.Named() {
+			if d.Name == n.Name && *d.Colour != *n.Colour {
+				if hit, _ := w.button("Back to the default", vx, y+2); hit && editable {
+					*n.Colour = *d.Colour
+					w.save(v.values, soonNote)
+				}
+				y += 30
+			}
+		}
+		y += 6
+	}
+	return y + 14
 }
 
 // drawPath writes a path, or other text in the fixed-width font, cut off

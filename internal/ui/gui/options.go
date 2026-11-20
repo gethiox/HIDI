@@ -44,6 +44,9 @@ type Options struct {
 	// Ports, if set, lists the MIDI ports that exist, for choosing those
 	// every instrument also sends to.
 	Ports func() ([]output.Port, error)
+	// ShowAll draws the input and the notes of every instrument,
+	// whatever the settings say. It is for pictures.
+	ShowAll bool
 	// EditProfile, if set, is a profile file the window opens with, ready
 	// to be changed.
 	EditProfile string

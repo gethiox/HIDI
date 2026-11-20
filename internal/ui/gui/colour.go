@@ -1,10 +1,97 @@
 package gui
 
+import "math"
+
 // RGB is a colour.
 type RGB struct{ R, G, B uint8 }
 
 // colText is the colour of ordinary text.
 var colText = RGB{0xe6, 0xe9, 0xee}
+
+// colBar is the colour of the bar at the bottom and of what is set into
+// the panels: a key that does nothing, the track of an axis.
+var colBar = RGB{0x14, 0x17, 0x1c}
+
+// The colours of a key cap by what the key does.
+var (
+	colWhiteNote  = RGB{0x1f, 0x5a, 0x38}
+	colBlackNote  = RGB{0x24, 0x33, 0x66}
+	colCNote      = RGB{0x6b, 0x64, 0x1e}
+	colCommandKey = RGB{0x5a, 0x2f, 0x66}
+	colOtherKey   = RGB{0x2a, 0x4a, 0x52}
+	colPassKey    = RGB{0x66, 0x3d, 0x2a}
+)
+
+// NoteColour is the colour of a key cap that plays a note: one for the
+// white keys of a piano, one for the black ones, and one for every C.
+func NoteColour(note int) RGB {
+	switch {
+	case ((note%12)+12)%12 == 0:
+		return colCNote
+	case IsBlack(note):
+		return colBlackNote
+	}
+	return colWhiteNote
+}
+
+// KeyColour is the colour of a key cap in the view of a running
+// instrument: by the role the instrument reports for the key, and, for a
+// note, by the note as the instrument's octave and transposition make it.
+// A key without a role has the colour of the keyboard itself.
+func KeyColour(role string, note, octave, transpose int) RGB {
+	switch role {
+	case "":
+		return colBar
+	case "note":
+		return NoteColour(note + octave*12 + transpose)
+	case "command":
+		return colCommandKey
+	case "passthrough":
+		return colPassKey
+	}
+	return colOtherKey
+}
+
+// ParseColour reads a colour written as "#rrggbb"; anything else is
+// black.
+func ParseColour(text string) RGB {
+	if len(text) != 7 || text[0] != '#' {
+		return RGB{}
+	}
+	var v [3]uint8
+	for i := range 3 {
+		for _, ch := range []byte(text[1+2*i : 3+2*i]) {
+			var d uint8
+			switch {
+			case ch >= '0' && ch <= '9':
+				d = ch - '0'
+			case ch >= 'a' && ch <= 'f':
+				d = ch - 'a' + 10
+			case ch >= 'A' && ch <= 'F':
+				d = ch - 'A' + 10
+			default:
+				return RGB{}
+			}
+			v[i] = v[i]<<4 | d
+		}
+	}
+	return RGB{v[0], v[1], v[2]}
+}
+
+// Glow turns the colour a light is set to into the colour it is drawn
+// with. A light at a third of its strength does not look a third as
+// bright as one at full strength, it looks more than half as bright; the
+// drawing follows the eye.
+func Glow(c RGB) RGB {
+	return RGB{glowCurve[c.R], glowCurve[c.G], glowCurve[c.B]}
+}
+
+var glowCurve = func() (t [256]uint8) {
+	for i := range t {
+		t[i] = uint8(math.Pow(float64(i)/255, 0.55)*255 + 0.5)
+	}
+	return t
+}()
 
 // ansiColours are the 16 colours a log line can use, chosen to read well
 // on the window's dark background.

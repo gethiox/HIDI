@@ -78,17 +78,13 @@ func (w *window) stepper(label, value string, x, y float32) (delta int, right fl
 func roleColour(r Role) RGB {
 	switch r.Kind {
 	case RoleNote:
-		switch {
-		case int(r.Note)%12 == 0:
-			return RGB{0x6b, 0x64, 0x1e} // every C
-		case IsBlack(int(r.Note)):
-			return RGB{0x24, 0x33, 0x66}
-		}
-		return RGB{0x1f, 0x5a, 0x38}
+		return NoteColour(int(r.Note))
 	case RoleCommand:
-		return RGB{0x5a, 0x2f, 0x66}
+		return colCommandKey
 	case RoleOther, RoleController, RoleBend:
-		return RGB{0x2a, 0x4a, 0x52}
+		return colOtherKey
+	case RolePass:
+		return colPassKey
 	}
 	return colBar
 }
@@ -339,6 +335,8 @@ func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
 		does = "bends the pitch"
 	case RoleOther:
 		does = "sends " + role.Text + " (change that in the file)"
+	case RolePass:
+		does = "is left to the system: it types, also while HIDI is on"
 	}
 	where := ""
 	if role.Kind != RoleNone && role.Section.Layout == "" {
@@ -414,13 +412,20 @@ func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
 	}
 	y = cy + chipH + 14
 
+	bx = x
+	if role.Kind != RolePass {
+		hit, end := w.button("Leave it to the system", bx, y)
+		if hit {
+			e.try(e.doc.SetPassthrough(e.layout, e.code))
+		}
+		bx = end + 8
+	}
 	if role.Kind != RoleNone {
-		if hit, _ := w.button("Make it do nothing", x, y); hit {
+		if hit, _ := w.button("Make it do nothing", bx, y); hit {
 			e.try(e.doc.Clear(e.layout, e.code))
 		}
-		y += 32
 	}
-	return y
+	return y + 32
 }
 
 // firstController is the controller a control is given by the first click:

@@ -61,6 +61,8 @@ const (
 	RoleController
 	// RoleBend: the control bends the pitch.
 	RoleBend
+	// RolePass: the key is left to the system.
+	RolePass
 )
 
 // Role is what a control does when it is used alone, and where in the
@@ -161,8 +163,21 @@ func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 	case engine.PitchBend:
 		role.Kind, role.Text = RoleBend, "pitch bend"
 		role.Offset, role.Down = a.ChannelOffset, a.Down
+	case engine.Passthrough:
+		role.Kind, role.Text = RolePass, "system"
 	}
 	return role
+}
+
+// SetPassthrough leaves a key to the system: it plays nothing and types
+// what it always types, also while HIDI is on.
+func (d *ProfileDoc) SetPassthrough(layout string, code control.Code) error {
+	if code.Kind != control.KindKey {
+		return fmt.Errorf("%s is not a key; only a key can be left to the system", code)
+	}
+	return d.change(func(text []byte) ([]byte, error) {
+		return config.Set(text, d.Role(layout, code).Section, code.String(), strconv.Quote(engine.PassthroughName))
+	})
 }
 
 // offset writes the channel a binding is moved by, if it is.
