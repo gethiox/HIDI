@@ -73,6 +73,8 @@ func TestPaintNotes(t *testing.T) {
 
 func TestPaintCommands(t *testing.T) {
 	c := DefaultColours()
+	dim, medium, bright := scale(c.Command, dim), scale(c.Command, medium), scale(c.Command, bright)
+	red, other := c.Panic, c.Other
 	s := scene()
 	got := Paint(s, c)
 	if got[keyUp] != dim || got[keyDown] != dim {
@@ -113,10 +115,35 @@ func TestPaintWhileOff(t *testing.T) {
 	s := scene()
 	s.Active = false
 	setNote(&s.State.Notes, 60)
-	for code, colour := range Paint(s, c) {
-		if colour != c.Idle {
-			t.Errorf("%v is %v while HIDI is off", code, colour)
-		}
+	if got := Paint(s, c); len(got) != 0 {
+		t.Errorf("keys with a colour of their own while HIDI is off: %v", got)
+	}
+	// A key that is down shows, bound or not.
+	s.Pressed = []control.Code{keyUp, control.Key(200)}
+	got := Paint(s, c)
+	if len(got) != 2 || got[keyUp] != c.Pressed || got[control.Key(200)] != c.Pressed {
+		t.Errorf("pressed keys while HIDI is off: %v", got)
+	}
+}
+
+func TestPaintPassthroughAndCustomColours(t *testing.T) {
+	c := DefaultColours()
+	c.Command, c.Passthrough = RGB{0, 0, 255}, RGB{1, 2, 3}
+	s := scene()
+	s.Keys = append(s.Keys, engine.KeyRole{Code: control.Key(57), Action: engine.Passthrough{}})
+	got := Paint(s, c)
+	if got[control.Key(57)] != (RGB{1, 2, 3}) {
+		t.Errorf("a passed key is %v", got[control.Key(57)])
+	}
+	if got[keyUp] != (RGB{0, 0, 27}) {
+		t.Errorf("a command key at rest is %v, want the command colour dimmed", got[keyUp])
+	}
+	names := map[string]bool{}
+	for _, n := range c.Named() {
+		names[n.Name] = true
+	}
+	if len(names) != 12 {
+		t.Errorf("%d named colours, want 12", len(names))
 	}
 }
 

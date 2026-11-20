@@ -30,7 +30,8 @@ func (s *rgbServer) SetLEDs(_ int, c []openrgb.RGB) error {
 	s.mu.Unlock()
 	return nil
 }
-func (s *rgbServer) Close() error { return nil }
+func (s *rgbServer) Close() error   { return nil }
+func (s *rgbServer) Sync(int) error { return nil }
 func (s *rgbServer) get() []openrgb.RGB {
 	s.mu.Lock()
 	defer s.mu.Unlock()
