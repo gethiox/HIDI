@@ -148,8 +148,19 @@ service for a while that grows from ten seconds to five minutes.
 it is a pure function of what the keys do in the selected layout, the
 instrument's state, the notes that sound and whether HIDI is on. A hub owns
 the connection to OpenRGB, finds for each instrument the keyboard among the
-server's controllers, and sends colours only when they changed, a few dozen
-times a second at most. OpenRGB says where it reaches a keyboard, not which
+server's controllers, and sends colours only when they changed.
+
+A keyboard takes some tens of milliseconds to be written, and how OpenRGB
+deals with updates that come faster differs between its versions. Released
+ones note that there is something to write and forget the note when the
+write in progress ends, so an update that arrives during a write is lost
+until the next one. Newer ones take an update only when the write before is
+done, so updates queue up in the connection and the lights fall behind. The
+hub is safe against both: it sends a change at once, then asks the server a
+question that is answered in order and waits for the answer before it sends
+the next change, which is then the newest scene; and it sends what it sent
+last a few more times over the following second. What the hub last sent is
+also what the window draws as the glow of the keys. OpenRGB says where it reaches a keyboard, not which
 input device that is, so the two are matched by model and, on Linux, by the
 port the system reports for both.
 
@@ -175,6 +186,13 @@ While an instrument is active its device does not type or click.
   and the key goes to the keyboard that Raw Input last saw typing
   (`rawinput.claims`). Windows has no way to keep a game controller from
   other programs, so `--grab-gamepads` has no effect there.
+
+A profile can leave single keys to the system while the others play
+(`"passthrough"`). The device is then shared instead of grabbed
+(`input.Passer.Share`): on Windows the hook lets those keys through; on
+Linux, where a device is grabbed whole or not at all, HIDI types them again
+on a keyboard of its own, as it does for `always_grab`. Which keys are open
+follows the selected layout.
 
 Game controllers on Windows are read in two ways, because no single
 interface serves all of them well:

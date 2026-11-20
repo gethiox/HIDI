@@ -37,13 +37,14 @@ A file with a mistake is not used: HIDI says what is wrong and runs with the
 defaults.
 
 A running HIDI notices within about two seconds when the file changes, and
-takes over the toggle combination and what is grabbed: a keyboard that
-should type again does so at once. `start_on`, `connect`, `[lights]` and
+takes over the toggle combination, what is grabbed, which devices play and
+the colours of the lights: a keyboard that should type again does so at
+once. `start_on`, `connect`, `lights.openrgb`, `lights.address` and
 `show_at_start` matter when HIDI starts. A changed file with a mistake is
 reported and changes nothing.
 
-The switches and the frame limits can also be changed in the window, on the
-sheet the gear opens.
+Everything here can also be changed in the window, on the sheet the gear
+opens, except the address of the OpenRGB server.
 
 ```toml
 schema = 1
@@ -56,6 +57,10 @@ start_on = true
 toggle_tap = false
 always_grab = false
 
+[devices]
+mode = "blacklist"
+list = []
+
 [output]
 connect = []
 
@@ -63,11 +68,27 @@ connect = []
 openrgb = false
 address = "127.0.0.1:6742"
 
+[lights.colours]
+white = "#005500"
+black = "#000055"
+c = "#555500"
+unbound = "#440000"
+playing = "#ffffff"
+external = "#ffffff"
+command = "#ffffff"
+panic = "#ff0000"
+other = "#003030"
+passthrough = "#400040"
+idle = "#181818"
+pressed = "#ffffff"
+
 [window]
 show_at_start = false
 fps = 0
 background_fps = 0
 log_height = 0
+show_input = []
+show_output = []
 ```
 
 | Setting | Meaning | Option |
@@ -78,13 +99,36 @@ log_height = 0
 | `input.start_on` | Whether HIDI is on when it starts. | `--off` |
 | `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `--toggle-tap` |
 | `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
+| `devices.mode` | How `devices.list` is read: with `"blacklist"` every keyboard and game controller plays except the listed ones, with `"whitelist"` only the listed ones do. | |
+| `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `--connect` |
 | `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `--openrgb` |
 | `lights.address` | Where that server listens. | `--openrgb ADDRESS` |
+| `lights.colours` | The colours of the keys, each as `"#rrggbb"`. See below. | |
 | `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
 | `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
 | `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
 | `window.log_height` | The height of the log when the window opens. | `--log-height` |
+| `window.show_input`, `window.show_output` | The instruments whose input and whose notes are drawn in the window, by the names of their devices. The window keeps these lists itself. | |
+
+#### The colours of the lights
+
+| Colour | What it lights |
+|---|---|
+| `white`, `black`, `c` | Keys that play a white key of a piano, a black one, and a C. |
+| `unbound` | Keys that do nothing. |
+| `playing` | A key whose note sounds because of this instrument. |
+| `external` | A key whose note another program sent on the instrument's channel. |
+| `command` | The keys that run commands. They show state in three steps of brightness, of which this colour is the brightest. |
+| `panic` | The panic key. |
+| `other` | Keys that send something else: a controller, a program change, a pitch bend. |
+| `passthrough` | Keys that are left to the system. |
+| `idle` | Every key while HIDI is off. |
+| `pressed` | A key that is held while HIDI is off. |
+
+The keys that change the MIDI channel take the colour of the channel, and a
+note another program sends on another channel takes that channel's colour;
+those sixteen colours are fixed.
 
 #### One key that turns HIDI off and on
 
@@ -311,7 +355,21 @@ The short forms cover the common cases:
 KEY_Z = "C1"            # play a note, by name
 KEY_X = 38              # play a note, by number
 KEY_F2 = "octave_up"    # run a command
+KEY_SPACE = "passthrough"   # leave the key to the system
 ```
+
+**`"passthrough"`** leaves a key to the rest of the system. It plays nothing,
+and it types what it always types, also while HIDI is on and the other keys
+of the keyboard do not. That is for the keys the program you play into
+needs: the space bar that starts and stops a recording, for one. Only a key
+of the main part of a device, pressed alone, can be passed through, and
+which keys are follows the layout that is selected.
+
+On Windows a passed key gets through whichever keyboard it is pressed on,
+since Windows cannot tell keyboards apart there. On Linux HIDI types the key
+again on a keyboard of its own, which needs access to `/dev/uinput` (the
+udev rule that comes with HIDI gives it); without that access the key does
+nothing while HIDI is on, and HIDI says so in its log.
 
 Note names are a letter, an optional `#` or `b`, and an octave from -2 to 8.
 Middle C (note 60) is `C3`.

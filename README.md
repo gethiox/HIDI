@@ -163,10 +163,22 @@ turns HIDI off and on" in the
 
 ## The window
 
-Each instrument shows its state, what its device reports, and the notes that
-are played because of it. A keyboard is drawn as a full-size keyboard with
-the keys that are down lit. Every other device shows the buttons and axes it
-has reported so far. The switch at the top turns HIDI on and off.
+Each instrument has two lines: its name and profile, and its state. The
+numbers for input and MIDI turn green while something comes in or goes out.
+The switches "input" and "output" beside "show" add what the device reports
+and the notes that are played because of it; the window remembers them for
+every device.
+
+A keyboard is drawn as a full-size keyboard. Every key has the colour of
+what it does in the layout that is selected, and the keys that are down
+stand out. Where HIDI lights the keyboard through OpenRGB, the keys also
+glow in the colours of their lights, so the drawing shows what the keyboard
+shows. Every other device shows the buttons and axes it has reported so far.
+While HIDI is off, what is pressed shows in grey.
+
+![The instruments as they are first shown, in two lines each](docs/images/gui-compact.png)
+
+The switch at the top turns HIDI on and off.
 
 The log lives in the bar at the bottom, which shows its last line, faint.
 Pull the bar up, or click it, for the whole log, and choose the least severe
@@ -181,15 +193,20 @@ instruments. A click beside the sheet closes it.
 
 ![The settings](docs/images/gui-settings.png)
 
-Everything in `settings.toml` except the lights can be changed there. A
-running HIDI takes most of it over within a few seconds; the page says what
-matters only at the next start.
+What is in `settings.toml` can be changed there. A running HIDI takes most
+of it over within a few seconds; the page says what matters only at the next
+start.
 
 - "Change" beside the toggle combination takes a new one from the keyboard:
   press the keys together and let go. One key alone works too, and can then
   be made to work by a tap.
+- "Devices that play" chooses which devices become instruments: every one
+  except those you tick, or only those you tick. The list has the devices
+  that are connected and, in grey, those HIDI has seen before.
 - "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
   makes every instrument send there as well.
+- "Colours of the keys" are the colours of the lights. Click one and move
+  the three sliders; the keyboard follows when you let go.
 
 Below them are the places where
 settings and profiles are kept, with buttons that open them in the file
@@ -353,7 +370,17 @@ also when it starts later.
 - The command keys show state: the octave and transpose keys grow brighter
   the further they have been used, the layout keys dim at the first and last
   layout, the channel keys take the colour of the channel, panic is red.
-- While HIDI is off the keyboard is lit evenly, and types.
+- Keys that are left to the system have a colour of their own.
+- While HIDI is off the keyboard is lit evenly, and types; a key that is
+  held lights up.
+
+Every one of these colours can be changed, in the window's settings or under
+`[lights.colours]` in `settings.toml`.
+
+How fast the lights follow is up to the keyboard, which takes some tens of
+milliseconds to be written. HIDI sends a change at once and the next one as
+soon as OpenRGB has taken the one before, so nothing queues up behind a slow
+keyboard.
 
 With the lights on, each instrument's MIDI device can also be sent to. Notes
 another program sends there, a DAW playing a track for one, light the keys
