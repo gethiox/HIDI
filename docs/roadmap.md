@@ -63,13 +63,29 @@ completes or changes an item.
   shown on request, horizontal axes, keys coloured by what they do and
   glowing as the keyboard's lights do, grey while HIDI is off.
 
-Apart from HIDI itself: a change to raylib's Win32 backend that keeps the
-window drawing while it is moved or resized is on the maintainer's forks
-(`gethiox/raylib` and `gethiox/raylib-go`, branch
-`win32-modal-loop-frames`), and `v2/raylib-063-eval` is HIDI built with it
-and raylib-go 0.63.0, for trying on Windows. It is not for merging as it
-is: raylib-go 0.63.0 replaces GLFW by backends of its own, a day old when
-it was tried, and needs `libEGL` on Linux.
+Apart from HIDI itself: a change to raylib's Win32 backend is on the
+maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
+`win32-modal-loop-frames`), and `v2/round5-raylib-resize` is this round
+built with it and raylib-go 0.63.0. Tried by the maintainer on Windows 11,
+it does what it is for:
+
+- The window keeps drawing while it is moved or resized, and a frame is
+  drawn for every new size before Windows goes on with the resize.
+- The window follows the mouse whatever the frame rate: the application
+  gets a frame only when one is due.
+- Holding the title bar without moving no longer stops the window for
+  half a second.
+
+One pause is left and stays: with a large drag distance set in Windows, a
+slow move of the held title bar stops the window for up to half a second
+where it begins to move. Windows waits there for the mouse to cross the
+drag distance, measured from where the mouse is when the window is told
+to move; getting round that takes made-up mouse input or moving the
+window without Windows' own loop, which loses snapping.
+
+The branch is not for merging as it is: raylib-go 0.63.0 replaces GLFW by
+backends of its own, needs `libEGL` on Linux, and only its Windows amd64
+library was rebuilt with the change.
 
 ### Waiting for the maintainer
 
@@ -85,7 +101,6 @@ To be tried on Windows, none of which has run there:
   back, and does the DAW find them again.
 - An Xbox controller.
 - The window at 120 Hz: is motion smooth now.
-- `v2/raylib-063-eval`: moving and resizing the window.
 
 To be tried with a keyboard OpenRGB lights, which was not at hand: that a
 released key goes dark at once, how fast the lights follow while playing,
