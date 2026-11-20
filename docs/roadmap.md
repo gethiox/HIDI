@@ -305,6 +305,18 @@ Later the same day, into the same pull request:
 Not tried: Windows; the keys of the editor with a keyboard HIDI has
 grabbed, which do not reach the window, as the page says.
 
+And after that:
+
+| Asked for | What was done |
+|---|---|
+| The curves without averaging, a tenth of a second at a time. | An instrument keeps the last 122 steps of a tenth of a second, each the events of that step alone, and sends them with its state. The two numbers stay counted over a second. |
+| The curves run evenly although they gain a value only ten times a second. | They are drawn moved to the left by the part of a step that has passed, with one value out of view at each end, so that none appears or goes at once. |
+| The window between the two darknesses. | Half way. |
+| The Steam Controller. | On Linux the kernel's `hid-steam` already presents Valve's controllers as game controllers; what HIDI lacked was a profile that knows what their controls are, since the general one takes a trackpad for a direction pad, and the names of the paddles (`BTN_GRIPL` and the other three, from a newer kernel header). Both are there. On Windows it stays for after 2.0; see there. |
+
+Not tried: a Steam Controller. The profile is written from the kernel's
+driver, not from a device.
+
 ## Done
 
 - Module layout, CI for Linux and Windows, and the architecture document.

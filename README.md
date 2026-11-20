@@ -165,8 +165,9 @@ turns HIDI off and on" in the
 ## The window
 
 Each instrument has two lines: its name and profile, and its state. Behind
-them runs a curve of the last twelve seconds: green for what came in from
-the device, yellow for what went out as MIDI. The two numbers for it take
+them runs a curve of the last twelve seconds, a tenth of a second at a
+time: green for what came in from the device, yellow for what went out as
+MIDI. The two numbers for it take
 the same colours while they are not zero, and the top of the window has them
 for all instruments together.
 The switches "input" and "output" beside "show" add what the device reports
@@ -492,6 +493,30 @@ Windows MIDI Services.
 
 `hidi --headless -v` logs every device HIDI looked at and why it left it
 alone, and `--log-midi` every MIDI message it sends.
+
+### Valve's Steam Controller
+
+On Linux the kernel's `hid-steam` driver presents Valve's controllers as
+game controllers, and HIDI plays them with a profile of its own, "Steam
+Controller": the stick bends the pitch, the trackpads and triggers send
+controllers, the buttons and paddles play notes.
+
+- Steam must not be running. While it is, it takes the controller for
+  itself and the kernel takes the game controller away.
+- The controller of 2015 works with any current kernel. While HIDI has it
+  open, its pads stop moving the mouse.
+- The controller of 2026 and the Steam Deck's controls need a kernel that
+  knows them; for the controller of 2026 that is a very recent one. They
+  start as a mouse and keyboard, and send nothing to HIDI until you hold
+  the button with the three lines (Start) for half a second, which
+  switches them to being a game controller. The same again switches back.
+- The motion sensors show up as a part called "Motion Sensors"; the
+  profile does not use them.
+
+On Windows these controllers are not supported yet. They speak a protocol
+of Valve's own there, and without Steam they are only a mouse and a
+keyboard. With Steam running and its controller support turned on, Steam
+presents them as an Xbox controller, which HIDI plays like any other.
 
 ### Beside an input remapper
 
