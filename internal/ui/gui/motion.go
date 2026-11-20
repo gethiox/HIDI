@@ -39,52 +39,23 @@ func (g *glide) Clamp(most float32) {
 	g.At = min(max(g.At, 0), max(most, 0))
 }
 
-// trail is how something went over the last while: values taken at even
-// steps of time, the newest last.
-type trail struct {
-	values []int
-	last   time.Time
+// TrailPhase says how far the time has gone from one step of a trail to
+// the next, from 0 to 1: the trail is drawn moved to the left by that
+// part of a step, so that it runs evenly and does not jump once a step.
+func TrailPhase(since, step time.Duration) float32 {
+	if step <= 0 {
+		return 1
+	}
+	return float32(min(max(float64(since)/float64(step), 0), 1))
 }
 
-const (
-	// trailStep is the time between two values of a trail, and trailLen
-	// how many are kept: what is drawn covers twelve seconds.
-	trailStep = 100 * time.Millisecond
-	trailLen  = 120
-)
-
-// Add brings the trail up to now with the value as it is now. Time in
-// which nobody added anything is filled with that value too: nothing is
-// drawn while nothing changes, and nothing changing means the value
-// stayed.
-func (t *trail) Add(value int, now time.Time) {
-	if t.values == nil {
-		t.values = make([]int, trailLen)
-		t.last = now
-	}
-	steps := int(now.Sub(t.last) / trailStep)
-	if steps <= 0 {
-		t.values[trailLen-1] = value
-		return
-	}
-	steps = min(steps, trailLen)
-	copy(t.values, t.values[steps:])
-	for i := trailLen - steps; i < trailLen; i++ {
-		t.values[i] = value
-	}
-	t.last = t.last.Add(time.Duration(steps) * trailStep)
-	if now.Sub(t.last) > trailStep {
-		t.last = now // long idle: start counting from here
-	}
-}
-
-// Max returns the highest value of the trail.
-func (t *trail) Max() int {
-	most := 0
-	for _, v := range t.values {
-		most = max(most, v)
-	}
-	return most
+// TrailX is where value n of a trail of count values is drawn, in an
+// area that begins at x and is width wide. One value at each end lies
+// outside the area: the oldest on its way out, and the newest on its way
+// in, so that none appears or goes all at once.
+func TrailX(n, count int, phase, x, width float32) float32 {
+	step := width / float32(count-3)
+	return x + (float32(n)-1-phase)*step
 }
 
 // Mix returns the colour that lies a part of the way from a to b, with

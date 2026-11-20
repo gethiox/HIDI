@@ -10,7 +10,7 @@ var colText = RGB{0xe6, 0xe9, 0xee}
 
 // colBar is the colour of the bar at the bottom and of what is set into
 // the panels: a key that does nothing, the track of an axis.
-var colBar = RGB{0x14, 0x17, 0x1c}
+var colBar = RGB{0x0c, 0x0e, 0x11}
 
 // The colours of a key cap by what the key does.
 var (

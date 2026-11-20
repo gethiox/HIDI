@@ -51,9 +51,9 @@ const (
 
 // The colours of the window.
 var (
-	colBackground = RGB{0x0a, 0x0c, 0x0f}
-	colPanel      = RGB{0x12, 0x15, 0x1a}
-	colPanelEdge  = RGB{0x24, 0x29, 0x32}
+	colBackground = RGB{0x12, 0x15, 0x1a}
+	colPanel      = RGB{0x1b, 0x1f, 0x26}
+	colPanelEdge  = RGB{0x2c, 0x32, 0x3d}
 	colFaint      = RGB{0x8b, 0x94, 0xa3}
 	colOn         = RGB{0x21, 0xa3, 0x5a}
 	colOff        = RGB{0x5c, 0x63, 0x6e}
@@ -93,9 +93,9 @@ type window struct {
 	moving bool
 	dt     time.Duration
 	drawn  time.Time
-	// trails is how much came in and went out of every instrument over
-	// the last seconds.
-	trails map[string]*[2]trail
+	// trails says, for every instrument, when its trail last gained a
+	// step.
+	trails map[string]*trailSeen
 	// docs are the profiles that were opened for changing, by their
 	// files: what was changed in one and not saved is still there when
 	// its page is opened again.
@@ -527,29 +527,38 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 // trailKey tells the instruments apart for their trails.
 func trailKey(in ipc.Instrument) string { return in.Name + "\x00" + in.Location + "\x00" + in.Type }
 
-// follow notes how much every instrument takes in and sends, for the
-// curves behind their names.
+// trailSeen is when the window saw a trail gain its newest step.
+type trailSeen struct {
+	seq uint64
+	at  time.Time
+}
+
+// follow notes when the trail of every instrument gained a step, so that
+// the trails can be drawn where they are between two steps.
 func (w *window) follow(state *ipc.Snapshot, now time.Time) {
 	if state == nil {
 		return
 	}
 	if w.trails == nil {
-		w.trails = map[string]*[2]trail{}
+		w.trails = map[string]*trailSeen{}
 	}
 	there := map[string]bool{}
 	for _, in := range state.Instruments {
+		if in.Trail == nil {
+			continue
+		}
 		key := trailKey(in)
 		there[key] = true
-		t := w.trails[key]
-		if t == nil {
-			t = &[2]trail{}
-			w.trails[key] = t
+		seen := w.trails[key]
+		if seen == nil {
+			seen = &trailSeen{}
+			w.trails[key] = seen
 		}
-		t[0].Add(in.InputRate, now)
-		t[1].Add(in.MIDIRate, now)
-		// A curve that still has something in it runs out of view by
-		// itself, also when nothing else changes.
-		if t[0].Max() > 0 || t[1].Max() > 0 {
+		if seen.seq != in.Trail.Seq {
+			seen.seq, seen.at = in.Trail.Seq, now
+		}
+		// A curve with something in it runs on between the steps.
+		if slices.Max(in.Trail.Input) > 0 || slices.Max(in.Trail.MIDI) > 0 {
 			w.moving = true
 		}
 	}
@@ -563,29 +572,38 @@ func (w *window) follow(state *ipc.Snapshot, now time.Time) {
 // drawTrails draws how much an instrument took in and sent over the last
 // seconds, as two curves over the area: what came in green, what went out
 // as MIDI yellow. They lie behind what is written there.
+//
+// A trail gains a value ten times a second. Drawn as it is, it would jump
+// one place to the left as often, which looks like a low frame rate. So
+// it is drawn moved by the part of a step that has passed since the last
+// one, and one value at each end is kept out of view: the oldest leaves,
+// and the newest comes in, over a whole step.
 func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
-	t := w.trails[trailKey(in)]
-	if t == nil {
+	seen := w.trails[trailKey(in)]
+	if seen == nil || in.Trail == nil || len(in.Trail.Input) < 4 || len(in.Trail.MIDI) != len(in.Trail.Input) {
 		return
 	}
+	count := len(in.Trail.Input)
+	phase := TrailPhase(w.drawn.Sub(seen.at), time.Duration(in.Trail.StepMS)*time.Millisecond)
 	// Both curves on one scale, so that they can be compared.
-	most := float32(max(t[0].Max(), t[1].Max(), 20))
-	step := area.Width / float32(trailLen-1)
-	for i, ink := range []RGB{colInput, colMIDI} {
-		values := t[i].values
-		if t[i].Max() == 0 {
+	most := float32(max(slices.Max(in.Trail.Input), slices.Max(in.Trail.MIDI), 20))
+	beginClipWithin(area)
+	defer endClipWithin()
+	floor := area.Y + area.Height
+	for i, values := range [][]int{in.Trail.Input, in.Trail.MIDI} {
+		if slices.Max(values) == 0 {
 			continue
 		}
+		ink := []RGB{colInput, colMIDI}[i]
 		at := func(n int) rl.Vector2 {
-			return rl.NewVector2(area.X+float32(n)*step, area.Y+area.Height-float32(values[n])/most*(area.Height-4))
+			return rl.NewVector2(TrailX(n, count, phase, area.X, area.Width), floor-float32(values[n])/most*(area.Height-4))
 		}
-		for n := 1; n < trailLen; n++ {
+		for n := 1; n < count; n++ {
 			if values[n-1] == 0 && values[n] == 0 {
 				continue
 			}
 			a, b := at(n-1), at(n)
 			// The area under the curve, faint, and the curve itself.
-			floor := area.Y + area.Height
 			rl.DrawTriangle(a, rl.NewVector2(a.X, floor), b, colA(ink, 22))
 			rl.DrawTriangle(b, rl.NewVector2(a.X, floor), rl.NewVector2(b.X, floor), colA(ink, 22))
 			rl.DrawLineEx(a, b, 1.5, colA(ink, 120))

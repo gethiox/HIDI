@@ -50,22 +50,26 @@ func TestGlide(t *testing.T) {
 	}
 }
 
-func TestTrail(t *testing.T) {
-	var tr trail
-	start := time.Unix(1000, 0)
-	tr.Add(5, start)
-	tr.Add(7, start.Add(50*time.Millisecond)) // the same step: the newest value counts
-	if tr.values[trailLen-1] != 7 || tr.Max() != 7 {
-		t.Errorf("within one step: %v", tr.values[trailLen-3:])
+// A trail is drawn so that it runs evenly: at the start of a step the
+// second value stands at the left edge and the last but one at the right,
+// and by the end of the step each has moved one place to the left.
+func TestTrailPlaces(t *testing.T) {
+	const count, x, width = 122, 100, 595
+	step := float32(width) / float32(count-3)
+	near := func(a, b float32) bool { return a-b < 0.01 && b-a < 0.01 }
+	if !near(TrailX(1, count, 0, x, width), x) || !near(TrailX(count-2, count, 0, x, width), x+width) {
+		t.Error("at the start of a step the edges are not on the second value and the last but one")
 	}
-	tr.Add(9, start.Add(250*time.Millisecond)) // two steps on
-	if got := tr.values[trailLen-3:]; got[0] != 7 || got[1] != 9 || got[2] != 9 {
-		t.Errorf("after two steps: %v", got)
+	if !near(TrailX(2, count, 1, x, width), x) || !near(TrailX(count-1, count, 1, x, width), x+width) {
+		t.Error("at the end of a step the values have not moved one place")
 	}
-	// A long time without anything: the whole trail is the value of now.
-	tr.Add(0, start.Add(time.Hour))
-	if tr.Max() != 0 {
-		t.Errorf("after an hour the trail still has %d in it", tr.Max())
+	// The oldest and the newest value are outside at the start of a step.
+	if TrailX(0, count, 0, x, width) > x-step+0.01 || TrailX(count-1, count, 0, x, width) < x+width+step-0.01 {
+		t.Error("the value at an end is in view when it should not be")
+	}
+	if TrailPhase(50*time.Millisecond, 100*time.Millisecond) != 0.5 || TrailPhase(time.Second, 100*time.Millisecond) != 1 ||
+		TrailPhase(-time.Second, 100*time.Millisecond) != 0 || TrailPhase(time.Second, 0) != 1 {
+		t.Error("TrailPhase")
 	}
 }
 
