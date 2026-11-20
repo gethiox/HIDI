@@ -824,3 +824,36 @@ func TestLearnCatchesUp(t *testing.T) {
 	r.press(keyUp, "")
 	r.release(keyUp, "")
 }
+
+// A passed key sends nothing, and the engine tells which keys are passed
+// in the layout that is selected.
+func TestPassthrough(t *testing.T) {
+	space, a, next := control.Key(57), control.Key(30), control.Key(88)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Global:   []Binding{{Source: Source{Code: next}, Action: CommandLayoutNext}},
+		Layouts: []Layout{
+			{Name: "Open", Bindings: []Binding{
+				{Source: Source{Code: space}, Action: Passthrough{}},
+				{Source: Source{Code: a}, Action: Note{Note: 60}},
+			}},
+			{Name: "Closed", Bindings: []Binding{{Source: Source{Code: a}, Action: Note{Note: 60}}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.Passed(); len(got) != 1 || got[0] != space {
+		t.Errorf("Passed() = %v", got)
+	}
+	if out := e.Handle(control.Event{Code: space, Value: 1}, nil); len(out) != 0 {
+		t.Errorf("a passed key sent %v", out)
+	}
+	if out := e.Handle(control.Event{Code: space, Value: 0}, nil); len(out) != 0 {
+		t.Errorf("its release sent %v", out)
+	}
+	e.Handle(control.Event{Code: next, Value: 1}, nil)
+	if got := e.Passed(); len(got) != 0 {
+		t.Errorf("Passed() in a layout without one = %v", got)
+	}
+}

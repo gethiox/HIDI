@@ -198,7 +198,7 @@ func TestParseErrors(t *testing.T) {
 		{"axis threshold", "schema = 1\n[defaults]\naxis_threshold = 0.9\n[[layout]]\nname = \"L\"", "axis_threshold"},
 		{"default layout", "schema = 1\n[defaults]\nlayout = \"Nope\"\n[[layout]]\nname = \"L\"", `default layout "Nope"`},
 		{"unknown control", layout(`KEY_NOPE = "C1"`), `layout "L", KEY_NOPE: unknown control`},
-		{"bad note", layout(`KEY_A = "H9"`), "neither a command nor a note"},
+		{"bad note", layout(`KEY_A = "H9"`), "neither a command, a note nor"},
 		{"note number range", layout(`KEY_A = 200`), "outside 0-127"},
 		{"wrong value type", layout(`KEY_A = true`), "must be a note, a command or a table"},
 		{"no action", layout(`KEY_A = { deadzone = 0.1 }`), "exactly one of"},
@@ -451,5 +451,28 @@ func TestTouchOption(t *testing.T) {
 	}
 	if _, err := Parse([]byte("schema = 1\nname = \"T\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nABS_RZ = { cc = 1, touch = true }\n")); err == nil {
 		t.Error("touch on a controller was accepted")
+	}
+}
+
+// A key can be left to the system; only a key of the main part, alone.
+func TestParsePassthrough(t *testing.T) {
+	p, err := Parse([]byte("schema = 1\nname = \"P\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_SPACE = \"passthrough\"\nKEY_A = \"C3\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := 0
+	for _, b := range p.Engine.Layouts[0].Bindings {
+		if _, ok := b.Action.(engine.Passthrough); ok && b.Source.Code == control.Key(57) {
+			passed++
+		}
+	}
+	if passed != 1 {
+		t.Errorf("bindings: %+v", p.Engine.Layouts[0].Bindings)
+	}
+	for _, bad := range []string{"ABS_X = \"passthrough\"", "\"KEY_LEFTSHIFT+KEY_A\" = \"passthrough\"", "\"Touchpad:BTN_LEFT\" = \"passthrough\""} {
+		_, err := Parse([]byte("schema = 1\nname = \"P\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\n" + bad + "\n"))
+		if err == nil || !strings.Contains(err.Error(), "passed through") {
+			t.Errorf("%s: error = %v", bad, err)
+		}
 	}
 }
