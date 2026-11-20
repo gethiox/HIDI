@@ -109,7 +109,10 @@ To be decided:
 
 - The rest of configuring in the window: the two halves of an axis bound
   apart, program changes, keys with modifiers, the options of a note,
-  adding and removing layouts, and a new profile for a device.
+  renaming a layout, and a new profile for a device.
+- A profile that is tried and not saved stays in use if the window ends
+  without a word, by a crash for one, until its file changes or HIDI
+  starts again. A window that is closed takes it back.
 - A running HIDI follows changed `connect` ports, and the switch and the
   address of OpenRGB, only at its next start.
 - Two keyboards with lights are written one after the other, so each
@@ -283,6 +286,24 @@ Found and left as it is, by choice:
 
 Not tried: anything of this on Windows, and the lights on a real keyboard;
 the hub was tried against servers made for the tests, one of them slow.
+
+Later the same day, into the same pull request:
+
+| Asked for | What was done |
+|---|---|
+| A middle click on the icon turns HIDI off and on. | Linux did; Windows does now. |
+| A much darker window. | Near black, with the panels a step above it. |
+| Behind the two lines of an instrument, how much came in and went out, input green and MIDI yellow; the numbers tinted alike, in the terminal too. | The rates are worked out ten times a second over the second that just ended, and the window keeps twelve seconds of them per instrument. The status lines of the terminal colour the two numbers the same way. |
+| The profile editor saves when asked, takes changes back, and a running HIDI plays with what is not saved. | Changes are kept in the window. A disk saves, yellow while there is something to save; Undo and Redo as buttons and as Ctrl+Z and Ctrl+Y. What is shown and not saved is given to HIDI over the control socket (`preview`) and stands in for the file until the file changes. A page left with changes keeps them, and a yellow dot marks the way back. |
+| Layouts can be added, removed, put in another order, and one chosen to start with. | In the text of the file, like every other change: `config.AddLayout`, `RemoveLayout`, `MoveLayout`, and `layout` under `[defaults]`. |
+| The colours of what the keys do, at half strength in the main view. | Done. |
+| The settings open over the profile editor too. | The sheet lies over whatever is shown. |
+| "blacklist" and "whitelist" as the names of the two modes. | Done. |
+| Scrolling as a movement. | The target moves at once and the position follows it, by the time that passed and not by the frame: nine tenths of the way in 80 ms at any frame rate. In the instruments, the settings and the profile editor. |
+| What all instruments together take in and send, at the top. | Before the version. |
+
+Not tried: Windows; the keys of the editor with a keyboard HIDI has
+grabbed, which do not reach the window, as the page says.
 
 ## Done
 

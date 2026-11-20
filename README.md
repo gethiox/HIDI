@@ -164,8 +164,11 @@ turns HIDI off and on" in the
 
 ## The window
 
-Each instrument has two lines: its name and profile, and its state. The
-numbers for input and MIDI turn green while something comes in or goes out.
+Each instrument has two lines: its name and profile, and its state. Behind
+them runs a curve of the last twelve seconds: green for what came in from
+the device, yellow for what went out as MIDI. The two numbers for it take
+the same colours while they are not zero, and the top of the window has them
+for all instruments together.
 The switches "input" and "output" beside "show" add what the device reports
 and the notes that are played because of it; the window remembers them for
 every device.
@@ -201,8 +204,9 @@ start.
 - "Change" beside the toggle combination takes a new one from the keyboard:
   press the keys together and let go. One key alone works too, and can then
   be made to work by a tap.
-- "Devices that play" chooses which devices become instruments: every one
-  except those you tick, or only those you tick. The list has the devices
+- "Devices that play" chooses which devices become instruments: with
+  "blacklist" every one except those you tick, with "whitelist" only those
+  you tick. The list has the devices
   that are connected and, in grey, those HIDI has seen before.
 - "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
   makes every instrument send there as well.
@@ -231,11 +235,26 @@ reversed, and a dead zone.
 
 ![Changing a keyboard's profile](docs/images/gui-profile.png)
 
-Every change is written to the file at once, as a change of that one line:
-notes you wrote into the file by hand stay. A running HIDI follows within a
-few seconds. Program changes, keys that need a modifier, the two directions
-of an axis bound apart, and the options of a note are shown where they apply
-and changed in the file. So are adding a layout and making a new profile.
+Nothing is written until you save, with the disk in the corner or Ctrl+S.
+The disk is yellow while there is something to save. A running HIDI plays
+with the profile as it is shown, saved or not, so a change can be tried at
+once; the file counts again when you take the changes back. "Undo" and
+"Redo", or Ctrl+Z and Ctrl+Y, go back and forth through the changes. If you
+leave the page with changes on it they stay there, and a yellow dot on the
+way back to it says so.
+
+The row of layouts chooses the one that is shown. The box beside a layout
+makes it the one an instrument starts with. Below it are the buttons that
+move the layout earlier or later in the row the player steps through, remove
+it, and add a new one.
+
+The keys for all this reach the window only while the keyboard is not
+HIDI's alone: turn HIDI off, or use the buttons.
+
+Saving changes the lines that changed and nothing else: notes you wrote into
+the file by hand stay. Program changes, keys that need a modifier, the two
+directions of an axis bound apart, and the options of a note are shown where
+they apply and changed in the file. So is making a new profile.
 
 The window needs 64-bit Linux or Windows with OpenGL 3.3.
 
