@@ -3,7 +3,7 @@ package tray
 import (
 	"context"
 	"errors"
-	"image/color"
+	"github.com/gethiox/HIDI/internal/assets/icon"
 	"log/slog"
 	"slices"
 	"sync"
@@ -46,22 +46,19 @@ func TestIcon(t *testing.T) {
 		if on.Bounds().Dx() != size || on.Bounds().Dy() != size {
 			t.Fatalf("size %d: the icon is %v", size, on.Bounds())
 		}
-		// The corners are clear, the background has the colour of the
-		// look, and a key is white.
-		if a := on.NRGBAAt(0, 0).A; a != 0 {
-			t.Errorf("size %d: the corner has alpha %d", size, a)
+		// The outer keys are of the letter: green while on, and of the
+		// colour of every other key while off. A stopped HIDI is faint.
+		x, y := size*15/100, size*6/10
+		if got := on.NRGBAAt(x, y); got != icon.On[icon.H] {
+			t.Errorf("size %d: on, the left key is %v", size, got)
 		}
-		edge := size / 8
-		if got := on.NRGBAAt(size/2, edge); got != colourOn {
-			t.Errorf("size %d: on is %v at the top", size, got)
+		if got := off.NRGBAAt(x, y); got != icon.Off[icon.H] {
+			t.Errorf("size %d: off, the left key is %v", size, got)
 		}
-		if got := off.NRGBAAt(size/2, edge); got != colourOff {
-			t.Errorf("size %d: off is %v at the top", size, got)
+		if got := Icon(LookLearning, size).NRGBAAt(x, y); got != icon.Learning[icon.H] {
+			t.Errorf("size %d: learning, the left key is %v", size, got)
 		}
-		if got := on.NRGBAAt(size/2, size*2/3); got != (color.NRGBA{R: 255, G: 255, B: 255, A: 255}) {
-			t.Errorf("size %d: the middle key is %v", size, got)
-		}
-		if a := stopped.NRGBAAt(size/2, edge).A; a == 0 || a >= 200 {
+		if a := stopped.NRGBAAt(x, y).A; a == 0 || a >= 200 {
 			t.Errorf("size %d: stopped has alpha %d, want faint", size, a)
 		}
 	}
