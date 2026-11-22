@@ -339,3 +339,74 @@ func TestMatches(t *testing.T) {
 		t.Error("a location without a model, or a device without one, matches")
 	}
 }
+
+// The hub is turned off and on while it runs: off, the keyboard is left
+// evenly lit and the server let go of; on again, the lamp shows its scene.
+func TestHubTurnedOffAndOn(t *testing.T) {
+	c := DefaultColours()
+	var mu sync.Mutex
+	var servers []*fakeServer
+	opts := Options{Repeats: []time.Duration{}, Disabled: true, Interval: time.Millisecond, Retry: 5 * time.Millisecond}
+	opts.Connect = func() (Server, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		servers = append(servers, &fakeServer{})
+		return servers[len(servers)-1], nil
+	}
+	opts.Matches = func(location string, info control.DeviceInfo) bool { return location == "keyboard" }
+	hub := NewHub(opts)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { hub.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	connected := func() int { mu.Lock(); defer mu.Unlock(); return len(servers) }
+	last := func() *fakeServer { mu.Lock(); defer mu.Unlock(); return servers[len(servers)-1] }
+
+	keyA := control.Key(30)
+	lamp := hub.Attach(control.DeviceInfo{Name: "Kbd"})
+	lamp.Show(Scene{Active: true, Layouts: 1, Keys: []engine.KeyRole{{Code: keyA, Action: engine.Note{Note: 60}}}})
+	time.Sleep(30 * time.Millisecond)
+	if connected() != 0 {
+		t.Fatal("a hub that is turned off reached for the server")
+	}
+
+	hub.SetEnabled(true)
+	eventually(t, "the scene on the keyboard", func() bool {
+		if connected() != 1 {
+			return false
+		}
+		got, _ := last().lights()
+		_, _, lit := lamp.Painted()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.C) && lit
+	})
+
+	hub.SetEnabled(false)
+	first := last()
+	eventually(t, "the keyboard left evenly lit and the server let go of", func() bool {
+		got, _ := first.lights()
+		first.mu.Lock()
+		closed := first.closed
+		first.mu.Unlock()
+		_, _, lit := lamp.Painted()
+		return closed && !lit && len(got) == 4 && got[0] == openrgb.RGB(c.Idle)
+	})
+
+	// On again, to a new connection, with the scene the lamp had.
+	hub.SetEnabled(true)
+	eventually(t, "the scene on the keyboard again", func() bool {
+		if connected() != 2 {
+			return false
+		}
+		got, _ := last().lights()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.C)
+	})
+	// Another address: the connection is made anew.
+	hub.Reconnect()
+	eventually(t, "a third connection with the scene", func() bool {
+		if connected() != 3 {
+			return false
+		}
+		got, _ := last().lights()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.C)
+	})
+}

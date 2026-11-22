@@ -55,6 +55,11 @@ type Options struct {
 	// Held for longer than [TapHold], the key is passed on to the system,
 	// so that it can still do what it normally does.
 	HideToggle bool
+	// OwnToggle keeps a Toggle of one key from the rest of the system
+	// altogether, tapped or not, on devices that can do that: the key is
+	// HIDI's alone. Caps Lock as the toggle then never changes the
+	// keyboard's state.
+	OwnToggle bool
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
 	// Allow decides whether a device may become an instrument at all.
@@ -423,7 +428,7 @@ func (m *Manager) rulesFor(info control.DeviceInfo) *inputRules {
 	tap := m.opts.ToggleTap && len(m.opts.Toggle) == 1
 	return &inputRules{
 		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: m.opts.Toggle,
-		tap: tap, hide: tap && m.opts.HideToggle,
+		tap: tap, hide: len(m.opts.Toggle) == 1 && (tap && m.opts.HideToggle || m.opts.OwnToggle),
 	}
 }
 
@@ -434,6 +439,18 @@ func (m *Manager) SetToggleTap(tap, hide bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.opts.ToggleTap, m.opts.HideToggle = tap, hide
+	for r := range m.running {
+		r.rules.Store(m.rulesFor(r.info))
+		r.poke()
+	}
+}
+
+// SetOwnToggle changes whether a toggle of one key is kept from the rest
+// of the system; see [Options.OwnToggle].
+func (m *Manager) SetOwnToggle(own bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.OwnToggle = own
 	for r := range m.running {
 		r.rules.Store(m.rulesFor(r.info))
 		r.poke()

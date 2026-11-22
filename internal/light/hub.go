@@ -36,6 +36,9 @@ type Options struct {
 	Colours Colours
 	// Logger receives what the hub reports. Nil discards it.
 	Logger *slog.Logger
+	// Disabled makes the hub start turned off: it reaches for no server
+	// until [Hub.SetEnabled] turns it on.
+	Disabled bool
 	// Changed, if set, is called when what a lamp shows has changed. It
 	// must return quickly.
 	Changed func()
@@ -68,6 +71,9 @@ type Hub struct {
 	colours atomic.Pointer[Colours]
 	// wake tells the hub's goroutine that a lamp has something new.
 	wake chan struct{}
+	// disabled says that the hub is turned off, and renew that the
+	// connection is to be made anew, to another server for one.
+	disabled, renew atomic.Bool
 
 	mu    sync.Mutex
 	lamps []*Lamp
@@ -149,7 +155,24 @@ func NewHub(opts Options) *Hub {
 	}
 	h := &Hub{opts: opts, log: log, wake: make(chan struct{}, 1)}
 	h.colours.Store(&opts.Colours)
+	h.disabled.Store(opts.Disabled)
 	return h
+}
+
+// SetEnabled turns the hub on or off while it runs. Turned off, it lights
+// every keyboard evenly, as while HIDI is off, and lets go of the server;
+// turned on, it reaches for the server at once.
+func (h *Hub) SetEnabled(on bool) {
+	if h.disabled.Swap(!on) != !on {
+		h.poke()
+	}
+}
+
+// Reconnect makes the hub let go of its server and reach for one anew:
+// after the address it is told to connect to has changed.
+func (h *Hub) Reconnect() {
+	h.renew.Store(true)
+	h.poke()
 }
 
 // SetColours replaces the colours. The keyboards follow at once.
@@ -249,6 +272,22 @@ func (h *Hub) Run(ctx context.Context) {
 				h.leave(server, l)
 			}
 		}
+		if off := h.disabled.Load(); off || h.renew.Swap(false) {
+			if server != nil {
+				// The keyboards are left evenly lit, and their lamps wait
+				// for the next server.
+				for _, l := range lamps {
+					h.rest(server, l)
+				}
+				server.Close()
+				server = nil
+				h.log.Info("the connection to OpenRGB is closed")
+			}
+			nextTry, announced = time.Time{}, false
+			if off {
+				continue
+			}
+		}
 		if len(lamps) == 0 {
 			continue
 		}
@@ -317,6 +356,24 @@ func (h *Hub) leave(server Server, l *Lamp) {
 	if l.bound {
 		h.send(server, l, time.Now())
 	}
+	h.unlit(l)
+}
+
+// rest lights the keys of an open lamp evenly and lets go of its
+// keyboard; the lamp keeps its scene and lights up again with the next
+// server.
+func (h *Hub) rest(server Server, l *Lamp) {
+	if l.bound {
+		l.mu.Lock()
+		scene := l.scene
+		l.scene.Active, l.scene.Pressed, l.dirty = false, nil, true
+		l.mu.Unlock()
+		h.send(server, l, time.Now())
+		l.mu.Lock()
+		l.scene, l.dirty = scene, true
+		l.mu.Unlock()
+	}
+	l.bound, l.missed, l.sent = false, false, nil
 	h.unlit(l)
 }
 

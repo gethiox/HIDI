@@ -397,33 +397,33 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	openEndpoint := backend.OpenEndpoint
 	// Lighting the keys: a hub that talks to OpenRGB, and MIDI devices
 	// that other programs can send to, so that their notes show too.
-	lightsAddress := ""
-	switch {
-	case given["openrgb"]:
-		lightsAddress = *lightsFlag
-	case pl.settings.Lights.OpenRGB:
-		lightsAddress = pl.settings.Lights.Address
+	// The hub is always there and reaches for a server only while the
+	// lights are turned on, which the settings can change while HIDI runs.
+	lightsOn, lightsAddress := pl.settings.Lights.OpenRGB, pl.settings.Lights.Address
+	if given["openrgb"] {
+		lightsOn, lightsAddress = true, *lightsFlag
 	}
 	var changes ipc.Notifier
-	var lights func(control.DeviceInfo) instrument.Light
-	var hub *light.Hub
+	var address atomic.Pointer[string]
+	address.Store(&lightsAddress)
+	hub := light.NewHub(light.Options{
+		Connect:  func() (light.Server, error) { return openrgb.Connect(*address.Load(), "HIDI") },
+		Colours:  pl.settings.Lights.Colours,
+		Changed:  changes.Notify,
+		Logger:   logs.Logger("lights"),
+		Disabled: !lightsOn,
+	})
 	lightsDone := make(chan struct{})
-	if lightsAddress != "" {
-		hub = light.NewHub(light.Options{
-			Connect: func() (light.Server, error) { return openrgb.Connect(lightsAddress, "HIDI") },
-			Colours: pl.settings.Lights.Colours,
-			Changed: changes.Notify,
-			Logger:  logs.Logger("lights"),
-		})
-		go func() {
-			defer close(lightsDone)
-			hub.Run(ctx)
-		}()
-		lights = func(info control.DeviceInfo) instrument.Light { return hub.Attach(info) }
-		openEndpoint = backend.OpenDuplexEndpoint
+	go func() {
+		defer close(lightsDone)
+		hub.Run(ctx)
+	}()
+	lights := func(info control.DeviceInfo) instrument.Light { return hub.Attach(info) }
+	// Two-way MIDI devices, so that the notes other programs send show on
+	// the keys when the lights are on.
+	openEndpoint = backend.OpenDuplexEndpoint
+	if lightsOn {
 		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
-	} else {
-		close(lightsDone)
 	}
 	plainEndpoint := openEndpoint
 	if len(connect) > 0 {
@@ -454,6 +454,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		Toggle:         toggle,
 		ToggleTap:      *toggleTap,
 		HideToggle:     hidesToggle(*alwaysGrab),
+		OwnToggle:      pl.settings.Input.ToggleExclusive,
 		StartInactive:  *startOff,
 		Lights:         lights,
 		LogMIDI:        *logMIDI,
@@ -554,6 +555,8 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		// window writes this file for things only it cares about, too.
 		devicesNow, coloursNow := pl.settings.Devices, pl.settings.Lights.Colours
 		learnNow := pl.settings.Input.LearnThreshold
+		lightsNow := pl.settings.Lights
+		ownNow := pl.settings.Input.ToggleExclusive
 		inputNow := fmt.Sprint(toggle, !*noGrab, *grabGamepads, *toggleTap, *alwaysGrab)
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
@@ -604,7 +607,24 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 				manager.SetLearnThreshold(float64(learnNow) / 100)
 				configLog.Info("settings changed", "learn_threshold", learnNow)
 			}
-			if hub != nil && s.Lights.Colours != coloursNow {
+			if s.Input.ToggleExclusive != ownNow {
+				ownNow = s.Input.ToggleExclusive
+				manager.SetOwnToggle(ownNow)
+				configLog.Info("settings changed", "toggle_exclusive", ownNow)
+			}
+			// The lights follow at once, unless the command line said
+			// where the server is.
+			if !given["openrgb"] && (s.Lights.OpenRGB != lightsNow.OpenRGB || s.Lights.Address != lightsNow.Address) {
+				if s.Lights.Address != lightsNow.Address {
+					to := s.Lights.Address
+					address.Store(&to)
+					hub.Reconnect()
+				}
+				lightsNow.OpenRGB, lightsNow.Address = s.Lights.OpenRGB, s.Lights.Address
+				hub.SetEnabled(s.Lights.OpenRGB)
+				configLog.Info("settings changed", "openrgb", s.Lights.OpenRGB, "address", s.Lights.Address)
+			}
+			if s.Lights.Colours != coloursNow {
 				coloursNow = s.Lights.Colours
 				hub.SetColours(s.Lights.Colours)
 				configLog.Info("settings changed: the colours of the keys")

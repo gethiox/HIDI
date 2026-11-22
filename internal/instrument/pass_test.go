@@ -221,3 +221,32 @@ func sentText(e *fakeEndpoint) string {
 	sent, _ := e.state()
 	return sent
 }
+
+// A toggle of one key can be HIDI's alone: the system never sees it,
+// tapped or not, while HIDI is off as well.
+func TestOwnToggle(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, OwnToggle: true, StartInactive: true})
+	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
+	r.devices <- kbd
+	eventually(t, "the keyboard to be passed on without the toggle key", func() bool {
+		kbd.pmu.Lock()
+		defer kbd.pmu.Unlock()
+		return kbd.passing && len(kbd.hidden) == 1 && kbd.hidden[0] == keyZ
+	})
+	kbd.set(keyZ, 1)
+	eventually(t, "the key to turn HIDI on", r.manager.Active)
+	kbd.set(keyZ, 0)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	kbd.set(keyZ, 1)
+	eventually(t, "the key to turn HIDI off again", func() bool { return !r.manager.Active() })
+	kbd.set(keyZ, 0)
+	eventually(t, "the keyboard to be passed on again", kbd.isPassing)
+	if got := kbd.typedKeys(); got != "" {
+		t.Errorf("the toggle key was typed for the system: %s", got)
+	}
+
+	// A combination of keys is never kept from the system, and the
+	// setting follows a change.
+	r.manager.SetOwnToggle(false)
+	eventually(t, "the keyboard to be released", func() bool { return !kbd.isPassing() && !kbd.isGrabbed() })
+}

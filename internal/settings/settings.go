@@ -100,6 +100,9 @@ type Input struct {
 	// well and types their keys again on a keyboard of HIDI's own, so
 	// that the tapped key can be hidden from the system there too.
 	AlwaysGrab bool
+	// ToggleExclusive keeps a toggle of one key from the rest of the
+	// system altogether: the key is HIDI's alone, also while HIDI is off.
+	ToggleExclusive bool
 	// LearnThreshold is how far an axis has to be moved to get through
 	// in learning mode, in hundredths of its range.
 	LearnThreshold int
@@ -145,13 +148,14 @@ func Default() Settings {
 type file struct {
 	Schema int `toml:"schema"`
 	Input  struct {
-		Toggle         *[]string `toml:"toggle"`
-		GrabKeyboards  *bool     `toml:"grab_keyboards"`
-		GrabGamepads   *bool     `toml:"grab_gamepads"`
-		StartOn        *bool     `toml:"start_on"`
-		ToggleTap      *bool     `toml:"toggle_tap"`
-		AlwaysGrab     *bool     `toml:"always_grab"`
-		LearnThreshold *int      `toml:"learn_threshold"`
+		Toggle          *[]string `toml:"toggle"`
+		GrabKeyboards   *bool     `toml:"grab_keyboards"`
+		GrabGamepads    *bool     `toml:"grab_gamepads"`
+		StartOn         *bool     `toml:"start_on"`
+		ToggleTap       *bool     `toml:"toggle_tap"`
+		AlwaysGrab      *bool     `toml:"always_grab"`
+		LearnThreshold  *int      `toml:"learn_threshold"`
+		ToggleExclusive *bool     `toml:"toggle_exclusive"`
 	} `toml:"input"`
 	Devices struct {
 		Mode *string   `toml:"mode"`
@@ -216,6 +220,7 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.ToggleTap, f.Input.ToggleTap)
 	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
 	set(&s.Input.LearnThreshold, f.Input.LearnThreshold)
+	set(&s.Input.ToggleExclusive, f.Input.ToggleExclusive)
 	if s.Input.LearnThreshold < 1 || s.Input.LearnThreshold > 100 {
 		problems = append(problems, fmt.Sprintf("input.learn_threshold: %d is not a number of hundredths from 1 to 100", s.Input.LearnThreshold))
 	}
@@ -298,6 +303,9 @@ func (s Settings) Check() []string {
 	if len(s.Input.Toggle) == 0 && !s.Input.StartOn {
 		problems = append(problems, "input: starting turned off needs a toggle combination to turn HIDI on")
 	}
+	if s.Input.ToggleExclusive && len(s.Input.Toggle) != 1 {
+		problems = append(problems, "input: toggle_exclusive needs a toggle of exactly one key; a combination of keys cannot be kept from the system")
+	}
 	if s.Input.ToggleTap && len(s.Input.Toggle) != 1 {
 		problems = append(problems, "input: toggle_tap needs a toggle of exactly one key, such as [\"KEY_CAPSLOCK\"]")
 	}
@@ -376,6 +384,12 @@ toggle_tap = %t
 # It needs access to /dev/uinput.
 always_grab = %t
 
+# Keep the toggle key from the rest of the system altogether: with toggle
+# set to one key, such as Caps Lock, that key is HIDI's alone and never
+# does what it normally does, also while HIDI is off. On Linux HIDI then
+# keeps keyboards grabbed all the time, as with always_grab.
+toggle_exclusive = %t
+
 # Learning mode makes every axis stand still until it is moved by more
 # than this many hundredths of its range. It is for teaching a program
 # which controller to listen to, when the program takes the first one that
@@ -429,7 +443,7 @@ log_height = %d
 # notes are: by the names of their devices. The window keeps these lists.
 show_input = %s
 show_output = %s
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.LearnThreshold,
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight,
