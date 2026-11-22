@@ -7,6 +7,7 @@ import (
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
+	"github.com/gethiox/HIDI/internal/update"
 )
 
 // Controller is the running HIDI as the window needs it; *ipc.Client is
@@ -51,6 +52,11 @@ type Options struct {
 	// ShowAll draws the input and the notes of every instrument,
 	// whatever the settings say. It is for pictures.
 	ShowAll bool
+	// Version is the version of this HIDI, and CheckUpdate, if set, asks
+	// for the newest release. The window asks only while the settings
+	// say that it may.
+	Version     string
+	CheckUpdate func(context.Context) (update.Result, error)
 	// EditProfile, if set, is a profile file the window opens with, ready
 	// to be changed.
 	EditProfile string

@@ -31,6 +31,9 @@ type ProfileDoc struct {
 	// there are changes here that are not saved: saving would write over
 	// what they did.
 	Elsewhere bool
+	// ReadOnly says that the profile is shown and not changed: it is one
+	// of those HIDI comes with, which HIDI keeps as they are.
+	ReadOnly bool
 }
 
 // maxUndo bounds how many changes can be taken back.
@@ -438,6 +441,9 @@ func (d *ProfileDoc) SetDefault(key string, value int) error {
 // is now: whoever edits it in an editor beside the window, as the window
 // itself tells to for what it cannot change, must not lose that.
 func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
+	if d.ReadOnly {
+		return ErrFactory
+	}
 	if _, err := d.Reload(); err != nil {
 		return err
 	}

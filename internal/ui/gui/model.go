@@ -92,6 +92,14 @@ func (m *Model) MinLevel() int {
 	return m.minLevel
 }
 
+// Touch says that something the window shows changed that is not part of
+// the model, so that the window is drawn anew.
+func (m *Model) Touch() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.version++
+}
+
 // Version changes whenever anything in the model does.
 func (m *Model) Version() uint64 {
 	m.mu.Lock()

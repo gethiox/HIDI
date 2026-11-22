@@ -15,9 +15,11 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 
 	"github.com/gethiox/HIDI/internal/assets/fonts"
+	"github.com/gethiox/HIDI/internal/assets/icon"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
 	"github.com/gethiox/HIDI/internal/settings"
+	"github.com/gethiox/HIDI/internal/update"
 )
 
 // Measures of the window, in pixels before scaling for a dense display.
@@ -107,8 +109,16 @@ type window struct {
 	tryBusy bool
 	// shown says what is drawn of which instrument.
 	shown settings.Shown
-	// glow is the picture of a light under a key.
-	glow rl.Texture2D
+	// glow is the picture of a light under a key, wheel that of the gear
+	// and icons HIDI's icon while off, on, and in the other half of the
+	// blinking of learning mode.
+	glow  rl.Texture2D
+	wheel rl.Texture2D
+	icons [3]rl.Texture2D
+	// version is the version of this HIDI and newest what is known of
+	// newer ones.
+	version string
+	newest  newest
 
 	gear     gear
 	settings settingsView
@@ -142,6 +152,17 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	}
 	defer rl.CloseWindow()
 	rl.SetWindowMinSize(minW, minH)
+	// The icon of the window, for the title bar and the task bar.
+	drawn := icon.Render(64, icon.Program)
+	emblem := rl.GenImageColor(64, 64, rl.Blank)
+	for y := range 64 {
+		for x := range 64 {
+			c := drawn.NRGBAAt(x, y)
+			rl.ImageDrawPixel(emblem, int32(x), int32(y), rl.NewColor(c.R, c.G, c.B, c.A))
+		}
+	}
+	rl.SetWindowIcon(*emblem)
+	rl.UnloadImage(emblem)
 	rl.SetExitKey(0) // Escape is a key of the instrument, not a way out
 
 	// HIDI's state is asked for as often as this monitor can show it, and
@@ -174,9 +195,18 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	}()
 	w.glow = loadGlow()
 	defer rl.UnloadTexture(w.glow)
+	w.wheel = loadGear()
+	defer rl.UnloadTexture(w.wheel)
+	for i, colours := range []icon.Colours{icon.Off, icon.On, icon.Learning} {
+		w.icons[i] = loadIcon(colours)
+		defer rl.UnloadTexture(w.icons[i])
+	}
+	w.version = opts.Version
+	w.newest.check = opts.CheckUpdate
 	if opts.Paths.Root != "" {
 		if s, err := settings.Load(opts.Paths.Settings); err == nil {
 			w.shown = s.Shown
+			w.newest.on = s.Window.CheckUpdates
 		}
 	}
 
@@ -221,6 +251,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 			// short whatever the frame limit, since a click that begins
 			// and ends between two looks is not seen.
 			rl.PollInputEvents()
+			applyCursor()
 			time.Sleep(min(time.Second/time.Duration(pace.target), idlePoll))
 			continue
 		}
@@ -228,6 +259,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		rl.BeginDrawing()
 		w.draw()
 		rl.EndDrawing()
+		applyCursor()
 		if shoot {
 			rl.TakeScreenshot(opts.Screenshot)
 			break
@@ -338,6 +370,27 @@ func width(font rl.Font, s string, size float32) float32 {
 	return rl.MeasureTextEx(font, s, size, 0).X
 }
 
+// wantCursor is the cursor the frame being drawn asks for, and shownCursor
+// the one that was last set. The cursor is set once a frame, when all of
+// it is drawn, and not by every part that has a wish: a cursor that is
+// set and set again flickers, and each setting makes a new one on some
+// systems.
+var wantCursor, shownCursor int32 = rl.MouseCursorDefault, rl.MouseCursorDefault
+
+func setCursor(c int32) { wantCursor = c }
+
+// applyCursor makes the pointer look as the last frame asked. On Windows
+// the system gives the pointer its arrow back whenever it moves, so there
+// the wish is repeated after every look at the pointer, as long as it is
+// over the window.
+func applyCursor() {
+	again := runtime.GOOS == "windows" && wantCursor != rl.MouseCursorDefault && rl.IsCursorOnScreen()
+	if wantCursor != shownCursor || again {
+		rl.SetMouseCursor(wantCursor)
+		shownCursor = wantCursor
+	}
+}
+
 // inputOff makes what is drawn deaf to the pointer: it is set while the
 // part of the window that lies under the settings is drawn. The window is
 // drawn by one goroutine.
@@ -424,7 +477,7 @@ func (w *window) draw() {
 	rl.ClearBackground(col(colBackground))
 	state := w.model.Snapshot()
 	// Whatever lies under the pointer may ask for another cursor.
-	rl.SetMouseCursor(rl.MouseCursorDefault)
+	wantCursor = rl.MouseCursorDefault
 	// What moves by itself moves by the time since the last frame. After
 	// a pause in which nothing was drawn that is one frame's worth.
 	now := time.Now()
@@ -459,8 +512,26 @@ func (w *window) draw() {
 }
 
 func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
-	text(w.title, "HIDI", margin, 20, sizeTitle, col(colText))
-	x := margin + width(w.title, "HIDI", sizeTitle) + 18
+	// The icon, in the colours of the state as the icon in the tray has
+	// them, and the name.
+	const iconSize = 30
+	picture, strength := w.icons[0], uint8(255)
+	switch {
+	case state == nil:
+		strength = 115
+	case state.Active && state.Learning && time.Now().UnixMilli()/500%2 == 1:
+		picture = w.icons[2]
+	case state.Active:
+		picture = w.icons[1]
+	}
+	if state != nil && state.Active && state.Learning {
+		w.moving = true // the blinking goes on
+	}
+	rl.DrawTexturePro(picture, rl.NewRectangle(0, 0, float32(picture.Width), float32(picture.Height)),
+		rl.NewRectangle(margin, (headerH-iconSize)/2, iconSize, iconSize), rl.NewVector2(0, 0), 0, rl.NewColor(255, 255, 255, strength))
+	nameX := float32(margin + iconSize + 10)
+	text(w.title, "HIDI", nameX, 20, sizeTitle, col(colText))
+	x := nameX + width(w.title, "HIDI", sizeTitle) + 18
 
 	if state == nil {
 		text(w.sans, "HIDI is not running. Start it with \"hidi\".", x, 27, sizeText, col(colFaint))
@@ -473,7 +544,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 		back, knobX, label = colOn, pill.X+pill.Width-13, "on"
 	}
 	if hovered(pill) {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		setCursor(rl.MouseCursorPointingHand)
 	}
 	rl.DrawRectangleRounded(pill, 1, 16, col(back))
 	rl.DrawCircle(int32(knobX), int32(pill.Y+13), 9, col(colText))
@@ -499,7 +570,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	word := "learning mode"
 	area := rl.NewRectangle(small.X, small.Y, small.Width+8+width(w.sans, word, sizeText-1), small.Height)
 	if hovered(area) {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		setCursor(rl.MouseCursorPointingHand)
 	}
 	rl.DrawRectangleRounded(small, 1, 12, col(back))
 	rl.DrawCircle(int32(knobX), int32(small.Y+9), 6, col(colText))
@@ -713,7 +784,7 @@ func (w *window) isShown(list []string, name string) bool {
 func (w *window) chip(label string, on bool, x, y float32) bool {
 	r := rl.NewRectangle(x, y, w.chipWidth(label), chipH)
 	if hovered(r) {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		setCursor(rl.MouseCursorPointingHand)
 	}
 	if on {
 		rl.DrawRectangleRounded(r, 0.4, 6, col(colAccent))
@@ -1137,6 +1208,154 @@ func loadGlow() rl.Texture2D {
 	return tex
 }
 
+// loadPicture makes a texture of a picture that is drawn smaller than it
+// is, and turned: smoothed, also when it is drawn much smaller.
+func loadPicture(size int, at func(x, y int) rl.Color) rl.Texture2D {
+	img := rl.GenImageColor(size, size, rl.Blank)
+	for py := range size {
+		for px := range size {
+			rl.ImageDrawPixel(img, int32(px), int32(py), at(px, py))
+		}
+	}
+	tex := rl.LoadTextureFromImage(img)
+	rl.UnloadImage(img)
+	rl.GenTextureMipmaps(&tex)
+	rl.SetTextureFilter(tex, rl.FilterTrilinear)
+	return tex
+}
+
+// loadGear makes the picture of the gear: white, to be drawn in any
+// colour.
+func loadGear() rl.Texture2D {
+	const size = 128
+	alpha := GearAlpha(size)
+	return loadPicture(size, func(x, y int) rl.Color { return rl.NewColor(255, 255, 255, alpha[y*size+x]) })
+}
+
+// loadIcon makes the picture of HIDI's icon in the given colours.
+func loadIcon(colours icon.Colours) rl.Texture2D {
+	const size = 128
+	img := icon.Render(size, colours)
+	return loadPicture(size, func(x, y int) rl.Color {
+		c := img.NRGBAAt(x, y)
+		return rl.NewColor(c.R, c.G, c.B, c.A)
+	})
+}
+
+// drawFloppy draws the floppy disk of the buttons that save, each of its
+// sixteen points pixel wide and high.
+func drawFloppy(x, y, pixel float32, c rl.Color) {
+	for row := range 16 {
+		for column := 0; column < 16; column++ {
+			if !FloppyPoint(column, row) {
+				continue
+			}
+			from := column
+			for column+1 < 16 && FloppyPoint(column+1, row) {
+				column++
+			}
+			rl.DrawRectangleRec(rl.NewRectangle(x+float32(from)*pixel, y+float32(row)*pixel, float32(column-from+1)*pixel, pixel), c)
+		}
+	}
+}
+
+// newest is what the window knows about newer releases of HIDI.
+type newest struct {
+	// on says that the user wants the window to ask, and check is what
+	// asks; without it nothing is asked.
+	on    bool
+	check func(context.Context) (update.Result, error)
+
+	mu      sync.Mutex
+	asking  bool
+	asked   time.Time
+	result  *update.Result
+	problem string
+}
+
+// look asks for the newest release if it is time to: when the window
+// has not asked yet, a day after an answer, and an hour after a failure.
+func (n *newest) look(ctx context.Context, now time.Time, done func()) {
+	if !n.on || n.check == nil {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	wait := update.Interval
+	if n.problem != "" {
+		wait = time.Hour
+	}
+	if n.asking || !n.asked.IsZero() && now.Sub(n.asked) < wait {
+		return
+	}
+	n.asking, n.asked = true, now
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		result, err := n.check(ctx)
+		n.mu.Lock()
+		n.asking, n.problem = false, ""
+		if err != nil {
+			n.problem = err.Error()
+		} else {
+			n.result = &result
+		}
+		n.mu.Unlock()
+		done()
+	}()
+}
+
+// words returns what the corner of the status bar says about releases,
+// whether that is news, and the page a click opens.
+func (n *newest) words() (label string, news bool, page string) {
+	if !n.on || n.check == nil {
+		return "", false, ""
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	switch {
+	case n.result != nil && n.result.Newer:
+		return "update available: " + n.result.Newest, true, n.result.Page
+	case n.result != nil && update.Known(n.result.Current):
+		return "up to date", false, n.result.Page
+	case n.result != nil:
+		return "newest release: " + n.result.Newest, false, n.result.Page
+	case n.problem != "":
+		return "no word of updates", false, update.Project + "/releases"
+	}
+	return "looking for updates", false, update.Project + "/releases"
+}
+
+// drawUpdate draws what is known of newer releases at the right end of
+// the status bar and returns how much of the bar that takes. A click
+// opens the page of the release.
+func (w *window) drawUpdate(bar rl.Rectangle) float32 {
+	w.newest.look(w.ctx, time.Now(), w.model.Touch)
+	label, news, page := w.newest.words()
+	if label == "" {
+		return 0
+	}
+	lw := width(w.sans, label, sizeText-1)
+	area := rl.NewRectangle(bar.X+bar.Width-margin-lw-6, bar.Y+4, lw+12, bar.Height-8)
+	ink := colA(colFaint, 150)
+	if news {
+		ink = col(colUnsaved)
+	}
+	if hovered(area) {
+		setCursor(rl.MouseCursorPointingHand)
+		if !news {
+			ink = col(colFaint)
+		}
+		if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+			if err := openPath(page); err != nil {
+				w.settings.message = fmt.Sprintf("%s could not be opened: %v", page, err)
+			}
+		}
+	}
+	text(w.sans, label, area.X+6, bar.Y+8, sizeText-1, ink)
+	return area.Width + 10
+}
+
 // drawLog draws the status bar with the last line of the log and, above
 // it, the log itself as far as it is pulled up.
 func (w *window) drawLog(area rl.Rectangle) {
@@ -1148,9 +1367,17 @@ func (w *window) drawLog(area rl.Rectangle) {
 	// on it opens and closes the log.
 	mouse := rl.GetMousePosition()
 	if hovered(bar) || w.dragging {
-		rl.SetMouseCursor(rl.MouseCursorResizeNS)
+		setCursor(rl.MouseCursorResizeNS)
 	}
-	if clicked(bar) && !w.overFilter(bar, mouse) {
+	// What is known of newer releases has the right end of the bar while
+	// the log is closed; a click there is not a pull at the bar.
+	label, _, _ := w.newest.words()
+	corner := rl.NewRectangle(bar.X+bar.Width, bar.Y, 0, bar.Height)
+	if label != "" && !open {
+		cw := width(w.sans, label, sizeText-1) + 12 + margin
+		corner = rl.NewRectangle(bar.X+bar.Width-cw, bar.Y, cw, bar.Height)
+	}
+	if clicked(bar) && !w.overFilter(bar, mouse) && !rl.CheckCollisionPointRec(mouse, corner) {
 		w.dragging, w.dragMoved = true, false
 	}
 	if w.dragging {
@@ -1181,8 +1408,9 @@ func (w *window) drawLog(area rl.Rectangle) {
 	if !open {
 		// The last line: in its colours, but faint, so that it informs
 		// without drawing the eye.
+		taken := w.drawUpdate(bar)
 		if n := len(lines); n > 0 {
-			w.drawLine(lines[n-1].Text, margin, area.Y+9, area.Width-2*margin, 120)
+			w.drawLine(lines[n-1].Text, margin, area.Y+9, area.Width-2*margin-taken, 120)
 		} else {
 			text(w.mono, "no log yet", margin, area.Y+9, sizeMono, colA(colFaint, 120))
 		}
@@ -1248,7 +1476,7 @@ func (w *window) drawFilter(bar rl.Rectangle) {
 	text(w.sans, label, buttons[0].X-width(w.sans, label, sizeText)-10, bar.Y+9, sizeText, col(colFaint))
 	for i, b := range buttons {
 		if hovered(b) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			setCursor(rl.MouseCursorPointingHand)
 		}
 		if clicked(b) {
 			w.model.SetMinLevel(i)

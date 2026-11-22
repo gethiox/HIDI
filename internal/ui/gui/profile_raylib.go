@@ -5,6 +5,8 @@ package gui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -56,6 +58,7 @@ func (w *window) editProfile(path string) {
 		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
 		return
 	}
+	doc.ReadOnly = IsFactory(path, w.opts.Paths)
 	w.edit = &editor{doc: doc, layout: doc.DefaultLayout(), held: map[string]bool{}}
 	if w.docs == nil {
 		w.docs = map[string]*editor{}
@@ -141,19 +144,12 @@ func (w *window) saveButton(unsaved bool, x, y float32) bool {
 		ink = colUnsaved
 	}
 	if hovered(r) && unsaved {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		setCursor(rl.MouseCursorPointingHand)
 		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanelEdge))
 	} else {
 		rl.DrawRectangleRoundedLinesEx(r, 0.35, 6, 1, col(colPanelEdge))
 	}
-	// The disk: a square with a corner cut off, the shutter at the top
-	// and the label below.
-	bx, by := x+7, y+4
-	rl.DrawRectangleRounded(rl.NewRectangle(bx, by, 16, 16), 0.2, 4, col(ink))
-	rl.DrawTriangle(rl.NewVector2(bx+16, by), rl.NewVector2(bx+12, by), rl.NewVector2(bx+16, by+4), col(colBackground))
-	rl.DrawRectangleRec(rl.NewRectangle(bx+4, by+1.5, 7, 5), col(colBackground))
-	rl.DrawRectangleRec(rl.NewRectangle(bx+8, by+2.5, 2, 3), col(ink))
-	rl.DrawRectangleRec(rl.NewRectangle(bx+3, by+9.5, 10, 5), col(colBackground))
+	drawFloppy(x+7, y+4, 1, col(ink))
 	return unsaved && clicked(r)
 }
 
@@ -305,6 +301,26 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	// One line for what is to be said: what went wrong, or else how
 	// things stand with saving.
 	status := e.message
+	if doc.ReadOnly {
+		// A factory profile is looked at; a copy of the user's own is
+		// what gets changed.
+		label := "Customise"
+		if _, err := os.Stat(filepath.Join(w.opts.Paths.User, filepath.Base(doc.Path))); err == nil {
+			label = "Edit yours"
+		}
+		hit, bend := w.button(label, x, y-4)
+		if hit {
+			w.edit = nil
+			w.customise(doc.Path)
+			return
+		}
+		if status == "" {
+			status = "A factory profile: HIDI keeps it as it is. A copy of your own is used in its place, and can be changed."
+		}
+		text(w.sans, status, bend+12, y, sizeText, col(colUnsaved))
+		y += 30
+		status = "\x00"
+	}
 	switch {
 	case status != "":
 	case doc.Elsewhere:
@@ -312,8 +328,10 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	case doc.Dirty():
 		status = "Not saved. A running HIDI plays with it as it is shown here; the file is as it was."
 	}
-	text(w.sans, status, x, y, sizeText, col(colUnsaved))
-	y += 26
+	if status != "\x00" {
+		text(w.sans, status, x, y, sizeText, col(colUnsaved))
+		y += 26
+	}
 
 	// What an instrument starts with.
 	d := doc.Profile.Engine.Defaults
@@ -471,7 +489,7 @@ func (w *window) editKeyboard(e *editor, x, y, inner float32) float32 {
 			rl.DrawRectangleRoundedLinesEx(rect, 0.2, 4, 2, col(colText))
 		}
 		if hovered(rect) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			setCursor(rl.MouseCursorPointingHand)
 		}
 		if clicked(rect) {
 			e.code, e.chosen = code, true
@@ -555,7 +573,7 @@ func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32
 			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 2, col(colText))
 		}
 		if hovered(chip) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			setCursor(rl.MouseCursorPointingHand)
 		}
 		if clicked(chip) {
 			e.code, e.chosen = code, true
@@ -647,7 +665,7 @@ func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
 		}
 		chip := rl.NewRectangle(cx, cy, cw, chipH)
 		if hovered(chip) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
+			setCursor(rl.MouseCursorPointingHand)
 		}
 		if role.Kind == RoleCommand && role.Command == command {
 			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
