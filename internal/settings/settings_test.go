@@ -493,3 +493,19 @@ func TestLearnThreshold(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckUpdates(t *testing.T) {
+	s, err := Parse([]byte("schema = 1\n"))
+	if err != nil || s.Window.CheckUpdates {
+		t.Fatalf("looking for updates is on without being asked for: %v, %v", s.Window.CheckUpdates, err)
+	}
+	s.Window.CheckUpdates = true
+	path := filepath.Join(t.TempDir(), "settings.toml")
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Load(path)
+	if err != nil || !back.Window.CheckUpdates {
+		t.Errorf("after saving and loading: %v, %v", back.Window.CheckUpdates, err)
+	}
+}

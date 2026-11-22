@@ -127,6 +127,9 @@ type Window struct {
 	BackgroundFPS int
 	// LogHeight is the height of the log when the window opens.
 	LogHeight int
+	// CheckUpdates lets the window ask GitHub whether a newer HIDI has
+	// been released. It is off unless the user turns it on.
+	CheckUpdates bool
 }
 
 // Default returns the settings of a HIDI nobody has changed.
@@ -176,6 +179,7 @@ type file struct {
 		LogHeight     *int      `toml:"log_height"`
 		ShowInput     *[]string `toml:"show_input"`
 		ShowOutput    *[]string `toml:"show_output"`
+		CheckUpdates  *bool     `toml:"check_updates"`
 	} `toml:"window"`
 }
 
@@ -256,6 +260,7 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Window.FPS, f.Window.FPS)
 	set(&s.Window.BackgroundFPS, f.Window.BackgroundFPS)
 	set(&s.Window.LogHeight, f.Window.LogHeight)
+	set(&s.Window.CheckUpdates, f.Window.CheckUpdates)
 	set(&s.Shown.Input, f.Window.ShowInput)
 	set(&s.Shown.Output, f.Window.ShowOutput)
 	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 || s.Window.LogHeight < 0 {
@@ -443,11 +448,17 @@ log_height = %d
 # notes are: by the names of their devices. The window keeps these lists.
 show_input = %s
 show_output = %s
+
+# Ask GitHub now and then whether a newer HIDI has been released, and say
+# so in the corner of the window. Nothing is downloaded or installed, and
+# nothing about you or your devices is sent: it is one request for the
+# newest release of the project. Off unless you turn it on.
+check_updates = %t
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight,
-		list(s.Shown.Input), list(s.Shown.Output))
+		list(s.Shown.Input), list(s.Shown.Output), s.Window.CheckUpdates)
 	return []byte(b.String())
 }
 
