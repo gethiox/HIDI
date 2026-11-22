@@ -51,88 +51,104 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (20 November 2026)
+## Where things stand (22 November 2026)
 
 `dev` holds everything up to the review of the whole code (pull requests
 50 and 51). One pull request is open on top of it:
 
-- `v2/round5`: the fifth round. Lights that keep up with the keyboard and
-  cannot stay behind, with colours that can be chosen; keys a profile
-  leaves to the system (`"passthrough"`); a list of the devices that play;
-  and the window: instruments in two lines with their input and notes
-  shown on request, horizontal axes, keys coloured by what they do and
-  glowing as the keyboard's lights do, grey while HIDI is off.
+- `v2/round5`: the fifth round and what was asked for after it; see
+  "Fifth round" and "Sixth round" below. In short: lights that keep up,
+  keys left to the system, a list of the devices that play, the compact
+  window with its curves, the profile editor with undo and explicit
+  saving, learning mode, the Steam Controller, and then factory and user
+  profiles, settings that are saved on purpose, HIDI's icon, the check for
+  updates, and a Windows program without a console that carries its icon.
 
 Apart from HIDI itself: a change to raylib's Win32 backend is on the
 maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
-`win32-modal-loop-frames`), and `v2/round5-raylib-resize` is this round
-built with it and raylib-go 0.63.0. Tried by the maintainer on Windows 11,
-it does what it is for:
+`win32-modal-loop-frames`), and `v2/round5-raylib-resize` is the fifth
+round built with it and raylib-go 0.63.0. Tried by the maintainer on
+Windows 11, it does what it is for: the window keeps drawing while it is
+moved or resized, follows the mouse whatever the frame rate, and no longer
+stops for half a second when the title bar is held. One pause is left and
+stays: with a large drag distance set in Windows, a slow move of the held
+title bar stops the window for up to half a second where it begins to
+move.
 
-- The window keeps drawing while it is moved or resized, and a frame is
-  drawn for every new size before Windows goes on with the resize.
-- The window follows the mouse whatever the frame rate: the application
-  gets a frame only when one is due.
-- Holding the title bar without moving no longer stops the window for
-  half a second.
-
-One pause is left and stays: with a large drag distance set in Windows, a
-slow move of the held title bar stops the window for up to half a second
-where it begins to move. Windows waits there for the mouse to cross the
-drag distance, measured from where the mouse is when the window is told
-to move; getting round that takes made-up mouse input or moving the
-window without Windows' own loop, which loses snapping.
-
-The branch is not for merging as it is: raylib-go 0.63.0 replaces GLFW by
-backends of its own, needs `libEGL` on Linux, and only its Windows amd64
-library was rebuilt with the change.
+**The release is built without that change** (the maintainer's decision):
+2.0 uses raylib-go 0.62.2 as it is, and the window stands still while it
+is moved or resized on Windows. The branch is kept for when the change has
+found its way into raylib, or raylib-go 0.63 is taken up; it does not have
+the sixth round.
 
 ### Waiting for the maintainer
 
 To be tried on Windows, none of which has run there:
 
-- `hidi.exe` by double click: the icon, its menu, the window opened from
-  it, "Quit HIDI", and how much of a console window is seen.
-- A grabbed keyboard: playing, the three-key toggle, and
-  `hidi.exe --toggle=KEY_CAPSLOCK --toggle-tap`.
+- `hidi.exe` of a release build by double click: no console window, the
+  icon in the tray with its new look, its menu, the window opened from it,
+  "Quit HIDI". The same file from `cmd` and PowerShell: `hidi version`,
+  `hidi doctor`, `hidi --headless` with Ctrl+C, output sent to a file,
+  `start /wait hidi doctor`, and `hidi --console --headless` from a
+  shortcut. Under Wine the first four work; `start /wait` showed nothing
+  there.
+- The icon of `hidi.exe` in Explorer and on the taskbar.
+- The hand cursor over buttons and switches of the window: it is now set
+  once a frame and repeated after every look at the pointer, because
+  raylib's Win32 code gives the arrow back whenever the mouse moves.
+- "Show in folder" beside a profile: Explorer with the file selected.
+- A grabbed keyboard: playing, the three-key toggle,
+  `hidi.exe --toggle=KEY_CAPSLOCK --toggle-tap`, and the same with
+  `toggle_exclusive`.
 - A key bound to `"passthrough"`: does it type while the others play.
 - The four hats of the Gladiator, and whether its buttons play.
 - `taskkill /F /IM midisrv.exe` while HIDI runs: do the instruments come
   back, and does the DAW find them again.
 - An Xbox controller.
+- The Steam Controller of 2026 with HIDI's own reader: axes, buttons, and
+  that it stops moving the mouse.
 - The window at 120 Hz: is motion smooth now.
+- Learning mode, and the middle click on the icon.
 
 To be tried with a keyboard OpenRGB lights, which was not at hand: that a
 released key goes dark at once, how fast the lights follow while playing,
-and the glow in the window beside the real keyboard.
+the glow in the window beside the real keyboard, and turning the lights
+off and on in the settings while HIDI runs.
+
+To be done by the maintainer before a release:
+
+- `packaging/windows/midi-api` needs the address and the checksum of
+  Microsoft's package `Windows.Devices.Midi2.<version>.nupkg`. Until it
+  has them the Windows archives are built without the DLL and the release
+  script says so. Microsoft's releases cannot be reached from where this
+  was written, so neither could be filled in, and the unpacking was tried
+  with a made-up package of the layout Microsoft's package description
+  gives.
+- The text of a release: the draft the workflow generates is edited by
+  hand before publishing; a fixed template is still to be written if
+  wanted.
 
 To be decided:
 
-- The exact shape of the gear.
-- Whether Microsoft's `Windows.Devices.Midi2.dll` goes into the Windows
-  archive, or users fetch it from Microsoft's package.
-- The text of a release: a fixed template, or the generated draft that
-  is edited each time.
-- The art of the icon, or the drawn placeholder for the beta.
-- Whether the rest of the profile editor belongs in the beta.
-- If the console window that flashes on a double click disturbs: a
-  second program file without a console.
 - Whether the raylib change goes to raylib, and when HIDI moves to
   raylib-go 0.63.
+- Whether the rest of the profile editor belongs in 2.0.
 
 ### Left to do
 
 - The rest of configuring in the window: the two halves of an axis bound
   apart, program changes, keys with modifiers, the options of a note,
-  renaming a layout, and a new profile for a device.
+  renaming a layout, a new profile for a device, removing a profile of
+  the user's.
 - A profile that is tried and not saved stays in use if the window ends
   without a word, by a crash for one, until its file changes or HIDI
   starts again. A window that is closed takes it back.
-- A running HIDI follows changed `connect` ports, and the switch and the
-  address of OpenRGB, only at its next start.
+- A running HIDI follows changed `connect` ports only at its next start.
 - Two keyboards with lights are written one after the other, so each
   follows at half the pace it could.
 - No start at login yet.
+- The check for updates is the window's: a HIDI that runs as an icon only
+  does not look.
 - What the review found and left as it is; see below.
 - What comes back from the tests above.
 - Turning on immutable releases, the first tag (which is also the first
@@ -353,6 +369,26 @@ keyboard it pretends to be is no longer taken for an instrument. What turns
 reports into events is tested; what talks to Windows and to the controller
 has never run. The controller of 2015 and the Steam Deck use an older form
 of the reports and are not read on Windows.
+
+### Sixth round (22 November 2026): what was asked for, and what was done
+
+| Asked for | Done |
+|---|---|
+| OpenRGB turned on and off without starting HIDI again | The hub of the lights always exists and is switched; a changed address makes it connect anew. Endpoints are always opened both ways, since lights may be wanted later. |
+| Profiles in two kinds, factory and user | `profiles/factory` is kept exactly as HIDI has it, read-only; `profiles/user` is the user's and comes first. `enabled = false` switches a user profile off. The earlier flat directory is converted on the first start. Logs, `hidi profiles` and the window say the kind. |
+| The settings are not saved by themselves | The sheet changes a copy; the disk in its corner (raygui's floppy, doubled) saves, yellow while there is something to save; Revert drops; Ctrl+S saves. A dot on the gear says that changes wait. |
+| Profiles on the sheet | Two groups. Yours: a switch, Edit, Show in folder. Factory: View, and Customise, which copies the profile to the user's directory and opens the copy. The editor shows a factory profile and refuses changes to it. Descriptions are cut at their end. "Open file" is gone. |
+| Devices no longer there at the end of the list | Connected first, then seen before, then only named. |
+| "Where things are" | HIDI's directory only. |
+| The toggle key kept from the system (Caps Lock) | `input.toggle_exclusive`; a switch on the sheet. |
+| The hand cursor showed for one frame | The cursor is set once a frame. On Windows raylib gives the arrow back on every mouse move, so there the wish is repeated after every look at the pointer. Not seen on Windows yet. |
+| The icon | `internal/assets/icon` fills the shapes of the maintainer's drawing at any size. On: the H of the two outer keys and the bar green, the rest of the middle key a lighter green. Learning: yellow, alternating with green every half second. Off: grey without the letter. In the tray, in the header of the window, and in `hidi.exe` through go-winres at build time. |
+| A nicer gear | A disc, eight teeth with sloping sides, cut to a circle, a hole in the middle; drawn once as a picture and turned. |
+| A check for updates | Opt-in (`window.check_updates`). The window asks GitHub's API for the newest release, once when it opens and once a day; the lower right corner says "up to date" in grey or "update available" in yellow, and a click opens the release. |
+| The Microsoft DLL in the zip | The release script takes it from Microsoft's package by address and checksum and puts it, the `.pri` and Microsoft's licence into the Windows archives. Address and checksum are still to be filled in. |
+| No console window | A release is linked with `-H windowsgui`; started from a command line HIDI joins that console; `--console` opens one. |
+
+Not done on purpose: the raylib change stays out of the release.
 
 ## Done
 
@@ -599,14 +635,15 @@ rest on assumptions about real devices and should be checked first:
 - The window lists a control of a game controller once it was used.
   Listing all of them from the start needs the input backends to say
   which controls a device has.
-- The icons of `hidi tray` are drawn placeholders, and the window has no
-  icon of its own; the maintainer will supply the art.
+- The icon is the maintainer's drawing, `internal/assets/icon/hidi.svg`.
+  HIDI does not read that file: its paths are copied into `icon.go`, so
+  a changed drawing has to be copied there again.
 - `--connect` applies to every instrument. Choosing ports for each
   instrument separately needs those settings, and belongs with them.
 - The udev rule tags every input device with `uaccess`, so the person at
   the machine can read all of them. Narrowing it to keyboards and game
   controllers is possible, but would leave out the unusual devices a
   profile may name; it is left wide.
-- A release has no file for `Windows.Devices.Midi2.dll`. Whether HIDI may
-  ship Microsoft's file, or has to send users to Microsoft's package, is
-  to be decided before a Windows preview is offered.
+- `Windows.Devices.Midi2.dll` is shipped in the Windows archives, as the
+  maintainer decided; the package is under the MIT licence, and its text
+  goes along.

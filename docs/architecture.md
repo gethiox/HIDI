@@ -46,7 +46,8 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 |---|---|---|
 | `cmd/hidi` | exists | Command line entry point. Parses arguments and calls into `internal/`. |
 | `buildinfo` | exists | Version of the running binary. |
-| `assets` | exists | Files embedded into the binary. |
+| `assets` | exists | Files embedded into the binary. `assets/icon` holds the shapes of HIDI's icon, from the drawing `hidi.svg` beside it, and fills them at any size in the colours of a state: for the tray, the window and the Windows program file. |
+| `update` | exists | Asks GitHub for the newest release and compares versions. Only the window uses it, and only where the settings allow. |
 | `midi` | exists | MIDI message types and encoding (MIDI 1.0 bytes and UMP). No I/O. |
 | `control` | exists | Platform-neutral input model: device identity, control codes, events. |
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
@@ -249,14 +250,23 @@ settings in `settings.toml`, and the profiles as files in `profiles`. The two
 are kept apart on purpose: a profile says how one kind of device plays, the
 settings say how HIDI behaves.
 
-HIDI carries its default settings and profiles inside the binary and writes
-them into the directory on the first start. From then on the files are all
-there is; the copies inside HIDI are used only without a directory. So that
-a later HIDI can improve a profile it wrote, it records a fingerprint of
-every file it writes: a file that still has the fingerprint is the user's
-untouched copy and may be replaced, any other is left alone, and a recorded
-file that is gone was removed on purpose. A directory without that record
-and with anything HIDI 2 does not keep there is never written to.
+HIDI carries its default settings and profiles inside the binary. The
+profiles are written into `profiles/factory` and kept there exactly as the
+binary has them, on every start: missing ones written, differing ones
+replaced, ones HIDI no longer has removed. That directory is HIDI's, and
+its files are marked read-only. The user's profiles are in `profiles/user`,
+which HIDI creates and never writes to by itself; a profile there comes
+before a factory profile that fits a device equally well, and can say
+`enabled = false` to be left out. Keeping the two apart is what lets a new
+HIDI improve its profiles without asking whether a file was changed, and
+lets the window show which is which. The copies inside HIDI are used
+directly only without a directory.
+
+The first HIDI 2 builds kept everything in `profiles` itself and recorded a
+fingerprint of every file they wrote. Such a directory is converted once:
+a file that still has its fingerprint was never changed and is dropped, any
+other moves to `profiles/user`. A directory without that record and with
+anything HIDI 2 does not keep there is never written to.
 
 The profile directory is polled once
 a second and loaded again when it changes; polling keeps this code free of
@@ -313,8 +323,15 @@ driver does stays away from the instruments, and a closed window gives all
 its memory back. Started while HIDI runs, `hidi` finds the socket answered
 and opens the window of the HIDI that runs. Where the desktop shows no
 icons, the window is opened in place of the icon and closing it ends HIDI.
-On Windows the program is a console program, so that its commands work in a
-terminal; started by a double click it leaves the console Windows gave it.
+On Windows a release is built as a program without a console
+(`-H windowsgui`), so that a double click opens no console window. Such a
+program starts with nowhere to write; `findConsole` joins the console of
+the command line that started it, if there is one, and gives the standard
+streams that lead nowhere to that console, leaving redirected ones alone.
+`--console` opens a console of HIDI's own. The price is that a command
+line does not wait for such a program. A build without the linker flag is a
+console program as before, and leaves the console Windows gave it when
+started by a double click.
 
 The socket is a Unix domain socket, which Windows has as well, in a directory
 only the user can enter: `$XDG_RUNTIME_DIR/hidi/control.sock` on Linux. The

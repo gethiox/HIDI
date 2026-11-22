@@ -112,7 +112,8 @@ The instruments run, and an icon appears in the tray. No window opens.
 - While learning mode is on, the icon blinks between green and yellow.
 - The icon's menu lists the instruments, turns HIDI on and off, and ends it
   with "Quit HIDI".
-- The colour of the icon tells whether HIDI is on or off.
+- The icon tells whether HIDI is on or off: its keys are green while HIDI
+  is on and grey while it is off.
 
 To have the window open on every start, turn on "The window opens when HIDI
 starts" in the settings; `hidi --window` does it once. Starting `hidi` while
@@ -205,25 +206,37 @@ instruments. A click beside the sheet closes it.
 
 ![The settings](docs/images/gui-settings.png)
 
-What is in `settings.toml` can be changed there. A running HIDI takes most
-of it over within a few seconds; the page says what matters only at the next
-start.
+What is in `settings.toml` can be changed there. Nothing is written until
+you save, with the disk in the corner of the sheet or Ctrl+S: the disk is
+yellow while there is something to save, and "Revert" beside it drops the
+changes. A running HIDI takes most of it over within a few seconds of
+saving; the page says when something matters only at the next start.
 
 - "Change" beside the toggle combination takes a new one from the keyboard:
   press the keys together and let go. One key alone works too, and can then
   be made to work by a tap.
 - "Devices that play" chooses which devices become instruments: with
   "blacklist" every one except those you tick, with "whitelist" only those
-  you tick. The list has the devices
-  that are connected and, in grey, those HIDI has seen before.
+  you tick. The list has the devices that are connected and, after them and
+  in grey, those HIDI has seen before.
 - "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
   makes every instrument send there as well.
 - "Colours of the keys" are the colours of the lights. Click one and move
-  the three sliders; the keyboard follows when you let go.
+  the three sliders.
+- "The toggle key is HIDI's alone" keeps a toggle of one key, such as Caps
+  Lock, from the rest of the system altogether.
+- "Look for a newer HIDI" lets the window ask GitHub once a day whether
+  there is a newer release. It is off unless you turn it on. The answer is
+  in the lower right corner of the window, grey while HIDI is up to date
+  and yellow when there is a newer one; a click opens its page. Nothing is
+  downloaded or installed.
 
-Below them are the places where
-settings and profiles are kept, with buttons that open them in the file
-manager, and every profile, also those of devices that are not connected.
+Below them is HIDI's directory, with a button that opens it in the file
+manager, and every profile, also those of devices that are not connected,
+in two groups. "Yours" are your own: each has a switch that turns it off
+without removing it, "Edit", and "Show in folder". "Factory" are the ones
+HIDI comes with, which it keeps as they are: "View" shows one, and
+"Customise" makes a copy of your own, used in its place, and opens it.
 
 The window is drawn at the refresh rate of the monitor it is on, and only
 when something it shows has changed, so an idle window costs next to
@@ -233,7 +246,9 @@ is unfocused" lowers it only while another window is in use.
 ### Changing a profile
 
 "Edit profile" on an instrument, or "Edit" beside a profile in the settings,
-opens the profile: the numbers an instrument starts with, the layouts, and
+opens the profile. A factory profile is shown and cannot be changed;
+"Customise" on its page makes the copy of your own that can. The page
+shows the numbers an instrument starts with, the layouts, and
 what every control does. A keyboard's profile is drawn as a keyboard,
 coloured by what the keys do; other profiles list their buttons and axes.
 Click a control, or press it on the device, and make it play a note, send a
@@ -339,7 +354,7 @@ nothing, and they wait for a HIDI that is not running yet. The icon of
 running. It is for a HIDI started with `--headless`, by a service for
 instance.
 
-![The icon and its menu while HIDI is on, off and not running](docs/images/tray.png)
+![The icon while HIDI is on, in the other half of the blinking of learning mode, off, and not running](docs/images/tray.png)
 
 ## Settings and profiles
 
@@ -349,11 +364,15 @@ On its first start HIDI creates its directory, `~/.config/HIDI` on Linux and
 - `settings.toml` holds HIDI's own settings: the toggle, what is grabbed,
   where else to send, the window.
 - `profiles` holds one file for each kind of device, which says what its
-  keys, buttons and axes do.
+  keys, buttons and axes do: in `profiles/factory` those HIDI comes with,
+  which it keeps as they are, and in `profiles/user` your own, which come
+  first.
 
-`hidi config` shows where they are, and the settings in the window have
-buttons that open them. To change what a device plays, edit its profile, by
-hand or in the window; HIDI picks up changes while it runs. Both formats
+`hidi config` shows where they are, and the settings in the window have a
+button that opens the directory. To change what a device plays, make a copy
+of its factory profile your own, with "Customise" in the window or by
+copying the file into `profiles/user`, and change that, by hand or in the
+window; HIDI picks up changes while it runs. Both formats
 are described in the [configuration reference](docs/configuration.md).
 
 ## Sending to a hardware MIDI interface
@@ -424,13 +443,28 @@ rough edges, and please report what you find.
 ### What is needed
 
 - Windows 11 25H2 or later.
-- The Windows MIDI Services API. `hidi doctor` says whether it found it in
-  Windows. Where it did not, `Windows.Devices.Midi2.dll` has to lie in the
-  same folder as `hidi.exe`. Take it, with the `.pri` file next to it, from
-  the NuGet package `Windows.Devices.Midi2.<version>.nupkg` on the releases
-  page of [microsoft/MIDI](https://github.com/microsoft/MIDI/releases); the
-  package is a zip archive. Do not use the copy that Microsoft's Tools
+- The Windows MIDI Services API, which Microsoft is to make part of
+  Windows from 2027. Until then `Windows.Devices.Midi2.dll` has to lie in
+  the same folder as `hidi.exe`, with the `.pri` file of the same name. The
+  zip archive of a release has both, Microsoft's preview of the API under
+  its own licence, so keep the files of the archive together. `hidi doctor`
+  says whether the API was found. If you build HIDI yourself, take the two
+  files from the NuGet package `Windows.Devices.Midi2.<version>.nupkg` on
+  the releases page of [microsoft/MIDI](https://github.com/microsoft/MIDI/releases);
+  the package is a zip archive. Do not use the copy that Microsoft's Tools
   installer places next to its own programs.
+
+### In a command line
+
+`hidi.exe` opens no console window: a double click starts the icon in the
+tray and nothing else. Started from a command line it writes there, so
+`hidi status`, `hidi doctor` and the others work as on Linux, with one
+difference: the command line does not wait for a program of this kind. The
+prompt returns at once and HIDI writes below it. `start /wait hidi doctor`
+makes `cmd` wait, and sending the output somewhere, as in
+`hidi doctor > report.txt`, works as usual. `--console`, with any command,
+gives HIDI a console window of its own, which suits a shortcut:
+`hidi.exe --console --headless`.
 
 ### What is different from Linux
 
@@ -555,6 +589,14 @@ Cross-compiling works with the usual Go variables:
 ```bash
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./cmd/hidi
 ```
+
+A release for Windows is built with two things more. `go generate ./cmd/hidi`
+draws the icon and packs it, with the version, into files the build links
+into `hidi.exe`; it runs a tool, [go-winres](https://github.com/tc-hib/go-winres),
+on the machine that builds. And `-ldflags "-H windowsgui"` makes a program
+without a console window. Without either, HIDI works the same: it has the
+icon Windows gives a program without one, and a double click shows a console
+window for a moment.
 
 ### Checking a release
 

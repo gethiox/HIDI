@@ -10,7 +10,9 @@ HIDI keeps everything you can change in one directory:
 ```
 HIDI/
   settings.toml    how HIDI itself behaves
-  profiles/        how each kind of device plays, one file for each profile
+  profiles/
+    factory/       the profiles HIDI comes with, one file for each; read-only
+    user/          your own profiles, which come before the factory ones
 ```
 
 `hidi config` prints these places. The `--config DIR` option of every command
@@ -18,13 +20,20 @@ names another directory, and `--config ""` uses no directory at all: HIDI then
 runs with what it comes with.
 
 On its first start HIDI creates the directory and fills it: the
-settings with their defaults, and the profiles HIDI comes with, as files to
-change. From then on the directory is what counts.
+settings with their defaults, and the profiles HIDI comes with in
+`profiles/factory`. From then on the directory is what counts.
 
-- A profile you change stays as you made it. A profile you remove stays
-  removed.
-- A later HIDI brings a profile it wrote up to date only if you have not
-  changed the file, and adds profiles that are new.
+- `profiles/factory` is HIDI's: every start makes it exactly what this HIDI
+  comes with, so a newer HIDI brings its improved profiles along. The files
+  are marked read-only. What you change there does not last.
+- `profiles/user` is yours: HIDI never changes or removes a file there. A
+  profile of yours is used before a factory profile that fits a device as
+  well, so the way to change how a device plays is a copy of its factory
+  profile in `profiles/user`. "Customise" in the window makes that copy.
+- A directory from an earlier HIDI 2, with the profiles in `profiles`
+  itself, is brought into this shape on the first start: files HIDI wrote
+  and you did not change are dropped, since `factory` has them, and the
+  others move to `profiles/user`. HIDI logs each one.
 - A directory that HIDI did not make, with things in it that HIDI 2 does not
   keep there, is left untouched. HIDI says so and runs with what it comes
   with until you move the directory away or name another.
@@ -37,14 +46,15 @@ A file with a mistake is not used: HIDI says what is wrong and runs with the
 defaults.
 
 A running HIDI notices within about two seconds when the file changes, and
-takes over the toggle combination, what is grabbed, which devices play and
-the colours of the lights: a keyboard that should type again does so at
-once. `start_on`, `connect`, `lights.openrgb`, `lights.address` and
-`show_at_start` matter when HIDI starts. A changed file with a mistake is
-reported and changes nothing.
+takes over the toggle combination, what is grabbed, which devices play, and
+the lights: whether the keys are lit, the address of the OpenRGB server and
+the colours. A keyboard that should type again does so at once. `start_on`,
+`connect` and `show_at_start` matter when HIDI starts. A changed file with a
+mistake is reported and changes nothing.
 
 Everything here can also be changed in the window, on the sheet the gear
-opens, except the address of the OpenRGB server.
+opens, except the address of the OpenRGB server. The sheet writes the file
+when you save there, not with every change.
 
 ```toml
 schema = 1
@@ -56,6 +66,7 @@ grab_gamepads = false
 start_on = true
 toggle_tap = false
 always_grab = false
+toggle_exclusive = false
 learn_threshold = 20
 
 [devices]
@@ -90,6 +101,7 @@ background_fps = 0
 log_height = 0
 show_input = []
 show_output = []
+check_updates = false
 ```
 
 | Setting | Meaning | Option |
@@ -100,6 +112,7 @@ show_output = []
 | `input.start_on` | Whether HIDI is on when it starts. | `--off` |
 | `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `--toggle-tap` |
 | `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
+| `input.toggle_exclusive` | A toggle of one key is HIDI's alone: the key never reaches the rest of the system, held or tapped, while HIDI is on or off. For a key such as Caps Lock that should only toggle. On Linux keyboards are then kept grabbed as with `always_grab`. | |
 | `input.learn_threshold` | How far an axis has to move to get through in learning mode, in hundredths of its range, 1 to 100. See the `learn` command. | |
 | `devices.mode` | How `devices.list` is read: with `"blacklist"` every keyboard and game controller plays except the listed ones, with `"whitelist"` only the listed ones do. | |
 | `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
@@ -108,6 +121,7 @@ show_output = []
 | `lights.address` | Where that server listens. | `--openrgb ADDRESS` |
 | `lights.colours` | The colours of the keys, each as `"#rrggbb"`. See below. | |
 | `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
+| `window.check_updates` | Let the window ask GitHub, once when it opens and once a day after, whether a newer HIDI has been released. The answer is shown in the lower right corner; a click opens the release. Nothing is installed, and the request says nothing but the version of HIDI that asks. Off unless turned on. | |
 | `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
 | `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
 | `window.log_height` | The height of the log when the window opens. | `--log-height` |
@@ -167,6 +181,11 @@ the system and is not held.
 
 Without `toggle_tap`, `always_grab` does nothing.
 
+If the key should do nothing but toggle, also when held, add
+`toggle_exclusive = true`: the key is then kept from the system altogether.
+With Caps Lock that means no more switching of capitals by accident, whether
+HIDI is on or off.
+
 # Profile files
 
 A profile describes one instrument: which devices it applies to, the state it
@@ -174,33 +193,41 @@ starts in, and what each control does. Profiles are [TOML](https://toml.io)
 files.
 
 HIDI comes with profiles for keyboards and game controllers, so a device
-works without any configuration. They are the files HIDI writes into
-`profiles` on its first start, and the best starting point for your own.
+works without any configuration. They are the files in `profiles/factory`,
+and the best starting point for your own.
 
 HIDI checks a profile completely when it loads it and reports every problem it
 finds at once.
 
 ## Where your profiles live
 
-HIDI reads every `.toml` file in the `profiles` directory. Those files are
-all the profiles there are; what HIDI comes with is only used to fill the
-directory.
+HIDI reads every `.toml` file in `profiles/factory` and in `profiles/user`.
+The first are HIDI's and kept as they come; the second are yours.
 
 ```
-hidi profiles            list the profiles and check the files
-hidi profiles --export    write the profiles HIDI comes with into the directory
+hidi profiles            list the profiles, with their kind, and check the files
 ```
 
-`hidi profiles --export` brings back profiles you removed. It never overwrites
-a file that is already there.
+To change what a device plays, copy its factory profile into `profiles/user`
+and change the copy; "Customise" beside a factory profile in the window does
+the copying and opens the copy. A profile of yours can be switched off
+without removing it, with the switch beside it in the window or by writing
 
-The `--profiles DIR` option reads profiles from another directory instead.
-Those are used beside the profiles inside HIDI, not in place of them, and
-win over them.
+```toml
+enabled = false
+```
+
+at the top of the file. The device then plays by its factory profile again.
+
+The `--profiles DIR` option reads profiles from another directory instead of
+HIDI's own. Those are used beside the profiles inside HIDI, not in place of
+them, and win over them. `hidi profiles --export --profiles DIR` writes the
+profiles HIDI comes with into such a directory.
 
 When several profiles select a device, the one that describes it most closely
 wins: a profile for one product beats one for all keyboards. Between two that
-are equally close, the file that sorts later by name wins.
+are equally close, yours wins over a factory profile, and of two of the same
+kind the file that sorts later by name.
 
 ### Changes apply while HIDI runs
 
@@ -255,6 +282,7 @@ KEY_SPACE = { cc = 64 }
 |---|---|
 | `schema` | Required. The version of this format the file is written for. The current version is `1`. HIDI reads files written for older versions and upgrades them as it loads them. |
 | `name` | A name for the profile, shown in logs and the user interface. |
+| `enabled` | `false` switches a profile of your own off: HIDI reads it and does not use it. Left out, the profile is used. A factory profile is always used. |
 
 ## `[match]`: which devices use the profile
 
