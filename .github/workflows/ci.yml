@@ -90,8 +90,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      - name: Icon and version of the Windows program
+        if: matrix.goos == 'windows'
+        # Made for the machine that builds, not for the one built for.
+        run: GOOS= GOARCH= go generate ./cmd/hidi
       - name: go build
-        run: go build -trimpath -o dist/ ./cmd/hidi
+        # As a release is built: the Windows program has no console.
+        run: go build -trimpath -ldflags "${{ matrix.goos == 'windows' && '-H windowsgui' || '' }}" -o dist/ ./cmd/hidi
       - name: go vet (target platform)
         run: go vet ./...
 

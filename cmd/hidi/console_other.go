@@ -7,6 +7,10 @@ import (
 	"os/exec"
 )
 
+// findConsole does nothing: only on Windows a program can be without
+// somewhere to write.
+func findConsole(args []string) []string { return args }
+
 // leaveOwnConsole does nothing: only Windows opens a console window for a
 // program started from the desktop.
 func leaveOwnConsole() bool { return false }

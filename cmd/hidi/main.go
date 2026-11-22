@@ -60,6 +60,10 @@ Commands:
 Options are written with two dashes, as in --no-grab or --toggle=KEY_CAPSLOCK;
 those of one letter take one, as in -v. "hidi run --help" lists the options
 of HIDI itself, and "hidi <command> --help" those of a command.
+
+On Windows hidi.exe opens no console window. Started from a command line it
+writes there; --console, with any command, gives it a console window of its
+own.
 `
 
 func main() {
@@ -72,7 +76,7 @@ func main() {
 		<-ctx.Done()
 		stop()
 	}()
-	os.Exit(guarded(ctx, os.Args[1:]))
+	os.Exit(guarded(ctx, findConsole(os.Args[1:])))
 }
 
 // guarded runs the command line with crashes recorded. The commands that
@@ -747,8 +751,13 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *export {
-		if *dir == "" {
-			fmt.Fprintln(stderr, "hidi profiles: --export needs a directory; set --profiles")
+		if *profilesDir == "" {
+			// HIDI's own directory has them already, and keeps them.
+			if pl.paths.Factory != "" {
+				fmt.Fprintf(stderr, "hidi profiles: the profiles HIDI comes with are kept in\n  %s\nCopy one into\n  %s\nto change it; the window does that with \"Customise\". --export writes them into a directory named with --profiles.\n", pl.paths.Factory, pl.paths.User)
+			} else {
+				fmt.Fprintln(stderr, "hidi profiles: --export needs a directory; set --profiles")
+			}
 			return 2
 		}
 		written, skipped, err := config.WriteBuiltin(*dir)
