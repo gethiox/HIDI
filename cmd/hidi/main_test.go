@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gethiox/HIDI/internal/config"
 )
 
 func TestRun(t *testing.T) {
@@ -177,14 +179,35 @@ func TestConfigDirectory(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "is in use") {
 		t.Errorf("config afterwards: code %d, stdout %q", code, stdout)
 	}
-	keyboard := filepath.Join(root, "profiles", "keyboard.toml")
+	keyboard := filepath.Join(root, "profiles", "factory", "keyboard.toml")
 	if code, stdout, _ = hidi("profiles"); code != 0 || !strings.Contains(stdout, keyboard) || strings.Contains(stdout, "built-in/") {
 		t.Errorf("profiles afterwards: code %d, stdout %q", code, stdout)
 	}
-	// A removed profile is gone, not replaced by the one inside HIDI.
-	os.Remove(keyboard)
-	if _, stdout, _ = hidi("profiles"); strings.Contains(stdout, "keyboard.toml") {
-		t.Errorf("a removed profile is still listed: %q", stdout)
+	// A profile of the user's own for the same devices is listed before
+	// the factory one, as the one that is used; turned off it is not
+	// listed at all.
+	text, _ := os.ReadFile(keyboard)
+	mine := filepath.Join(root, "profiles", "user", "keyboard.toml")
+	os.WriteFile(mine, bytes.Replace(text, []byte(`name = "Default keyboard"`), []byte(`name = "My keyboard"`), 1), 0o644)
+	_, stdout, _ = hidi("profiles")
+	if at, factory := strings.Index(stdout, mine), strings.Index(stdout, keyboard); at < 0 || factory < 0 || at > factory || !strings.Contains(stdout, " user ") {
+		t.Errorf("with a profile of the user's: %q", stdout)
+	}
+	off, err := config.SetEnabled(bytes.Replace(text, []byte(`name = "Default keyboard"`), []byte(`name = "My keyboard"`), 1), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(mine, off, 0o644)
+	if _, stdout, _ = hidi("profiles"); strings.Contains(stdout, "My keyboard") || !strings.Contains(stdout, keyboard) {
+		t.Errorf("with the user's profile turned off: %q", stdout)
+	}
+	// A factory profile that was changed or removed is as HIDI has it
+	// again at the next start, which says so.
+	os.Chmod(keyboard, 0o644)
+	os.WriteFile(keyboard, []byte("schema = 1\n"), 0o644)
+	pl = findPlace(root, "", true)
+	if now, _ := os.ReadFile(keyboard); !bytes.Equal(now, text) || len(pl.notes) != 1 || !strings.Contains(pl.notes[0], "brought up to date") {
+		t.Errorf("a changed factory profile: notes %v", pl.notes)
 	}
 
 	// Mistakes in the settings are told, and the defaults used.

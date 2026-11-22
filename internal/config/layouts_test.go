@@ -132,3 +132,36 @@ func TestMoveLayout(t *testing.T) {
 		t.Errorf("a file that ends with the layout: %v\n%s", err, out)
 	}
 }
+
+func TestEnabled(t *testing.T) {
+	p, err := Parse([]byte(layoutsText))
+	if err != nil || !p.Enabled {
+		t.Fatalf("a profile that does not say is enabled: %v, %v", p.Enabled, err)
+	}
+	off, err := SetEnabled([]byte(layoutsText), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Beside the name, and nothing else moved.
+	if !strings.HasPrefix(string(off), "schema = 1\nname = \"P\"\nenabled = false\n\n[defaults]") {
+		t.Errorf("after turning off:\n%s", off)
+	}
+	if p, err := Parse(off); err != nil || p.Enabled {
+		t.Errorf("read back: %v, %v", p, err)
+	}
+	// On again changes the line that is there, with what stands behind it.
+	noted := strings.Replace(string(off), "enabled = false", "enabled = false  # for now", 1)
+	on, err := SetEnabled([]byte(noted), true)
+	if err != nil || !strings.Contains(string(on), "enabled = true  # for now") || strings.Count(string(on), "enabled") != 1 {
+		t.Errorf("turned on again, %v:\n%s", err, on)
+	}
+	// A profile without a name gets the line at its start.
+	bare := "schema = 1\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"\n"
+	if out, err := SetEnabled([]byte(bare), false); err != nil || !strings.HasPrefix(string(out), "enabled = false\nschema = 1") {
+		t.Errorf("without a name, %v:\n%s", err, out)
+	}
+	// A key called "enabled" further down is something else.
+	if _, err := Parse([]byte("schema = 1\nenabled = \"yes\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"\n")); err == nil {
+		t.Error("enabled = \"yes\" was accepted")
+	}
+}

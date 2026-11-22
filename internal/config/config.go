@@ -37,10 +37,23 @@ type Profile struct {
 	// Source says where the profile comes from: the path of its file, or
 	// "built-in/" and a file name. [Parse] leaves it empty.
 	Source string
+	// Kind tells the profiles HIDI comes with from the user's own:
+	// [KindFactory] or [KindUser]. Whoever loads the profile sets it.
+	Kind string
+	// Enabled is false for a profile that says "enabled = false": it is
+	// kept and not used. That is how a profile of the user's steps back
+	// for the factory profile it stands in for.
+	Enabled bool
 	// Digest identifies the content of the file. Two profiles with the same
 	// digest behave the same.
 	Digest [sha256.Size]byte
 }
+
+// The kinds of profile.
+const (
+	KindFactory = "factory"
+	KindUser    = "user"
+)
 
 // BuiltinSource starts the [Profile.Source] of the profiles inside HIDI.
 const BuiltinSource = "built-in/"
@@ -138,8 +151,9 @@ func Parse(data []byte) (*Profile, error) {
 
 	r := &reader{}
 	p := &Profile{WrittenFor: from, Digest: sha256.Sum256(data)}
-	top := r.table("", doc, "schema", "name", "match", "defaults", "global", "layout")
+	top := r.table("", doc, "schema", "name", "enabled", "match", "defaults", "global", "layout")
 	p.Name = top.str("name", "")
+	p.Enabled = top.boolean("enabled", true)
 	p.Match = r.match(top.sub("match"))
 	var s settings
 	p.Engine.Defaults, s = r.defaults(top.sub("defaults"))

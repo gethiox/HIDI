@@ -752,7 +752,7 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	}
 	switch {
 	case pl.managed:
-		fmt.Fprintf(stdout, "The profiles are the files in %s\n\n", pl.profiles)
+		fmt.Fprintf(stdout, "The factory profiles are in %s\nYour own are in %s and come first where both fit a device\n\n", pl.paths.Factory, pl.paths.User)
 	case pl.profiles != "":
 		fmt.Fprintf(stdout, "Your profiles are read from %s, beside the built-in ones\n\n", pl.profiles)
 	default:
@@ -760,7 +760,7 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	}
 	// Later profiles take precedence, so the user's own come first here.
 	for _, p := range slices.Backward(profiles) {
-		fmt.Fprintf(stdout, "%-26q %-34s for %s\n", p.Name, p.Source, p.Match)
+		fmt.Fprintf(stdout, "%-26q %-8s %-34s for %s\n", p.Name, p.Kind, p.Source, p.Match)
 	}
 	for _, p := range problems {
 		fmt.Fprintf(stderr, "\nhidi profiles: cannot be used: %v\n", p)

@@ -131,6 +131,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Location:    logging.Printable(st.Device.Location),
 			Profile:     st.Profile,
 			ProfileFile: profileFile(st.ProfileSource),
+			ProfileKind: st.ProfileKind,
 			Octave:      st.State.Octave,
 			Transpose:   st.State.Transpose,
 			Channel:     int(st.State.Channel) + 1,

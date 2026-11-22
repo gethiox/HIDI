@@ -477,8 +477,10 @@ type Status struct {
 	// Profile is the name of the profile in use.
 	Profile string
 	// ProfileSource is where that profile comes from: its file, or a name
-	// that begins with "built-in/".
+	// that begins with "built-in/". ProfileKind is the profile's kind: a
+	// factory profile or one of the user's.
 	ProfileSource string
+	ProfileKind   string
 	// State is the current state of the instrument.
 	State engine.State
 	// Input is what the device itself reports, before any profile is
@@ -1000,15 +1002,15 @@ func (r *runner) run() {
 			}
 			r.log.Info("instrument started",
 				"type", r.info.Type.String(), "hardware", r.info.Hardware.String(),
-				"location", r.info.Location, "profile", a.profile.Name, "source", a.profile.Source)
+				"location", r.info.Location, "profile", a.profile.Name, "kind", a.profile.Kind, "source", a.profile.Source)
 		} else {
-			r.log.Info("profile changed", "profile", a.profile.Name, "source", a.profile.Source, "was", profile.Name)
+			r.log.Info("profile changed", "profile", a.profile.Name, "kind", a.profile.Kind, "source", a.profile.Source, "was", profile.Name)
 		}
 		eng, profile = a.engine, a.profile
 		limit = newLimiter(profile.AxisRate)
 		steady = newSteadier(profile.AxisThreshold)
 		state = eng.State()
-		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, State: state}, true)
+		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, ProfileKind: profile.Kind, State: state}, true)
 		roles()
 		replay() // where the axes stand, for the new profile
 	}

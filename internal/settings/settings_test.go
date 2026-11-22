@@ -115,124 +115,181 @@ func TestPrepareFirstStart(t *testing.T) {
 	if !report.Managed || !report.Created || len(report.Written) != 3 || len(report.Updated) != 0 {
 		t.Errorf("report: %+v", report)
 	}
-	if read(t, filepath.Join(p.Profiles, "keyboard.toml")) != string(shipped["keyboard.toml"]) {
-		t.Error("the profile was not written as it is")
+	if read(t, filepath.Join(p.Factory, "keyboard.toml")) != string(shipped["keyboard.toml"]) {
+		t.Error("the factory profile was not written as it is")
 	}
 	if _, err := Load(p.Settings); err != nil {
 		t.Errorf("the written settings do not load: %v", err)
 	}
+	// The user's directory is there, and empty.
+	if entries, err := os.ReadDir(p.User); err != nil || len(entries) != 0 {
+		t.Errorf("the user's profiles: %v, %v", entries, err)
+	}
 	// A second start finds everything in place.
 	report, err = Prepare(p, shipped)
-	if err != nil || !report.Managed || report.Created || len(report.Written)+len(report.Updated) != 0 {
+	if err != nil || !report.Managed || report.Created || len(report.Written)+len(report.Updated)+len(report.Removed) != 0 {
 		t.Errorf("second start: %+v, %v", report, err)
 	}
-	// Nothing but the files and the record is left behind.
-	entries, _ := os.ReadDir(p.Profiles)
-	if len(entries) != 2 {
-		t.Errorf("%d files in profiles", len(entries))
+	if entries, _ := os.ReadDir(p.Factory); len(entries) != 2 {
+		t.Errorf("%d files among the factory profiles", len(entries))
 	}
 }
 
+// The factory profiles are HIDI's: always as this HIDI has them, whoever
+// changed them. The user's profiles and the settings are never touched.
 func TestPrepareLater(t *testing.T) {
 	p := PathsIn(filepath.Join(t.TempDir(), DirName))
 	if _, err := Prepare(p, shipped); err != nil {
 		t.Fatal(err)
 	}
-	keyboard, gamepad := filepath.Join(p.Profiles, "keyboard.toml"), filepath.Join(p.Profiles, "gamepad.toml")
-	mine := filepath.Join(p.Profiles, "mine.toml")
+	keyboard, gamepad := filepath.Join(p.Factory, "keyboard.toml"), filepath.Join(p.Factory, "gamepad.toml")
+	mine := filepath.Join(p.User, "keyboard.toml")
 
-	// The user changes one profile, removes another, adds one, and
-	// changes the settings.
-	os.WriteFile(keyboard, []byte("schema = 1\nname = \"My keyboard\"\n"), 0o644)
+	// The user changes a factory profile, which is marked read-only,
+	// removes another, keeps a profile of their own under the name of a
+	// factory one, and changes the settings.
+	os.Chmod(keyboard, 0o644)
+	os.WriteFile(keyboard, []byte("schema = 1\nname = \"Changed in place\"\n"), 0o644)
+	os.Chmod(gamepad, 0o644)
 	os.Remove(gamepad)
 	os.WriteFile(mine, []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
 	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nlog_height = 99\n"), 0o644)
 
-	// A later HIDI comes with changed profiles and a new one.
+	// A later HIDI comes with a changed profile, a new one, and without
+	// one it had.
 	later := map[string][]byte{
 		"keyboard.toml": []byte("schema = 1\nname = \"Keyboard, better\"\n"),
-		"gamepad.toml":  []byte("schema = 1\nname = \"Gamepad, better\"\n"),
 		"wheel.toml":    []byte("schema = 1\nname = \"Wheel\"\n"),
-		"mine.toml":     []byte("schema = 1\nname = \"A built-in of the same name\"\n"),
 	}
 	report, err := Prepare(p, later)
 	if err != nil || !report.Managed {
 		t.Fatalf("Prepare: %+v, %v", report, err)
 	}
-	if !strings.Contains(read(t, keyboard), "My keyboard") {
-		t.Error("a profile the user changed was overwritten")
+	if !strings.Contains(read(t, keyboard), "Keyboard, better") {
+		t.Error("a factory profile was not brought up to date")
 	}
 	if _, err := os.Stat(gamepad); err == nil {
-		t.Error("a profile the user removed came back")
+		t.Error("a factory profile HIDI no longer has is there")
 	}
 	if !strings.Contains(read(t, mine), `"Mine"`) {
-		t.Error("the user's own profile was overwritten")
+		t.Error("the user's own profile was touched")
 	}
 	if !strings.Contains(read(t, p.Settings), "log_height = 99") {
 		t.Error("the settings were overwritten")
 	}
-	if len(report.Written) != 1 || filepath.Base(report.Written[0]) != "wheel.toml" || len(report.Updated) != 0 {
+	if len(report.Updated) != 1 || filepath.Base(report.Updated[0]) != "keyboard.toml" ||
+		len(report.Written) != 1 || filepath.Base(report.Written[0]) != "wheel.toml" {
 		t.Errorf("report: %+v", report)
 	}
 
-	// A profile the user left alone is brought up to date.
-	newer := map[string][]byte{"wheel.toml": []byte("schema = 1\nname = \"Wheel, better\"\n")}
-	report, err = Prepare(p, newer)
-	if err != nil || len(report.Updated) != 1 || !strings.Contains(read(t, filepath.Join(p.Profiles, "wheel.toml")), "better") {
-		t.Errorf("update: %+v, %v", report, err)
+	// A factory profile HIDI drops goes; the same start twice changes
+	// nothing more.
+	if _, err := Prepare(p, shipped); err != nil {
+		t.Fatal(err)
 	}
-	// And only once.
-	if report, _ := Prepare(p, newer); len(report.Updated) != 0 {
-		t.Errorf("updated again: %+v", report)
+	if _, err := os.Stat(filepath.Join(p.Factory, "wheel.toml")); err == nil {
+		t.Error("a dropped factory profile stayed")
+	}
+	report, err = Prepare(p, shipped)
+	if err != nil || len(report.Written)+len(report.Updated)+len(report.Removed)+len(report.Moved) != 0 {
+		t.Errorf("a start with nothing to do: %+v, %v", report, err)
+	}
+	// Removed settings stay removed.
+	os.Remove(p.Settings)
+	if _, err := Prepare(p, shipped); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p.Settings); err == nil {
+		t.Error("settings the user removed came back")
+	}
+}
+
+// An earlier HIDI 2 kept its copies of the profiles, and the user's own,
+// in one directory, with a record of which it wrote. Its unchanged copies
+// go; what the user changed or added moves to the user's profiles.
+func TestPrepareMovesTheEarlierLayout(t *testing.T) {
+	p := PathsIn(filepath.Join(t.TempDir(), DirName))
+	os.MkdirAll(p.Profiles, 0o755)
+	untouched, changedByUser := shipped["keyboard.toml"], []byte("schema = 1\nname = \"My gamepad\"\n")
+	os.WriteFile(filepath.Join(p.Profiles, "keyboard.toml"), untouched, 0o644)
+	os.WriteFile(filepath.Join(p.Profiles, "gamepad.toml"), changedByUser, 0o644)
+	os.WriteFile(filepath.Join(p.Profiles, "mine.toml"), []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
+	os.WriteFile(p.Settings, Default().Text(), 0o644)
+	os.WriteFile(filepath.Join(p.Root, ".written.json"), []byte(`{"note":"x","files":{`+
+		`"profiles/keyboard.toml":"`+fingerprint(untouched)+`",`+
+		`"profiles/gamepad.toml":"`+fingerprint(shipped["gamepad.toml"])+`",`+
+		`"settings.toml":"`+fingerprint(Default().Text())+`"}}`), 0o644)
+
+	report, err := Prepare(p, shipped)
+	if err != nil || !report.Managed {
+		t.Fatalf("Prepare: %+v, %v", report, err)
+	}
+	if len(report.Removed) != 1 || len(report.Moved) != 2 {
+		t.Errorf("report: %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(p.Profiles, "keyboard.toml")); err == nil {
+		t.Error("the unchanged copy is still in the directory of profiles")
+	}
+	if got := read(t, filepath.Join(p.User, "gamepad.toml")); got != string(changedByUser) {
+		t.Errorf("the profile the user changed: %q", got)
+	}
+	if !strings.Contains(read(t, filepath.Join(p.User, "mine.toml")), "Mine") {
+		t.Error("the user's own profile did not move")
+	}
+	if read(t, filepath.Join(p.Factory, "gamepad.toml")) != string(shipped["gamepad.toml"]) {
+		t.Error("the factory profile is not as HIDI has it")
+	}
+	// Nothing is moved twice.
+	report, err = Prepare(p, shipped)
+	if err != nil || len(report.Moved)+len(report.Removed)+len(report.Written)+len(report.Updated) != 0 {
+		t.Errorf("second start: %+v, %v", report, err)
 	}
 }
 
 func TestPrepareLeavesOtherDirectoriesAlone(t *testing.T) {
-	for name, fill := range map[string]func(root string){
-		"a file of something else":      func(root string) { os.WriteFile(filepath.Join(root, "hidi.toml"), []byte("x = 1\n"), 0o644) },
-		"a directory of something else": func(root string) { os.Mkdir(filepath.Join(root, "factory"), 0o755) },
-		"settings of another kind": func(root string) {
-			os.WriteFile(filepath.Join(root, "settings.toml"), []byte("[midi]\nx = 1\n"), 0o644)
+	for name, make := range map[string]func(root string){
+		"a file of another program": func(root string) { os.WriteFile(filepath.Join(root, "config.ini"), []byte("x"), 0o644) },
+		"settings of another kind":  func(root string) { os.WriteFile(filepath.Join(root, "settings.toml"), []byte("volume = 3\n"), 0o644) },
+		"an unknown directory in profiles": func(root string) {
+			os.MkdirAll(filepath.Join(root, "profiles", "old"), 0o755)
 		},
-		"profiles of another kind": func(root string) {
-			os.Mkdir(filepath.Join(root, "profiles"), 0o755)
-			os.WriteFile(filepath.Join(root, "profiles", "old.toml"), []byte("[identifier]\nbus = 0\n"), 0o644)
-		},
-		"a broken record": func(root string) { os.WriteFile(filepath.Join(root, ".written.json"), []byte("{"), 0o644) },
 	} {
-		root := filepath.Join(t.TempDir(), DirName)
-		os.Mkdir(root, 0o755)
-		fill(root)
-		before, _ := os.ReadDir(root)
-		report, err := Prepare(PathsIn(root), shipped)
+		p := PathsIn(filepath.Join(t.TempDir(), DirName))
+		os.MkdirAll(p.Root, 0o755)
+		make(p.Root)
+		report, err := Prepare(p, shipped)
 		if err != nil || report.Managed || report.Unrecognised == "" {
 			t.Errorf("%s: %+v, %v", name, report, err)
 		}
-		after, _ := os.ReadDir(root)
-		if len(after) != len(before) {
-			t.Errorf("%s: the directory was touched", name)
+		if _, err := os.Stat(p.Factory); err == nil {
+			t.Errorf("%s: HIDI wrote into a directory that is not its own", name)
+		}
+		if Managed(p) {
+			t.Errorf("%s: taken for HIDI's directory", name)
 		}
 	}
 }
 
-// A directory an earlier build of HIDI 2 used, with profiles and no
-// record, is taken over without touching what is there.
+// A directory with settings and profiles of HIDI 2 and no record, as a
+// first build of it left one or as someone copied it, is taken over.
 func TestPrepareTakesOverEarlierDirectory(t *testing.T) {
 	p := PathsIn(filepath.Join(t.TempDir(), DirName))
 	os.MkdirAll(p.Profiles, 0o755)
-	keyboard := filepath.Join(p.Profiles, "keyboard.toml")
-	os.WriteFile(keyboard, []byte("schema = 1\nname = \"From before\"\n"), 0o644)
+	os.WriteFile(filepath.Join(p.Profiles, "mine.toml"), []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
+	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nlog_height = 50\n"), 0o644)
+	if !Managed(p) {
+		t.Fatal("not taken for HIDI's directory before the first start")
+	}
 	report, err := Prepare(p, shipped)
-	if err != nil || !report.Managed || len(report.Written) != 2 {
+	if err != nil || !report.Managed || report.Created {
 		t.Fatalf("Prepare: %+v, %v", report, err)
 	}
-	if !strings.Contains(read(t, keyboard), "From before") {
-		t.Error("the profile from before was overwritten")
+	// Without a record every profile there is the user's.
+	if !strings.Contains(read(t, filepath.Join(p.User, "mine.toml")), "Mine") || !strings.Contains(read(t, p.Settings), "log_height = 50") {
+		t.Error("what was there was not kept")
 	}
-	// It stays the user's, also when HIDI later ships another one.
-	Prepare(p, map[string][]byte{"keyboard.toml": []byte("schema = 1\nname = \"New\"\n")})
-	if !strings.Contains(read(t, keyboard), "From before") {
-		t.Error("the profile from before was overwritten later")
+	if _, err := os.Stat(filepath.Join(p.Factory, "keyboard.toml")); err != nil {
+		t.Errorf("the factory profiles were not written: %v", err)
 	}
 }
 

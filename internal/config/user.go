@@ -174,6 +174,57 @@ func Watch(ctx context.Context, dir string, interval time.Duration, load func() 
 	}
 }
 
+// LoadKinds reads the factory profiles and the user's from their two
+// directories, the factory ones first, which is the order in which
+// [Select] lets a profile of the user's come before a factory profile
+// that fits a device as well. Every profile is returned with its kind,
+// those that are not enabled too; [Enabled] leaves those out.
+func LoadKinds(factory, user string) ([]*Profile, []Problem) {
+	profiles, problems := LoadDir(factory)
+	for _, p := range profiles {
+		p.Kind = KindFactory
+	}
+	own, more := LoadDir(user)
+	for _, p := range own {
+		p.Kind = KindUser
+	}
+	return append(profiles, own...), append(problems, more...)
+}
+
+// Enabled returns the profiles that are to be used: all but those of the
+// user's that say "enabled = false". A factory profile is always used;
+// what it says about that is of no interest.
+func Enabled(profiles []*Profile) []*Profile {
+	out := make([]*Profile, 0, len(profiles))
+	for _, p := range profiles {
+		if p.Enabled || p.Kind != KindUser {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// fingerprintFlat is fingerprint for a directory whose own directories
+// are of no interest.
+func fingerprintFlat(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "unreadable: " + err.Error()
+	}
+	var b strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() || !isProfileFile(entry.Name()) {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "  %q %d %d\n", entry.Name(), info.Size(), info.ModTime().UnixNano())
+	}
+	return b.String()
+}
+
 // fingerprint describes the profile files of a directory by name, size and
 // modification time. It changes whenever one is added, removed or written.
 func fingerprint(dir string) string {
@@ -183,7 +234,13 @@ func fingerprint(dir string) string {
 	}
 	var b strings.Builder
 	for _, entry := range entries {
-		if entry.IsDir() || !isProfileFile(entry.Name()) {
+		// The profiles one level down count too: HIDI keeps the factory
+		// profiles and the user's in two directories of one.
+		if entry.IsDir() {
+			fmt.Fprintf(&b, "%q:\n%s", entry.Name(), fingerprintFlat(filepath.Join(dir, entry.Name())))
+			continue
+		}
+		if !isProfileFile(entry.Name()) {
 			continue
 		}
 		// Of the file itself, also where the entry is a link to it: the

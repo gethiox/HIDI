@@ -442,7 +442,7 @@ func Save(path string, s Settings) error {
 	if problems := s.Check(); len(problems) > 0 {
 		return errors.New(strings.Join(problems, "\n"))
 	}
-	return writeFile(path, s.Text())
+	return writeFile(path, s.Text(), 0o644)
 }
 
 // tomlString writes text as a TOML string. Go's own quoting is close and

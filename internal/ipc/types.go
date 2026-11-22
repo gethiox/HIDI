@@ -80,6 +80,9 @@ type Instrument struct {
 	// ProfileFile is the file the profile is read from; empty for a
 	// profile that is inside HIDI.
 	ProfileFile string `json:"profile_file,omitempty"`
+	// ProfileKind is "factory" for a profile HIDI comes with and "user"
+	// for one of the user's own.
+	ProfileKind string `json:"profile_kind,omitempty"`
 
 	Octave    int `json:"octave"`
 	Transpose int `json:"transpose"`

@@ -16,8 +16,11 @@ type Paths struct {
 	Root string
 	// Settings is the file with HIDI's own settings.
 	Settings string
-	// Profiles is the directory of the profiles.
-	Profiles string
+	// Profiles is the directory of the profiles. In it are Factory, the
+	// profiles HIDI comes with, which HIDI keeps as it has them, and
+	// User, the user's own, which come first where both fit a device.
+	Profiles      string
+	Factory, User string
 	// Seen is the file in which HIDI notes the devices it has met.
 	Seen string
 	// record is the file in which HIDI notes what it wrote.
@@ -40,6 +43,8 @@ func PathsIn(root string) Paths {
 		Root:     root,
 		Settings: filepath.Join(root, "settings.toml"),
 		Profiles: filepath.Join(root, "profiles"),
+		Factory:  filepath.Join(root, "profiles", "factory"),
+		User:     filepath.Join(root, "profiles", "user"),
 		Seen:     filepath.Join(root, ".devices.json"),
 		record:   filepath.Join(root, ".written.json"),
 	}

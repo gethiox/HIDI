@@ -257,3 +257,49 @@ func TestFingerprintFollowsLinks(t *testing.T) {
 		t.Error("a change to the file behind a link was not noticed")
 	}
 }
+
+// The factory profiles and the user's come from two directories. A
+// profile of the user's comes before a factory profile that fits as
+// well, unless it says that it is not enabled.
+func TestLoadKinds(t *testing.T) {
+	root := t.TempDir()
+	factory, user := filepath.Join(root, "factory"), filepath.Join(root, "user")
+	os.MkdirAll(factory, 0o755)
+	os.MkdirAll(user, 0o755)
+	write := func(dir, name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const rest = "[match]\ntype = \"keyboard\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"\n"
+	write(factory, "keyboard.toml", "schema = 1\nname = \"Factory\"\nenabled = false\n"+rest)
+	write(user, "keyboard.toml", "schema = 1\nname = \"Mine\"\n"+rest)
+	before := fingerprint(root)
+
+	all, problems := LoadKinds(factory, user)
+	if len(problems) != 0 || len(all) != 2 || all[0].Kind != KindFactory || all[1].Kind != KindUser {
+		t.Fatalf("loaded: %v, %v", all, problems)
+	}
+	keyboard := control.DeviceInfo{Type: control.DeviceKeyboard}
+	// The factory profile is used whatever it says about being enabled.
+	if got := Select(Enabled(all[:1]), keyboard); got == nil || got.Name != "Factory" {
+		t.Errorf("the factory profile alone: %v", got)
+	}
+	if got := Select(Enabled(all), keyboard); got == nil || got.Name != "Mine" {
+		t.Errorf("with the user's profile beside it: %v", got)
+	}
+
+	// Turned off, the user's profile steps back, and the change is seen.
+	write(user, "keyboard.toml", "schema = 1\nname = \"Mine\"\nenabled = false\n"+rest)
+	if fingerprint(root) == before {
+		t.Error("a change one directory down is not seen")
+	}
+	all, _ = LoadKinds(factory, user)
+	if len(all) != 2 || len(Enabled(all)) != 1 {
+		t.Fatalf("with the user's profile off: %d loaded, %d enabled", len(all), len(Enabled(all)))
+	}
+	if got := Select(Enabled(all), keyboard); got == nil || got.Name != "Factory" {
+		t.Errorf("with the user's profile off: %v", got)
+	}
+}

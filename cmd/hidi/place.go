@@ -64,11 +64,17 @@ func findPlace(root, profiles string, prepare bool) place {
 			pl.notes = append(pl.notes, fmt.Sprintf("first start: settings and profiles written to %s", root))
 		}
 		for _, file := range report.Updated {
-			pl.notes = append(pl.notes, "built-in profile brought up to date: "+file)
+			pl.notes = append(pl.notes, "factory profile brought up to date with this HIDI: "+file)
+		}
+		for _, file := range report.Removed {
+			pl.notes = append(pl.notes, "removed, HIDI keeps the factory profiles elsewhere now or no longer has this one: "+file)
+		}
+		for _, move := range report.Moved {
+			pl.notes = append(pl.notes, fmt.Sprintf("your profile %s is now kept in %s", move[0], move[1]))
 		}
 		if !report.Created {
 			for _, file := range report.Written {
-				pl.notes = append(pl.notes, "new built-in file written: "+file)
+				pl.notes = append(pl.notes, "new factory file written: "+file)
 			}
 		}
 		pl.managed = report.Managed
@@ -96,8 +102,10 @@ func findPlace(root, profiles string, prepare bool) place {
 // built-in ones with those of the directory named beside them.
 func (pl place) load() ([]*config.Profile, []config.Problem, error) {
 	if pl.managed {
-		profiles, problems := config.LoadDir(pl.profiles)
-		return profiles, problems, nil
+		// The factory profiles and the user's, those of the user's that
+		// are turned off left out.
+		profiles, problems := config.LoadKinds(pl.paths.Factory, pl.paths.User)
+		return config.Enabled(profiles), problems, nil
 	}
 	return config.Load(pl.profiles)
 }

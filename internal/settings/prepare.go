@@ -22,9 +22,15 @@ type Report struct {
 	// Created says that the directory was made now.
 	Created bool
 	// Written are the files written because they were missing, and
-	// Updated those brought up to date because the user had not changed
-	// them.
+	// Updated the factory profiles that were there and not as this HIDI
+	// has them.
 	Written, Updated []string
+	// Removed are factory profiles this HIDI no longer comes with, and
+	// copies of them an earlier HIDI kept among the user's profiles.
+	Removed []string
+	// Moved are profiles of the user's that an earlier HIDI kept in the
+	// directory of profiles itself, and where they are now.
+	Moved [][2]string
 	// Unrecognised says, for a directory that is not managed, what in it
 	// HIDI does not know.
 	Unrecognised string
@@ -44,6 +50,13 @@ func fingerprint(data []byte) string {
 
 // Prepare makes HIDI's directory ready, as the package documentation
 // describes. profiles are the profiles HIDI comes with, by file name.
+//
+// The profiles HIDI comes with are kept in the directory of factory
+// profiles exactly as this HIDI has them: written when missing, brought up
+// to date when they differ, whoever changed them, and removed when HIDI
+// no longer has them. They are there to be read and copied, not changed;
+// the user's own profiles are in the directory beside it and are never
+// touched.
 //
 // An error means the directory could not be read or written; HIDI then
 // runs with what it comes with.
@@ -72,19 +85,10 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 	}
 	report.Managed = true
 
-	// The files HIDI wants there: the profiles, and the settings.
-	want := map[string][]byte{"settings.toml": Default().Text()}
-	for name, data := range profiles {
-		want[filepath.ToSlash(filepath.Join("profiles", name))] = data
-	}
-	names := make([]string, 0, len(want))
-	for name := range want {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	if err := os.MkdirAll(p.Profiles, 0o755); err != nil {
-		return report, err
+	for _, dir := range []string{p.Factory, p.User} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return report, err
+		}
 	}
 	changed := false
 	// save writes the record of what HIDI wrote. A directory that is
@@ -101,34 +105,107 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 		if err != nil {
 			return err
 		}
-		return writeFile(p.record, append(data, '\n'))
+		return writeFile(p.record, append(data, '\n'), 0o644)
 	}
+	fail := func(err error) (Report, error) { return report, errors.Join(err, save()) }
+
+	// The settings: written once, and the user's from then on. Removed,
+	// they stay removed.
+	if _, err := os.Stat(p.Settings); errors.Is(err, fs.ErrNotExist) {
+		if _, known := record.Files["settings.toml"]; !known {
+			text := Default().Text()
+			if err := writeFile(p.Settings, text, 0o644); err != nil {
+				return fail(err)
+			}
+			record.Files["settings.toml"] = fingerprint(text)
+			report.Written = append(report.Written, p.Settings)
+			changed = true
+		}
+	} else if err != nil {
+		return fail(err)
+	}
+
+	// What an earlier HIDI kept in the directory of profiles itself: its
+	// own copies, as far as nobody changed them, go; everything else is
+	// the user's and moves to the user's profiles.
+	flat, err := os.ReadDir(p.Profiles)
+	if err != nil {
+		return fail(err)
+	}
+	for _, entry := range flat {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".toml") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		file, key := filepath.Join(p.Profiles, name), "profiles/"+name
+		have, err := os.ReadFile(file)
+		if err != nil {
+			return fail(err)
+		}
+		was, known := record.Files[key]
+		delete(record.Files, key)
+		changed = true
+		if known && fingerprint(have) == was {
+			if err := os.Remove(file); err != nil {
+				return fail(err)
+			}
+			report.Removed = append(report.Removed, file)
+			continue
+		}
+		to := filepath.Join(p.User, name)
+		if _, err := os.Stat(to); err == nil {
+			continue // one of that name is there already; this one stays where it is
+		}
+		if err := os.Rename(file, to); err != nil {
+			return fail(err)
+		}
+		report.Moved = append(report.Moved, [2]string{file, to})
+	}
+	for key := range record.Files {
+		if strings.HasPrefix(key, "profiles/") {
+			delete(record.Files, key) // of a copy the user removed long ago
+			changed = true
+		}
+	}
+
+	// The factory profiles, exactly as this HIDI has them.
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	for _, name := range names {
-		file := filepath.Join(p.Root, filepath.FromSlash(name))
-		now := fingerprint(want[name])
-		was, known := record.Files[name]
+		file := filepath.Join(p.Factory, name)
 		have, err := os.ReadFile(file)
 		switch {
-		case errors.Is(err, fs.ErrNotExist) && known:
-			continue // the user removed it, and means it
 		case errors.Is(err, fs.ErrNotExist):
 			report.Written = append(report.Written, file)
 		case err != nil:
-			return report, errors.Join(err, save())
-		case !known:
-			continue // the user's own file of that name
-		case fingerprint(have) != was || was == now:
-			continue // changed by the user, or up to date
-		case name == "settings.toml":
-			continue // the settings are the user's from the first day
+			return fail(err)
+		case string(have) == string(profiles[name]):
+			continue
 		default:
 			report.Updated = append(report.Updated, file)
 		}
-		if err := writeFile(file, want[name]); err != nil {
-			return report, errors.Join(err, save())
+		if err := writeFile(file, profiles[name], 0o444); err != nil {
+			return fail(err)
 		}
-		record.Files[name] = now
-		changed = true
+	}
+	old, err := os.ReadDir(p.Factory)
+	if err != nil {
+		return fail(err)
+	}
+	for _, entry := range old {
+		name := entry.Name()
+		if _, shipped := profiles[name]; shipped || entry.IsDir() || !strings.HasSuffix(name, ".toml") {
+			continue
+		}
+		file := filepath.Join(p.Factory, name)
+		os.Chmod(file, 0o644) // Windows removes no file that is marked read-only
+		if err := os.Remove(file); err != nil {
+			return fail(err)
+		}
+		report.Removed = append(report.Removed, file)
 	}
 	return report, save()
 }
@@ -153,6 +230,9 @@ func unknown(p Paths, entries []os.DirEntry) string {
 				return "profiles cannot be read"
 			}
 			for _, f := range files {
+				if f.IsDir() && (f.Name() == "factory" || f.Name() == "user") {
+					continue
+				}
 				if f.IsDir() {
 					return "profiles/" + f.Name() + " is a directory"
 				}
@@ -172,8 +252,8 @@ func unknown(p Paths, entries []os.DirEntry) string {
 }
 
 // writeFile writes a file so that it is either there complete or not at
-// all.
-func writeFile(path string, data []byte) error {
+// all, with the given permissions.
+func writeFile(path string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return err
@@ -183,7 +263,7 @@ func writeFile(path string, data []byte) error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -196,6 +276,9 @@ func writeFile(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	// Windows puts nothing in the place of a file that is marked
+	// read-only.
+	os.Chmod(path, 0o644)
 	return os.Rename(tmp.Name(), path)
 }
 
