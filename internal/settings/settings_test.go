@@ -35,7 +35,7 @@ func TestDefaultRoundTrip(t *testing.T) {
 	changed.Input.GrabGamepads = true
 	changed.Input.StartOn = false
 	changed.Output.Connect = []string{"USB MIDI", `odd "name"`}
-	changed.Window = Window{ShowAtStart: true, FPS: 120, BackgroundFPS: 30, LogHeight: 200}
+	changed.Window = Window{ShowAtStart: true, FPS: 120, BackgroundFPS: 30, Scale: 150}
 	got, err = Parse(changed.Text())
 	if err != nil {
 		t.Fatalf("changed settings do not parse: %v", err)
@@ -67,7 +67,7 @@ func TestParse(t *testing.T) {
 		{"axis as key", "schema = 1\n[input]\ntoggle = [\"ABS_X\"]\n", "not the name of a key"},
 		{"grab without toggle", "schema = 1\n[input]\ntoggle = []\n", "needs a toggle combination"},
 		{"off without toggle", "schema = 1\n[input]\ntoggle = []\ngrab_keyboards = false\nstart_on = false\n", "starting turned off"},
-		{"negative", "schema = 1\n[window]\nlog_height = -1\n", "cannot be negative"},
+		{"negative", "schema = 1\n[window]\nfps = -1\n", "cannot be negative"},
 		{"not TOML", "schema = \n", "toml"},
 	} {
 		s, err := Parse([]byte(tt.text))
@@ -86,8 +86,8 @@ func TestLoad(t *testing.T) {
 		t.Errorf("a missing file: %+v, %v", s, err)
 	}
 	file := filepath.Join(dir, "settings.toml")
-	os.WriteFile(file, []byte("schema = 1\n[window]\nlog_height = 120\n"), 0o644)
-	if s, err := Load(file); err != nil || s.Window.LogHeight != 120 {
+	os.WriteFile(file, []byte("schema = 1\n[window]\nfps = 120\n"), 0o644)
+	if s, err := Load(file); err != nil || s.Window.FPS != 120 {
 		t.Errorf("Load: %+v, %v", s, err)
 	}
 }
@@ -153,7 +153,7 @@ func TestPrepareLater(t *testing.T) {
 	os.Chmod(gamepad, 0o644)
 	os.Remove(gamepad)
 	os.WriteFile(mine, []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
-	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nlog_height = 99\n"), 0o644)
+	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nfps = 99\n"), 0o644)
 
 	// A later HIDI comes with a changed profile, a new one, and without
 	// one it had.
@@ -174,7 +174,7 @@ func TestPrepareLater(t *testing.T) {
 	if !strings.Contains(read(t, mine), `"Mine"`) {
 		t.Error("the user's own profile was touched")
 	}
-	if !strings.Contains(read(t, p.Settings), "log_height = 99") {
+	if !strings.Contains(read(t, p.Settings), "fps = 99") {
 		t.Error("the settings were overwritten")
 	}
 	if len(report.Updated) != 1 || filepath.Base(report.Updated[0]) != "keyboard.toml" ||
@@ -276,7 +276,7 @@ func TestPrepareTakesOverEarlierDirectory(t *testing.T) {
 	p := PathsIn(filepath.Join(t.TempDir(), DirName))
 	os.MkdirAll(p.Profiles, 0o755)
 	os.WriteFile(filepath.Join(p.Profiles, "mine.toml"), []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
-	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nlog_height = 50\n"), 0o644)
+	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nfps = 50\n"), 0o644)
 	if !Managed(p) {
 		t.Fatal("not taken for HIDI's directory before the first start")
 	}
@@ -285,7 +285,7 @@ func TestPrepareTakesOverEarlierDirectory(t *testing.T) {
 		t.Fatalf("Prepare: %+v, %v", report, err)
 	}
 	// Without a record every profile there is the user's.
-	if !strings.Contains(read(t, filepath.Join(p.User, "mine.toml")), "Mine") || !strings.Contains(read(t, p.Settings), "log_height = 50") {
+	if !strings.Contains(read(t, filepath.Join(p.User, "mine.toml")), "Mine") || !strings.Contains(read(t, p.Settings), "fps = 50") {
 		t.Error("what was there was not kept")
 	}
 	if _, err := os.Stat(filepath.Join(p.Factory, "keyboard.toml")); err != nil {
@@ -354,7 +354,7 @@ func TestWatch(t *testing.T) {
 
 func TestLightsSettings(t *testing.T) {
 	s, err := Parse([]byte("schema = 1\n[lights]\nopenrgb = true\n"))
-	if err != nil || !s.Lights.OpenRGB || s.Lights.Address != DefaultOpenRGBAddress {
+	if err != nil || !s.Lights.OpenRGB || s.Lights.Endpoint() != DefaultOpenRGBAddress || s.Lights.Address != "" {
 		t.Errorf("lights turned on: %+v, %v", s.Lights, err)
 	}
 	s, err = Parse([]byte("schema = 1\n[lights]\naddress = \"192.168.1.20:6742\"\n"))
@@ -507,5 +507,42 @@ func TestCheckUpdates(t *testing.T) {
 	back, err := Load(path)
 	if err != nil || !back.Window.CheckUpdates {
 		t.Errorf("after saving and loading: %v, %v", back.Window.CheckUpdates, err)
+	}
+}
+
+func TestLogHeightIsLeftBehind(t *testing.T) {
+	// A file of an earlier HIDI may still have the setting: it is read,
+	// and not written again.
+	s, err := Parse([]byte("schema = 1\n[window]\nlog_height = 200\nscale = 125\n"))
+	if err != nil || s.Window.Scale != 125 {
+		t.Fatalf("a file with log_height: %+v, %v", s.Window, err)
+	}
+	path := filepath.Join(t.TempDir(), "settings.toml")
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	if text := read(t, path); strings.Contains(text, "log_height") || !strings.Contains(text, "scale = 125") {
+		t.Errorf("written again:\n%s", text)
+	}
+	for _, bad := range []string{"scale = 20", "scale = 900"} {
+		if _, err := Parse([]byte("schema = 1\n[window]\n" + bad + "\n")); err == nil {
+			t.Errorf("%s is accepted", bad)
+		}
+	}
+}
+
+func TestOpenRGBAddress(t *testing.T) {
+	s := Default()
+	if s.Lights.Address != "" || s.Lights.Endpoint() != DefaultOpenRGBAddress || len(s.Check()) != 0 {
+		t.Fatalf("no address: %q, %q, %v", s.Lights.Address, s.Lights.Endpoint(), s.Check())
+	}
+	for address, good := range map[string]bool{
+		"10.0.0.5:6742": true, "localhost:1": true, "[::1]:6742": true,
+		"10.0.0.5": false, "10.0.0.5:6742x": false, ":6742": false, "host:0": false, "host:70000": false,
+	} {
+		s.Lights.Address = address
+		if ok := len(s.Check()) == 0; ok != good {
+			t.Errorf("%q: accepted %v", address, ok)
+		}
 	}
 }

@@ -403,7 +403,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// that other programs can send to, so that their notes show too.
 	// The hub is always there and reaches for a server only while the
 	// lights are turned on, which the settings can change while HIDI runs.
-	lightsOn, lightsAddress := pl.settings.Lights.OpenRGB, pl.settings.Lights.Address
+	lightsOn, lightsAddress := pl.settings.Lights.OpenRGB, pl.settings.Lights.Endpoint()
 	if given["openrgb"] {
 		lightsOn, lightsAddress = true, *lightsFlag
 	}
@@ -618,15 +618,15 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 			}
 			// The lights follow at once, unless the command line said
 			// where the server is.
-			if !given["openrgb"] && (s.Lights.OpenRGB != lightsNow.OpenRGB || s.Lights.Address != lightsNow.Address) {
-				if s.Lights.Address != lightsNow.Address {
-					to := s.Lights.Address
+			if !given["openrgb"] && (s.Lights.OpenRGB != lightsNow.OpenRGB || s.Lights.Endpoint() != lightsNow.Endpoint()) {
+				if s.Lights.Endpoint() != lightsNow.Endpoint() {
+					to := s.Lights.Endpoint()
 					address.Store(&to)
 					hub.Reconnect()
 				}
 				lightsNow.OpenRGB, lightsNow.Address = s.Lights.OpenRGB, s.Lights.Address
 				hub.SetEnabled(s.Lights.OpenRGB)
-				configLog.Info("settings changed", "openrgb", s.Lights.OpenRGB, "address", s.Lights.Address)
+				configLog.Info("settings changed", "openrgb", s.Lights.OpenRGB, "address", s.Lights.Endpoint())
 			}
 			if s.Lights.Colours != coloursNow {
 				coloursNow = s.Lights.Colours

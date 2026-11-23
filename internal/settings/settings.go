@@ -80,6 +80,22 @@ type Lights struct {
 // told otherwise.
 const DefaultOpenRGBAddress = "127.0.0.1:6742"
 
+// Endpoint returns where the OpenRGB server is looked for: the address of
+// the settings, or the usual one where they name none.
+func (l Lights) Endpoint() string {
+	if l.Address == "" {
+		return DefaultOpenRGBAddress
+	}
+	return l.Address
+}
+
+// MinScale and MaxScale bound the size of the window's contents, in
+// hundredths.
+const (
+	MinScale = 50
+	MaxScale = 300
+)
+
 // Input says how HIDI treats input devices.
 type Input struct {
 	// Toggle is the keys that, pressed together on one device, turn HIDI
@@ -125,8 +141,9 @@ type Window struct {
 	// BackgroundFPS limits how often the window is drawn while it is not
 	// in front; 0 keeps to the monitor's refresh rate.
 	BackgroundFPS int
-	// LogHeight is the height of the log when the window opens.
-	LogHeight int
+	// Scale is the size of everything the window draws, in hundredths
+	// of its ordinary size.
+	Scale int
 	// CheckUpdates lets the window ask GitHub whether a newer HIDI has
 	// been released. It is off unless the user turns it on.
 	CheckUpdates bool
@@ -142,7 +159,8 @@ func Default() Settings {
 			LearnThreshold: 20,
 		},
 		Devices: Devices{Mode: Blacklist},
-		Lights:  Lights{Address: DefaultOpenRGBAddress, Colours: light.DefaultColours()},
+		Lights:  Lights{Colours: light.DefaultColours()},
+		Window:  Window{Scale: 100},
 	}
 }
 
@@ -173,13 +191,16 @@ type file struct {
 		Colours map[string]string `toml:"colours"`
 	} `toml:"lights"`
 	Window struct {
-		ShowAtStart   *bool     `toml:"show_at_start"`
-		FPS           *int      `toml:"fps"`
-		BackgroundFPS *int      `toml:"background_fps"`
-		LogHeight     *int      `toml:"log_height"`
-		ShowInput     *[]string `toml:"show_input"`
-		ShowOutput    *[]string `toml:"show_output"`
-		CheckUpdates  *bool     `toml:"check_updates"`
+		ShowAtStart   *bool `toml:"show_at_start"`
+		FPS           *int  `toml:"fps"`
+		BackgroundFPS *int  `toml:"background_fps"`
+		Scale         *int  `toml:"scale"`
+		// LogHeight was a setting once. A file that still has it is
+		// read, and the next writing of the file leaves it out.
+		LogHeight    *int      `toml:"log_height"`
+		ShowInput    *[]string `toml:"show_input"`
+		ShowOutput   *[]string `toml:"show_output"`
+		CheckUpdates *bool     `toml:"check_updates"`
 	} `toml:"window"`
 }
 
@@ -253,18 +274,18 @@ func Parse(data []byte) (Settings, error) {
 		}
 		*target = colour
 	}
-	if _, _, err := net.SplitHostPort(s.Lights.Address); err != nil {
-		problems = append(problems, fmt.Sprintf("lights.address: %q is not a host and a port, such as %q", s.Lights.Address, DefaultOpenRGBAddress))
-	}
 	set(&s.Window.ShowAtStart, f.Window.ShowAtStart)
 	set(&s.Window.FPS, f.Window.FPS)
 	set(&s.Window.BackgroundFPS, f.Window.BackgroundFPS)
-	set(&s.Window.LogHeight, f.Window.LogHeight)
+	set(&s.Window.Scale, f.Window.Scale)
+	if s.Window.Scale < MinScale || s.Window.Scale > MaxScale {
+		problems = append(problems, fmt.Sprintf("window.scale: %d is not a size in hundredths from %d to %d", s.Window.Scale, MinScale, MaxScale))
+	}
 	set(&s.Window.CheckUpdates, f.Window.CheckUpdates)
 	set(&s.Shown.Input, f.Window.ShowInput)
 	set(&s.Shown.Output, f.Window.ShowOutput)
-	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 || s.Window.LogHeight < 0 {
-		problems = append(problems, "window: fps, background_fps and log_height cannot be negative")
+	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 {
+		problems = append(problems, "window: fps and background_fps cannot be negative")
 	}
 	if len(problems) == 0 {
 		problems = append(problems, s.Check()...)
@@ -313,6 +334,10 @@ func (s Settings) Check() []string {
 	}
 	if s.Input.ToggleTap && len(s.Input.Toggle) != 1 {
 		problems = append(problems, "input: toggle_tap needs a toggle of exactly one key, such as [\"KEY_CAPSLOCK\"]")
+	}
+	host, port, err := net.SplitHostPort(s.Lights.Endpoint())
+	if n, perr := strconv.Atoi(port); err != nil || host == "" || perr != nil || n < 1 || n > 65535 {
+		problems = append(problems, fmt.Sprintf("lights.address: %q is not a host and a port, such as %q", s.Lights.Address, DefaultOpenRGBAddress))
 	}
 	return problems
 }
@@ -418,7 +443,8 @@ connect = %s
 # server, which is a program of its own that has to be running.
 openrgb = %t
 
-# Where the OpenRGB server listens.
+# Where the OpenRGB server listens. Empty means the usual place,
+# 127.0.0.1:6742.
 address = %s
 
 # The colours of the keys, each as "#rrggbb". Keys that change the MIDI
@@ -440,12 +466,13 @@ fps = %d
 # window has the focus. 0 sets no limit of its own.
 background_fps = %d
 
-# The height of the log when the window opens, in pixels. 0 shows only its
-# last line.
-log_height = %d
+# The size of everything the window draws, in hundredths of its ordinary
+# size: 125 makes it a quarter larger.
+scale = %d
 
 # The instruments whose input is drawn in the window, and those whose
-# notes are: by the names of their devices. The window keeps these lists.
+# notes are: each by its name, its kind and where it is plugged in. The
+# window keeps these lists.
 show_input = %s
 show_output = %s
 
@@ -457,7 +484,7 @@ check_updates = %t
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
-		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.LogHeight,
+		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.Scale,
 		list(s.Shown.Input), list(s.Shown.Output), s.Window.CheckUpdates)
 	return []byte(b.String())
 }
