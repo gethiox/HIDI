@@ -183,7 +183,7 @@ glow in the colours of their lights, so the drawing shows what the keyboard
 shows. Every other device shows the buttons and axes it has reported so far.
 While HIDI is off, what is pressed shows in grey.
 
-Every keyboard has the sign of OpenRGB, a light bulb, beside "show". It is
+Every keyboard has the sign of OpenRGB, a ring of colours, beside "show". It is
 in colour where HIDI drives the keyboard's lights and grey where it does
 not: no OpenRGB, or a keyboard OpenRGB does not know. Click a grey one and
 the drawn keyboard shows what the lights would show; the sign is yellow
@@ -215,11 +215,14 @@ instruments. A click beside the sheet closes it.
 
 ![The settings](docs/images/gui-settings.png)
 
-What is in `settings.toml` can be changed there. Nothing is written until
-you save, with the disk in the corner of the sheet or Ctrl+S: the disk is
-yellow while there is something to save, and "Revert" beside it drops the
-changes. A running HIDI takes most of it over within a few seconds of
-saving; the page says when something matters only at the next start.
+What is in `settings.toml` can be changed there, in sections: turning HIDI
+on and off, the devices, MIDI, the lights, the window, and the profiles.
+A change is in use at once: the running HIDI follows it as you make it, so
+turning on the lights lights them. It is not written, though, until you
+save, with the disk in the corner of the sheet or Ctrl+S. The disk is yellow
+while something is in use that is not saved, and "Revert" beside it takes
+it back. What is not saved when the window closes is taken back too. A few
+settings matter only when HIDI starts, and say so.
 
 - "Change" beside the toggle combination takes a new one from the keyboard:
   press the keys together and let go. One key alone works too, and can then
@@ -266,6 +269,9 @@ opens the profile. A factory profile is shown and cannot be changed;
 shows the numbers an instrument starts with, the layouts, and
 what every control does. A keyboard's profile is drawn as a keyboard,
 coloured by what the keys do; other profiles list their buttons and axes.
+Drag a control onto another to move what it does there, and hold Ctrl
+while doing so to copy it instead. The right mouse button empties a control;
+with Ctrl it leaves a key to the system.
 Click a control, or press it on the device, and make it play a note, send a
 controller, run a command, or do nothing. An axis sends a controller or
 bends the pitch, and has switches for resting in the middle and for being

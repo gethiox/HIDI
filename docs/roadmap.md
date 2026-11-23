@@ -81,6 +81,18 @@ is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
 
+### Eighth round (23 November 2026): what was reported, and what was done
+
+| Reported or asked for | Done |
+|---|---|
+| The window was broken on Windows: drawn wrong, and the pointer did not hit what it showed | The size of the interface had been laid on with raylib's camera mode, which in this raylib throws the scaling of the display away. On a display set to anything but 100 % (the maintainer's is at 125 %) everything was drawn smaller than the window's own points, in which the pointer is still measured. The size is now a scaling laid over what `BeginDrawing` sets up. **Not seen on a scaled display**: GLFW did not scale under Xvfb whatever was tried, so this rests on reading raylib. |
+| HIDI keeps the monitors on | Not found. HIDI asks Windows for nothing of the kind and types nothing by itself. Suspected: Windows counting the reports of game controllers that HIDI has asked Raw Input for as someone using the machine, and a stick that never quite rests sends them all the time; or a request by the MIDI service for HIDI's devices. `powercfg /requests` while HIDI runs, and whether it happens without the stick plugged in, would tell them apart. |
+| The OpenRGB sign simpler | A ring with a hole and a slice cut out below it, both clear; the mesh gradient as before. |
+| Everything that can be clicked lights up under the pointer | Switches, boxes, choices, the colour cells and sliders, the address field, the header's switches, and the controls of the profile editor. |
+| Carrying bindings in the editor | Drag a control onto another: it gets what the first does, and the first does nothing. With Ctrl both do the same. One step to take back. The right button empties a control, with Ctrl leaves a key to the system. `ProfileDoc.Carry`, `config.Get`. |
+| The settings in a better order, in sections, with switches two abreast | Six sections under lines across the sheet: on and off, devices, MIDI, lights, window, profiles. Switches stand two abreast where the sheet is at least 620 points wide, else one below the other. |
+| Settings in use at once | Every change on the sheet is handed to the running HIDI (`settings` on the control socket, `Host.TrySettings`), which takes it over as it does a changed file. Saving only writes. Revert, and closing the window, hand back what the file has. |
+
 ### Waiting for the maintainer
 
 To be tried on Windows, none of which has run there:

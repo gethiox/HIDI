@@ -53,7 +53,9 @@ the colours. A keyboard that should type again does so at once. `start_on`,
 mistake is reported and changes nothing.
 
 Everything here can also be changed in the window, on the sheet the gear
-opens. The sheet writes the file
+opens. What is changed there is in use at once, without being written:
+the window hands the running HIDI the settings as they are shown. The sheet
+writes the file
 when you save there, not with every change.
 
 ```toml
