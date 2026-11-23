@@ -56,3 +56,49 @@ func TestParse(t *testing.T) {
 		t.Errorf("the first outline: %v", first)
 	}
 }
+
+func TestOpenRGB(t *testing.T) {
+	// Around the wheel: red at the left, then yellow, green, cyan, blue
+	// and magenta, clockwise.
+	for angle, want := range map[float64]color.NRGBA{
+		0: {255, 0, 0, 255}, 60: {255, 255, 0, 255}, 120: {0, 255, 0, 255},
+		180: {0, 255, 255, 255}, 240: {0, 0, 255, 255}, 300: {255, 0, 255, 255}, 360: {255, 0, 0, 255},
+	} {
+		if got := Hue(angle); got != want {
+			t.Errorf("Hue(%v) = %v", angle, got)
+		}
+	}
+	img := OpenRGB(218, RGBColour)
+	if img.Bounds().Dx() != 165 {
+		t.Fatalf("the logo is %v", img.Bounds())
+	}
+	if got := img.NRGBAAt(20, 82); got.R != 255 || got.G > 5 || got.B > 5 {
+		t.Errorf("the left of the wheel is %v", got)
+	}
+	if got := img.NRGBAAt(145, 82); got.R != 0 || got.G < 250 || got.B < 250 {
+		t.Errorf("the right of the wheel is %v", got)
+	}
+	if got := img.NRGBAAt(82, 82); got != (color.NRGBA{255, 255, 255, 255}) {
+		t.Errorf("the keyhole is %v", got)
+	}
+	if got := img.NRGBAAt(82, 140); got != (color.NRGBA{255, 255, 255, 255}) {
+		t.Errorf("the lower part of the keyhole is %v", got)
+	}
+	if got := img.NRGBAAt(82, 190); got.A != 255 || got.R < 150 {
+		t.Errorf("the base is %v", got)
+	}
+	if img.NRGBAAt(2, 2).A != 0 || img.NRGBAAt(20, 200).A != 0 {
+		t.Error("the logo is drawn outside of its shape")
+	}
+	// Grey has no colour in it, yellow one.
+	grey := OpenRGB(218, RGBGrey).NRGBAAt(20, 82)
+	if grey.R > grey.B || grey.B-grey.R > 40 {
+		t.Errorf("the grey wheel is %v", grey)
+	}
+	if got := OpenRGB(218, RGBYellow).NRGBAAt(20, 82); got.R < 200 || got.B > 120 {
+		t.Errorf("the yellow wheel is %v", got)
+	}
+	if small := OpenRGB(20, RGBColour); small.Bounds().Dx() != 16 || small.NRGBAAt(2, 7).A == 0 {
+		t.Errorf("the small logo: %v", small.Bounds())
+	}
+}
