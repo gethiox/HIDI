@@ -40,6 +40,93 @@ type editor struct {
 	held map[string]bool
 	// looked is when the file was last compared with what is shown.
 	looked time.Time
+	// A control that is pressed and carried to another: pressing says
+	// that the button went down on press, at pressAt; carrying that the
+	// pointer has moved far enough since to mean it. over is the control
+	// under the pointer in the frame being drawn, if overAny.
+	pressing, carrying bool
+	press              control.Code
+	pressAt            rl.Vector2
+	over               control.Code
+	overAny            bool
+}
+
+// pointAt handles the pointer on one control of the page: a click chooses
+// it, a press begins carrying it, and the right button empties it, or
+// with Ctrl leaves it to the system. It lays a light over the control the
+// pointer is on, and marks the one a carried control would land on.
+func (w *window) pointAt(e *editor, code control.Code, r rl.Rectangle, roundness float32) {
+	if !hovered(r) {
+		return
+	}
+	e.over, e.overAny = code, true
+	setCursor(rl.MouseCursorPointingHand)
+	rl.DrawRectangleRounded(r, roundness, 6, rl.NewColor(255, 255, 255, 30))
+	if e.carrying && code != e.press {
+		rl.DrawRectangleRoundedLinesEx(r, roundness, 6, 2, col(colAccent))
+	}
+	control := rl.IsKeyDown(rl.KeyLeftControl) || rl.IsKeyDown(rl.KeyRightControl)
+	switch {
+	case rl.IsMouseButtonPressed(rl.MouseButtonLeft):
+		e.code, e.chosen = code, true
+		e.pressing, e.carrying, e.press, e.pressAt = true, false, code, mouse()
+	case rl.IsMouseButtonPressed(rl.MouseButtonRight) && control:
+		e.code, e.chosen = code, true
+		e.try(e.doc.SetPassthrough(e.layout, code))
+	case rl.IsMouseButtonPressed(rl.MouseButtonRight):
+		e.code, e.chosen = code, true
+		if e.doc.Role(e.layout, code).Kind != RoleNone {
+			e.try(e.doc.Clear(e.layout, code))
+		}
+	}
+}
+
+// carry follows a control that is being carried, once all controls of
+// the frame are drawn: it draws what is carried at the pointer, and when
+// the button is let go over another control, that one gets what the
+// carried one does. Without Ctrl the carried one does nothing afterwards;
+// with Ctrl both do the same.
+func (w *window) carry(e *editor) {
+	if !e.pressing {
+		return
+	}
+	at := mouse()
+	if !e.carrying && (abs32(at.X-e.pressAt.X) > 6 || abs32(at.Y-e.pressAt.Y) > 6) {
+		// Only a control that does something can be carried.
+		e.carrying = e.doc.Role(e.layout, e.press).Kind != RoleNone
+		if !e.carrying {
+			e.pressing = false
+			return
+		}
+	}
+	copying := rl.IsKeyDown(rl.KeyLeftControl) || rl.IsKeyDown(rl.KeyRightControl)
+	if e.carrying {
+		w.moving = true
+		role := e.doc.Role(e.layout, e.press)
+		label := strings.TrimPrefix(e.press.String(), "KEY_") + "  " + role.Text
+		if copying {
+			label += "  (copy)"
+		}
+		tag := rl.NewRectangle(at.X+12, at.Y+10, w.chipWidth(label), chipH)
+		rl.DrawRectangleRounded(tag, 0.4, 6, col(roleColour(role)))
+		rl.DrawRectangleRoundedLinesEx(tag, 0.4, 6, 1.5, col(colText))
+		text(w.mono, label, tag.X+7, tag.Y+3, sizeMono, col(colText))
+		setCursor(rl.MouseCursorPointingHand)
+	}
+	if rl.IsMouseButtonReleased(rl.MouseButtonLeft) || !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+		if e.carrying && e.overAny && e.over != e.press {
+			e.try(e.doc.Carry(e.layout, e.press, e.over, !copying))
+			e.code, e.chosen = e.over, true
+		}
+		e.pressing, e.carrying = false, false
+	}
+}
+
+func abs32(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // editProfile opens the page for a profile file.
@@ -130,7 +217,7 @@ func (w *window) dimButton(label string, enabled bool, x, y float32) (clickedNow
 		return w.button(label, x, y)
 	}
 	bw := width(w.sans, label, sizeText) + 20
-	rl.DrawRectangleRoundedLinesEx(rl.NewRectangle(x, y, bw, 24), 0.35, 6, 1, col(colPanelEdge))
+	rl.DrawRectangleRoundedLinesEx(rl.NewRectangle(x, y, bw, 24), 0.35, 6, hair(), col(colPanelEdge))
 	text(w.sans, label, x+10, y+5, sizeText, col(colOff))
 	return false, x + bw
 }
@@ -147,7 +234,7 @@ func (w *window) saveButton(unsaved bool, x, y float32) bool {
 		setCursor(rl.MouseCursorPointingHand)
 		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanelEdge))
 	} else {
-		rl.DrawRectangleRoundedLinesEx(r, 0.35, 6, 1, col(colPanelEdge))
+		rl.DrawRectangleRoundedLinesEx(r, 0.35, 6, hair(), col(colPanelEdge))
 	}
 	drawFloppy(x+7, y+4, 1, col(ink))
 	return unsaved && clicked(r)
@@ -346,6 +433,11 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		{"channel", "channel", int(d.Channel) + 1, fmt.Sprintf("%d", int(d.Channel)+1)},
 		{"velocity", "velocity", int(d.Velocity), fmt.Sprintf("%d", d.Velocity)},
 	} {
+		// On the next line where the page is too narrow for all four.
+		need := width(w.sans, field.label, sizeText) + 8 + width(w.sans, "−", sizeText) + width(w.sans, "+", sizeText) + 40 + width(w.mono, "+000", sizeMono) + 16
+		if sx > x && sx+need > right {
+			sx, y = x, y+34
+		}
 		delta, end := w.stepper(field.label, field.shown, sx, y)
 		if delta != 0 {
 			e.try(doc.SetDefault(field.key, field.value+delta))
@@ -357,11 +449,14 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	y = w.editLayouts(e, x, y, right)
 
 	// The controls: a keyboard as a keyboard, anything else as a list.
+	e.overAny = false
 	if doc.Profile.Match.Type == control.DeviceKeyboard {
 		y = w.editKeyboard(e, x, y, right-x)
 	} else {
 		y = w.editList(e, device, x, y, right-x)
 	}
+	// Above everything else on the page, also what is drawn below.
+	defer w.carry(e)
 	y += 14
 	y = w.editChosen(e, x, y, right-x)
 
@@ -451,7 +546,7 @@ func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
 	}
 	field := rl.NewRectangle(lx, y, max(width(w.mono, e.newName, sizeMono)+24, 140), 24)
 	rl.DrawRectangleRounded(field, 0.3, 6, col(colBar))
-	rl.DrawRectangleRoundedLinesEx(field, 0.3, 6, 1, col(colAccent))
+	rl.DrawRectangleRoundedLinesEx(field, 0.3, 6, hair(), col(colAccent))
 	text(w.mono, e.newName, field.X+8, y+5, sizeMono, col(colText))
 	if time.Now().UnixMilli()/500%2 == 0 {
 		rl.DrawRectangleRec(rl.NewRectangle(field.X+9+width(w.mono, e.newName, sizeMono), y+5, 1, 14), col(colText))
@@ -488,12 +583,7 @@ func (w *window) editKeyboard(e *editor, x, y, inner float32) float32 {
 		if e.chosen && e.code == code {
 			rl.DrawRectangleRoundedLinesEx(rect, 0.2, 4, 2, col(colText))
 		}
-		if hovered(rect) {
-			setCursor(rl.MouseCursorPointingHand)
-		}
-		if clicked(rect) {
-			e.code, e.chosen = code, true
-		}
+		w.pointAt(e, code, rect, 0.2)
 		// The key's own name small at the top, what it does below.
 		text(w.mono, key.Label, rect.X+3, rect.Y+2, small, col(colFaint))
 		if role.Kind != RoleNone {
@@ -572,12 +662,7 @@ func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32
 		if e.chosen && e.code == code {
 			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 2, col(colText))
 		}
-		if hovered(chip) {
-			setCursor(rl.MouseCursorPointingHand)
-		}
-		if clicked(chip) {
-			e.code, e.chosen = code, true
-		}
+		w.pointAt(e, code, chip, 0.4)
 		text(w.mono, label, cx+7, cy+3, sizeMono, col(colText))
 		cx += cw + 6
 	}
@@ -588,8 +673,15 @@ func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32
 // it.
 func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
 	if !e.chosen {
-		text(w.sans, "Click a control, or press it on the device, to change what it does.", x, y, sizeText, col(colFaint))
-		return y + 24
+		for _, line := range []string{
+			"Click a control, or press it on the device, to change what it does.",
+			"Drag one onto another to move what it does there; hold Ctrl to copy it instead.",
+			"The right button empties a control; with Ctrl it leaves a key to the system.",
+		} {
+			text(w.sans, fit(w.sans, line, sizeText, inner), x, y, sizeText, col(colFaint))
+			y += 20
+		}
+		return y + 4
 	}
 	role := e.doc.Role(e.layout, e.code)
 	does := "does nothing"
@@ -663,18 +755,7 @@ func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
 		if cx > x+70 && cx+cw > x+inner {
 			cx, cy = x+70, cy+chipH+6
 		}
-		chip := rl.NewRectangle(cx, cy, cw, chipH)
-		if hovered(chip) {
-			setCursor(rl.MouseCursorPointingHand)
-		}
-		if role.Kind == RoleCommand && role.Command == command {
-			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
-			text(w.mono, label, cx+7, cy+3, sizeMono, col(colBar))
-		} else {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
-			text(w.mono, label, cx+7, cy+3, sizeMono, col(colFaint))
-		}
-		if clicked(chip) {
+		if w.chip(label, role.Kind == RoleCommand && role.Command == command, cx, cy) {
 			e.try(e.doc.SetCommand(e.layout, e.code, command))
 		}
 		cx += cw + 6

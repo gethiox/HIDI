@@ -344,6 +344,42 @@ func (d *ProfileDoc) Clear(layout string, code control.Code) error {
 	})
 }
 
+// Carry gives one control what another does in a layout, exactly as the
+// profile writes it. With move the first control does nothing afterwards;
+// without, both do the same. It is one change, taken back in one step.
+func (d *ProfileDoc) Carry(layout string, from, to control.Code, move bool) error {
+	if from == to {
+		return nil
+	}
+	return d.change(func(text []byte) ([]byte, error) {
+		source, target := d.Role(layout, from), d.Role(layout, to)
+		value, found, err := config.Get(text, source.Section, from.String())
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			if source.Kind == RoleNone {
+				return nil, fmt.Errorf("%s does nothing; there is nothing to give to %s", from, to)
+			}
+			return nil, fmt.Errorf("the line of %s was not found; %w", from, config.ErrNotEditable)
+		}
+		// Where the target is bound already, it is bound anew there;
+		// a target that does nothing gets its line beside the source's.
+		section := target.Section
+		if target.Kind == RoleNone {
+			section = source.Section
+		}
+		out, err := config.Set(text, section, to.String(), value)
+		if err != nil {
+			return nil, err
+		}
+		if move {
+			return config.Remove(out, source.Section, from.String())
+		}
+		return out, nil
+	})
+}
+
 // Reload looks whether the file was changed by other hands since the
 // window last read or wrote it. If nothing here waits to be saved, the
 // file is taken over as it is now, and Reload reports that. If something

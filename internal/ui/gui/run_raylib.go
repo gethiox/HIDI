@@ -107,6 +107,13 @@ type window struct {
 	tryMu   sync.Mutex
 	trying  map[string]string
 	tryBusy bool
+	// tryText is the settings HIDI is still to be given to behave by,
+	// tryWaiting says that there are some, and trySending that somebody
+	// is giving.
+	tryText                string
+	tryWaiting, trySending bool
+	// valueX is how far in the values of the settings begin.
+	valueX float32
 	// shown says what is drawn of which instrument.
 	shown settings.Shown
 	// glow is the picture of a light under a key, wheel that of the gear
@@ -194,6 +201,11 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	// What was tried and not saved ends with the window: the files count
 	// again.
 	defer func() {
+		if v := &w.settings; v.exists && v.edit.Dirty() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			hidi.TrySettings(ctx, string(v.edit.disk.Text()))
+			cancel()
+		}
 		for path, e := range w.docs {
 			if e.doc.Dirty() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -281,9 +293,14 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 			w.loadFonts()
 		}
 		rl.BeginDrawing()
-		rl.BeginMode2D(rl.Camera2D{Zoom: uiScale})
+		// The size of the interface is laid over the scaling of the
+		// display, which BeginDrawing has set up. raylib's camera mode
+		// would not do: it throws the scaling of the display away, and
+		// on a dense display everything was drawn small in a corner
+		// while the pointer was still measured in the window's own
+		// points.
+		rl.Scalef(uiScale, uiScale, 1)
 		w.draw()
-		rl.EndMode2D()
 		rl.EndDrawing()
 		applyCursor()
 		if shoot {
@@ -424,6 +441,11 @@ func applyCursor() {
 // laid out in its ordinary measures and drawn through a lens. The fonts
 // are made for the size they end up at, so that text stays sharp.
 var uiScale float32 = 1
+
+// hair is the width of a thin line: one of the window's points, and not
+// less than a pixel where everything is drawn smaller, since a line
+// thinner than that breaks up.
+func hair() float32 { return max(1, 1/uiScale) }
 
 // mouse returns where the pointer is, in the measures the window is laid
 // out in.
@@ -593,6 +615,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	}
 	if hovered(pill) {
 		setCursor(rl.MouseCursorPointingHand)
+		back = Mix(back, colText, 0.22)
 	}
 	rl.DrawRectangleRounded(pill, 1, 16, col(back))
 	rl.DrawCircle(int32(knobX), int32(pill.Y+13), 9, col(colText))
@@ -612,14 +635,19 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	}
 	word := "learning mode"
 	area := rl.NewRectangle(small.X, small.Y, small.Width+8+width(w.sans, word, sizeText-1), small.Height)
-	if hovered(area) {
+	overLearn := hovered(area)
+	if overLearn {
 		setCursor(rl.MouseCursorPointingHand)
+		back = Mix(back, colText, 0.22)
 	}
 	rl.DrawRectangleRounded(small, 1, 12, col(back))
 	rl.DrawCircle(int32(knobX), int32(small.Y+9), 6, col(colText))
 	ink := colOff
 	if state.Learning {
 		ink = colUnsaved
+	}
+	if overLearn {
+		ink = Mix(ink, colText, 0.4)
 	}
 	text(w.sans, word, small.X+small.Width+8, 26, sizeText-1, col(ink))
 	if clicked(area) {
@@ -851,14 +879,22 @@ func (w *window) isShown(list []string, name string) bool {
 // click on it.
 func (w *window) chip(label string, on bool, x, y float32) bool {
 	r := rl.NewRectangle(x, y, w.chipWidth(label), chipH)
-	if hovered(r) {
+	over := hovered(r)
+	if over {
 		setCursor(rl.MouseCursorPointingHand)
 	}
-	if on {
+	switch {
+	case on && over:
+		rl.DrawRectangleRounded(r, 0.4, 6, col(Mix(colAccent, colText, 0.3)))
+		text(w.mono, label, x+7, y+3, sizeMono, col(colBar))
+	case on:
 		rl.DrawRectangleRounded(r, 0.4, 6, col(colAccent))
 		text(w.mono, label, x+7, y+3, sizeMono, col(colBar))
-	} else {
-		rl.DrawRectangleRoundedLinesEx(r, 0.4, 6, 1, col(colPanelEdge))
+	case over:
+		rl.DrawRectangleRounded(r, 0.4, 6, col(colPanelEdge))
+		text(w.mono, label, x+7, y+3, sizeMono, col(colText))
+	default:
+		rl.DrawRectangleRoundedLinesEx(r, 0.4, 6, hair(), col(colPanelEdge))
 		text(w.mono, label, x+7, y+3, sizeMono, col(colFaint))
 	}
 	return clicked(r)
@@ -870,7 +906,7 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	beginClipWithin(rl.NewRectangle(r.X+1, r.Y+1, r.Width-2, cardTop-2))
 	w.drawTrails(in, rl.NewRectangle(r.X, r.Y+6, r.Width, cardTop-12))
 	endClipWithin()
-	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, 1, col(colPanelEdge))
+	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, hair(), col(colPanelEdge))
 	x, y := r.X+cardPad, r.Y+12
 
 	// In the corner of the card: the way to the instrument's profile,
@@ -1156,7 +1192,7 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 			rl.DrawRectangleRounded(chip, 0.4, 6, col(w.pressed()))
 			text(w.mono, label, cx+7, cy+3, sizeMono, col(colBar))
 		} else {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
+			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, hair(), col(colPanelEdge))
 			text(w.mono, label, cx+7, cy+3, sizeMono, col(colFaint))
 		}
 		cx += cw + 6
@@ -1595,7 +1631,7 @@ func (w *window) drawFilter(bar rl.Rectangle) {
 			rl.DrawRectangleRounded(b, 0.4, 6, colA(levelColours[i], 50))
 			text(w.mono, Levels[i], b.X+8, b.Y+3, sizeMono, col(levelColours[i]))
 		} else {
-			rl.DrawRectangleRoundedLinesEx(b, 0.4, 6, 1, col(colPanelEdge))
+			rl.DrawRectangleRoundedLinesEx(b, 0.4, 6, hair(), col(colPanelEdge))
 			text(w.mono, Levels[i], b.X+8, b.Y+3, sizeMono, col(colOff))
 		}
 	}

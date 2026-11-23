@@ -61,6 +61,26 @@ func Remove(text []byte, section Section, key string) ([]byte, error) {
 	return edit(text, section, key, nil)
 }
 
+// Get returns the value a key has in a section, as it is written in the
+// text, quotes and all, and whether the section has the key.
+func Get(text []byte, section Section, key string) (value string, found bool, err error) {
+	lines := strings.SplitAfter(string(text), "\n")
+	start, end, err := findSection(lines, section)
+	if err != nil {
+		return "", false, err
+	}
+	for i := start; i < end; i++ {
+		entry, ok, err := parseEntry(lines[i])
+		if err != nil {
+			return "", false, fmt.Errorf("line %d: %w", i+1, err)
+		}
+		if ok && sameKey(section, entry.key, key) {
+			return entry.value, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func edit(text []byte, section Section, key string, value *string) ([]byte, error) {
 	if key == "" || strings.ContainsAny(key, "\n\r") || value != nil && strings.ContainsAny(*value, "\n\r") {
 		return nil, errors.New("a key or value with a line break cannot be written")

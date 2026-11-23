@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gethiox/HIDI/internal/config"
@@ -174,4 +175,62 @@ func TestProfileLine(t *testing.T) {
 		}
 	}
 	t.Fatal("no default keyboard profile")
+}
+
+func TestCarry(t *testing.T) {
+	file, userDir, _ := factoryProfile(t)
+	own, _, err := Customise(file, userDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := OpenProfile(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := doc.DefaultLayout()
+	keyZ, keyX, f24 := control.Key(44), control.Key(45), control.Key(194)
+	was, other := doc.Role(layout, keyZ), doc.Role(layout, keyX)
+	if was.Kind != RoleNote || other.Kind != RoleNote || was.Text == other.Text {
+		t.Fatalf("the profile is not as expected: %+v, %+v", was, other)
+	}
+
+	// Moved: the target does what the source did, the source nothing.
+	if err := doc.Carry(layout, keyZ, f24, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Role(layout, f24); got.Kind != RoleNote || got.Text != was.Text {
+		t.Errorf("the target after a move: %+v", got)
+	}
+	if got := doc.Role(layout, keyZ); got.Kind != RoleNone {
+		t.Errorf("the source after a move: %+v", got)
+	}
+	// One step back undoes both halves.
+	if !doc.Undo() || doc.Role(layout, keyZ).Text != was.Text || doc.Role(layout, f24).Kind != RoleNone {
+		t.Error("taking the move back did not put both controls back")
+	}
+
+	// Copied onto a control that does something already: both do the
+	// same, and the target's old line is the one that was changed.
+	if err := doc.Carry(layout, keyZ, keyX, false); err != nil {
+		t.Fatal(err)
+	}
+	if a, b := doc.Role(layout, keyZ), doc.Role(layout, keyX); a.Text != was.Text || b.Text != was.Text {
+		t.Errorf("after a copy: %+v, %+v", a, b)
+	}
+	if n := strings.Count(string(doc.Text()), "KEY_X"); n != strings.Count(string(doc.saved), "KEY_X") {
+		t.Errorf("the copy added a line for the target: %d", n)
+	}
+
+	// Nothing to carry, and onto itself.
+	before := string(doc.Text())
+	if err := doc.Carry(layout, f24, keyZ, true); err == nil {
+		t.Error("a control that does nothing was carried")
+	}
+	if err := doc.Carry(layout, keyZ, keyZ, true); err != nil || string(doc.Text()) != before {
+		t.Errorf("a control carried onto itself: %v", err)
+	}
+	// The result is a profile.
+	if _, err := config.Parse(doc.Text()); err != nil {
+		t.Error(err)
+	}
 }

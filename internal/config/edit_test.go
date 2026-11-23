@@ -244,3 +244,16 @@ func TestSetPlacesNewLines(t *testing.T) {
 		t.Errorf("a line of the result ends without a carriage return:\n%q", out)
 	}
 }
+
+func TestGet(t *testing.T) {
+	text := []byte("schema = 1\nname = \"T\"\n[match]\ntype = \"keyboard\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"  # middle C\nKEY_B = { note = \"D3\", channel = 2 }\n")
+	for key, want := range map[string]string{"KEY_A": `"C3"`, "KEY_B": `{ note = "D3", channel = 2 }`} {
+		got, found, err := Get(text, Bindings("L"), key)
+		if err != nil || !found || got != want {
+			t.Errorf("Get(%s) = %q, %v, %v", key, got, found, err)
+		}
+	}
+	if _, found, err := Get(text, Bindings("L"), "KEY_C"); found || err != nil {
+		t.Errorf("a key that is not there: %v, %v", found, err)
+	}
+}

@@ -16,6 +16,9 @@ type Controller interface {
 	Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error
 	Toggle(ctx context.Context) (ipc.Snapshot, error)
 	ToggleLearning(ctx context.Context) (ipc.Snapshot, error)
+	// TrySettings makes HIDI behave by settings, written as the settings
+	// file is, without saving them.
+	TrySettings(ctx context.Context, text string) error
 	// Simulate asks HIDI to show, or to stop showing, what the lights of
 	// a keyboard would show where it does not control them.
 	Simulate(ctx context.Context, name, kind, location string, on bool) error
