@@ -53,7 +53,7 @@ the colours. A keyboard that should type again does so at once. `start_on`,
 mistake is reported and changes nothing.
 
 Everything here can also be changed in the window, on the sheet the gear
-opens, except the address of the OpenRGB server. The sheet writes the file
+opens. The sheet writes the file
 when you save there, not with every change.
 
 ```toml
@@ -98,7 +98,7 @@ pressed = "#ffffff"
 show_at_start = false
 fps = 0
 background_fps = 0
-log_height = 0
+scale = 100
 show_input = []
 show_output = []
 check_updates = false
@@ -118,14 +118,18 @@ check_updates = false
 | `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `--connect` |
 | `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `--openrgb` |
-| `lights.address` | Where that server listens. | `--openrgb ADDRESS` |
+| `lights.address` | Where that server listens, as `"host:port"`. Empty, which is the default, means `127.0.0.1:6742`. | `--openrgb ADDRESS` |
 | `lights.colours` | The colours of the keys, each as `"#rrggbb"`. See below. | |
 | `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
 | `window.check_updates` | Let the window ask GitHub, once when it opens and once a day after, whether a newer HIDI has been released. The answer is shown in the lower right corner; a click opens the release. Nothing is installed, and the request says nothing but the version of HIDI that asks. Off unless turned on. | |
 | `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
 | `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
-| `window.log_height` | The height of the log when the window opens. | `--log-height` |
-| `window.show_input`, `window.show_output` | The instruments whose input and whose notes are drawn in the window, by the names of their devices. The window keeps these lists itself. | |
+| `window.scale` | The size of everything the window draws, in hundredths of its ordinary size, 50 to 300. | |
+| `window.show_input`, `window.show_output` | The instruments whose input and whose notes are drawn in the window, each as `"name \| kind \| where it is plugged in"`, so that two devices of one name are apart. The window keeps these lists itself. | |
+
+`window.log_height` was a setting of earlier HIDI 2 builds. A file that
+still has it is read without complaint, and the line is gone the next time
+HIDI writes the file: the window always opens with the log folded away.
 
 #### The colours of the lights
 

@@ -183,6 +183,12 @@ glow in the colours of their lights, so the drawing shows what the keyboard
 shows. Every other device shows the buttons and axes it has reported so far.
 While HIDI is off, what is pressed shows in grey.
 
+Every keyboard has the sign of OpenRGB, a light bulb, beside "show". It is
+in colour where HIDI drives the keyboard's lights and grey where it does
+not: no OpenRGB, or a keyboard OpenRGB does not know. Click a grey one and
+the drawn keyboard shows what the lights would show; the sign is yellow
+meanwhile, and another click ends it. Nothing is sent to the keyboard.
+
 The small switch beside it is learning mode, for teaching a program which
 controller to listen to: every axis stands still until it is moved by more
 than a fifth of its range, so that the program hears only the one you mean.
@@ -194,8 +200,11 @@ switch too.
 The switch at the top turns HIDI on and off.
 
 The log lives in the bar at the bottom, which shows its last line, faint.
-Pull the bar up, or click it, for the whole log, and choose the least severe
-level to show.
+Pull the bar up, or click it, for the whole log; the row below the bar
+chooses the least severe level to show. What an instrument does as it is
+played, a changed octave or channel, a chord, and HIDI being turned on and
+off, is logged at the lowest level, DEBUG, and shows when that is chosen.
+The window always opens with the log folded away.
 
 ![The window with the log pulled up](docs/images/gui.png)
 
@@ -221,8 +230,14 @@ saving; the page says when something matters only at the next start.
   in grey, those HIDI has seen before.
 - "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
   makes every instrument send there as well.
+- "OpenRGB server" is where the lights are sent: an address and a port.
+  Left empty it is the usual place, shown faintly. It can be changed while
+  the switch above it is off.
 - "Colours of the keys" are the colours of the lights. Click one and move
   the three sliders.
+- "Size of the interface" draws everything in the window smaller or larger,
+  from 85 % to 200 %. The window follows at once, and keeps the size when
+  you save.
 - "The toggle key is HIDI's alone" keeps a toggle of one key, such as Caps
   Lock, from the rest of the system altogether.
 - "Look for a newer HIDI" lets the window ask GitHub once a day whether

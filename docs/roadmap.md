@@ -51,7 +51,7 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (22 November 2026)
+## Where things stand (23 November 2026)
 
 `dev` holds everything up to the review of the whole code (pull requests
 50 and 51). One pull request is open on top of it:
@@ -109,6 +109,10 @@ To be tried on Windows, none of which has run there:
   that it stops moving the mouse.
 - The window at 120 Hz: is motion smooth now.
 - Learning mode, and the middle click on the icon.
+- The size of the interface on a display with scaling of its own, and
+  that the pointer and what it points at still agree.
+- Typing the OpenRGB address in the settings while the keyboard is not
+  HIDI's alone.
 
 To be tried with a keyboard OpenRGB lights, which was not at hand: that a
 released key goes dark at once, how fast the lights follow while playing,
@@ -383,12 +387,30 @@ of the reports and are not read on Windows.
 | The toggle key kept from the system (Caps Lock) | `input.toggle_exclusive`; a switch on the sheet. |
 | The hand cursor showed for one frame | The cursor is set once a frame. On Windows raylib gives the arrow back on every mouse move, so there the wish is repeated after every look at the pointer. Not seen on Windows yet. |
 | The icon | `internal/assets/icon` fills the shapes of the maintainer's drawing at any size. On: the H of the two outer keys and the bar green, the rest of the middle key a lighter green. Learning: yellow, alternating with green every half second. Off: grey without the letter. In the tray, in the header of the window, and in `hidi.exe` through go-winres at build time. |
-| A nicer gear | A disc, eight teeth with sloping sides, cut to a circle, a hole in the middle; drawn once as a picture and turned. |
+| A nicer gear | A disc, teeth with sloping sides (eight at first, six since the seventh round), cut to a circle, a hole in the middle; drawn once as a picture and turned. |
 | A check for updates | Opt-in (`window.check_updates`). The window asks GitHub's API for the newest release, once when it opens and once a day; the lower right corner says "up to date" in grey or "update available" in yellow, and a click opens the release. |
 | The Microsoft DLL in the zip | The release script takes it from Microsoft's package by address and checksum and puts it, the `.pri` and Microsoft's licence into the Windows archives. Address and checksum are still to be filled in. |
 | No console window | A release is linked with `-H windowsgui`; started from a command line HIDI joins that console; `--console` opens one. |
 
 Not done on purpose: the raylib change stays out of the release.
+
+### Seventh round (23 November 2026): what was asked for, and what was done
+
+| Asked for | Done |
+|---|---|
+| The icon of the program neutral | All white keys white; the green ones are for the tray and the header, which show a state. |
+| The OpenRGB logo as a vector drawing with a mesh gradient | `internal/assets/icon/openrgb.svg`: the wheel is one row of six patches around the middle, a corner each for red, yellow, green, cyan, blue and magenta; keyhole and base are plain shapes. Written by hand from measurements of the picture; **not opened in Inkscape**, which was not at hand, so the mesh is unverified. The window does not read the file: `icon.OpenRGB` draws the same shapes. |
+| The logo beside "show" on every keyboard | Colour where HIDI drives the lights, grey where not. A click on a grey one asks HIDI to show what the lights would show (`simulate` on the control socket, `Manager.SetSimulated`): the sign turns yellow and the drawn keyboard glows as a lit one does. It also brings the drawn keyboard into view. Lasts while HIDI runs. |
+| A gear of six teeth | Six. |
+| Size of the interface | `window.scale`, 85 to 200 % on the sheet. Everything is laid out as before and drawn through a lens; the fonts are made anew for the size, so text stays sharp. Where the header or a card is too narrow, the least needed is left out and names are cut. The window keeps its size. |
+| The OpenRGB address editable | A field on the sheet, empty by default with the usual address shown faintly, editable while the lights are off. An address needs a host and a port from 1 to 65535. |
+| No height of the log | The setting is gone; a file that has it is still read. The window opens with the log folded. |
+| Hover only while the pointer is over the window | `hovered` asks raylib first. |
+| No grip on the status bar; the bar always the same | The bar always shows the last line and the word on updates. Unfolded, the row of levels is below it, then the log. |
+| State changes logged as debug | Octave, transposition, channel, velocity, layout, chord, learning mode, and HIDI on and off. |
+| No "the devices play" | Gone; what follows "on"/"off" stands at a fixed place. |
+| "show" for one entry only | Remembered by name, kind and location. Lists of earlier builds, by name only, no longer match and are left alone. |
+
 
 ## Done
 
