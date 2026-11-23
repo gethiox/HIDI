@@ -12,6 +12,14 @@
 // Keys are reported by their position, as scan codes, and translated to
 // the Linux key codes HIDI uses everywhere; scancode.go has the table.
 //
+// Many keyboards have their media keys, volume and play and the like, on
+// an interface of their own, as "consumer controls". Windows acts on them
+// by itself and reports nothing of them under keyboards. HIDI reads that
+// interface as it reads game controllers, and makes keys of it for the
+// keyboard it belongs to; consumer.go has the keys. While a keyboard is
+// HIDI's alone, the hook keeps the keys Windows makes of them from other
+// programs, as it does every other key.
+//
 // Game controllers are found in the list Raw Input keeps of all input
 // devices, and read from their devices directly, as the HID reports the
 // controller sends: not through Raw Input. What Windows delivers through

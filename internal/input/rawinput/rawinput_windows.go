@@ -222,11 +222,15 @@ type Watcher struct {
 	// The fields below belong to the window's thread.
 	byHandle map[uintptr]*Device // one entry for each interface
 	byGroup  map[string]*Device
-	// followers read the interfaces of game controllers, each on a
-	// goroutine of its own; see follow.
+	// followers read the interfaces that are read from their devices,
+	// those of game controllers and of media keys, each on a goroutine
+	// of its own; see follow.
 	followers map[uintptr]*follower
-	hook      uintptr
-	buf       []byte // what Windows reports is read into this
+	// orphans are interfaces of media keys whose keyboard is not known
+	// yet, with the group of their device.
+	orphans map[uintptr]string
+	hook    uintptr
+	buf     []byte // what Windows reports is read into this
 
 	// rejected holds the interfaces that were looked at and are of no
 	// use, so that their input is not looked into again and again.
@@ -276,6 +280,7 @@ func Watch(opts Options) (*Watcher, error) {
 		byHandle:  map[uintptr]*Device{},
 		byGroup:   map[string]*Device{},
 		followers: map[uintptr]*follower{},
+		orphans:   map[uintptr]string{},
 		rejected:  map[uintptr]bool{},
 		hookDone:  make(chan struct{}),
 	}
@@ -446,7 +451,13 @@ func hookKeyCode(vk uint32, scan, flags uint16) (uint16, bool) {
 	case vkPause:
 		return keyPause, true
 	}
-	return keyCode(scan, flags)
+	if code, ok := keyCode(scan, flags); ok {
+		return code, true
+	}
+	// A key Windows made of a consumer control may come without a scan
+	// code.
+	code, ok := mediaKeys[vk]
+	return code, ok
 }
 
 // windowProc receives the window's messages.
@@ -488,7 +499,12 @@ func keyboardHook(code int32, wParam, lParam uintptr) uintptr {
 	if code >= 0 && w != nil {
 		// lParam is the address of a structure owned by Windows.
 		info := *(*kbdLLHook)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam)))
-		if info.flags&llkhfInjected == 0 {
+		// What programs type is let through, with one exception: the
+		// media keys Windows itself makes of a keyboard's consumer
+		// controls, should it mark them as typed. They are the
+		// keyboard's keys.
+		_, media := mediaKeys[info.vkCode]
+		if info.flags&llkhfInjected == 0 || media && info.scanCode == 0 {
 			// The hook names the key by its scan code too, which gives
 			// the code HIDI knows it by.
 			var flags uint16
@@ -507,7 +523,10 @@ func keyboardHook(code int32, wParam, lParam uintptr) uintptr {
 			if w.gate.swallowKey(id, code, known, up) {
 				// Raw Input will not report this key: Windows drops it
 				// there too. So it is taken from here.
-				if known {
+				// A media key is not taken from here: its interface
+				// is read, see follow, and says which keyboard it is
+				// on.
+				if known && !media {
 					w.swallowed(code, !up)
 				}
 				return 1
@@ -642,10 +661,28 @@ func (w *Watcher) add(handle uintptr) {
 	if handle == 0 || w.byHandle[handle] != nil || w.rejected[handle] {
 		return
 	}
-	if !w.take(handle) {
+	// The media keys of a device are of use once its keyboard is known.
+	if group, waiting := w.orphans[handle]; waiting {
+		if d := w.byGroup[group]; d == nil || d.controller {
+			return
+		}
+		delete(w.orphans, handle)
+	}
+	switch w.take(handle) {
+	case useless:
 		w.rejected[handle] = true
+	case taken, later:
 	}
 }
+
+// verdict is what came of looking at an interface.
+type verdict int
+
+const (
+	useless verdict = iota // of no use to HIDI
+	taken                  // in use
+	later                  // of use once another interface of its device is
+)
 
 // scanTimer names the timer that has the list of devices looked through.
 const scanTimer = 1
@@ -663,6 +700,11 @@ func (w *Watcher) scan() {
 			delete(w.rejected, handle) // the number may be given out again
 		}
 	}
+	for handle := range w.orphans {
+		if !there[handle] {
+			delete(w.orphans, handle)
+		}
+	}
 	for handle := range w.followers {
 		if !there[handle] {
 			w.remove(handle)
@@ -670,18 +712,18 @@ func (w *Watcher) scan() {
 	}
 }
 
-// follower reads one interface of a game controller.
+// follower reads one interface from its device.
 type follower struct {
 	// stop, when set, ends the reading.
 	stop windows.Handle
 }
 
-// follow reads the reports of one interface of a game controller from
-// the device itself, until the device is gone or stop is set, and turns
-// them into the events of d. It runs on a goroutine of its own. The
-// reports are the same that Raw Input would deliver, the number of the
-// report first.
-func (w *Watcher) follow(path string, reader reportReader, d *Device, stop windows.Handle, name string) {
+// follow reads the reports of one interface, of a game controller or of
+// a keyboard's media keys, from the device itself, until the device is
+// gone or stop is set, and hands each to deliver. It runs on a goroutine
+// of its own. The reports are the same that Raw Input would deliver, the
+// number of the report first.
+func (w *Watcher) follow(path string, deliver func(report []byte), stop windows.Handle, name string) {
 	defer windows.CloseHandle(stop)
 	problem := func(err error) {
 		if w.opts.Problem != nil {
@@ -750,39 +792,37 @@ func (w *Watcher) follow(path string, reader reportReader, d *Device, stop windo
 		if n == 0 {
 			continue
 		}
-		now := time.Now()
-		for _, ev := range reader.read(state.buf[:n], now) {
-			d.queue.put(ev)
-		}
+		deliver(state.buf[:n])
 	}
 }
 
-// take is add for an interface that was not looked at yet. It reports
-// false for one that is of no use.
-func (w *Watcher) take(handle uintptr) bool {
+// take is add for an interface that was not looked at yet.
+func (w *Watcher) take(handle uintptr) verdict {
 	info, ok := deviceInfo(handle)
 	if !ok {
-		return false
+		return useless
 	}
-	var controller, steam bool
+	var controller, steam, media bool
 	switch {
 	case info.typ == rimTypeKeyboard:
+	case info.typ == rimTypeHID && isConsumerControl(info.usagePage, info.usage):
+		media = true
 	case info.typ == rimTypeHID && isGameController(info.usagePage, info.usage):
 		controller = true
 	case info.typ == rimTypeHID && isSteamInterface(info.usagePage, info.usage, uint16(info.vendor), uint16(info.product)):
 		controller, steam = true, true
 	default:
-		return false
+		return useless
 	}
 	path := devicePath(handle)
 	if path == "" {
-		return false
+		return useless
 	}
 	id := parsePath(path)
 	if !controller && isSteamController(id.vendor, id.product) {
 		// The keyboard a Steam Controller pretends to be while nobody
 		// reads it. HIDI reads the controller itself.
-		return false
+		return useless
 	}
 	// The interfaces of one piece of hardware share its container; where
 	// Windows names none, what the path says has to do.
@@ -790,10 +830,47 @@ func (w *Watcher) take(handle uintptr) bool {
 		id.group = c
 	}
 	kind, typ, group := "Keyboard", control.DeviceKeyboard, id.group
-	var reader reportReader
+	// deliver takes the reports of an interface that is read from the
+	// device; see follow. It is given the device they belong to.
+	var deliver func(d *Device) func(report []byte)
+	events := func(reader reportReader) {
+		deliver = func(d *Device) func([]byte) {
+			return func(report []byte) {
+				for _, ev := range reader.read(report, time.Now()) {
+					d.queue.put(ev)
+				}
+			}
+		}
+	}
+	if media {
+		// The media keys of a keyboard, which belong to the device its
+		// keys make. Until that is known they wait; a headset or a
+		// mouse has such an interface too, and is no instrument.
+		d := w.byGroup[group]
+		if d == nil || d.controller {
+			w.orphans[handle] = group
+			return later
+		}
+		reader, err := newConsumerReader(handle)
+		if err != nil {
+			return useless
+		}
+		deliver = func(d *Device) func([]byte) {
+			return func(report []byte) {
+				w.keys.Lock()
+				defer w.keys.Unlock()
+				for _, key := range reader.read(report) {
+					if key.pressed {
+						w.claims.saw(d)
+					}
+					w.put(d, key.code, key.pressed)
+				}
+			}
+		}
+	}
 	if controller {
 		if id.xinput && w.opts.SkipXInput {
-			return false
+			return useless
 		}
 		if id.vendor == 0 {
 			// The path of a Bluetooth controller is written differently.
@@ -808,20 +885,20 @@ func (w *Watcher) take(handle uintptr) bool {
 			calm := func() { go w.steamCommand(path, steamLizardOff) }
 			own := newSteamReader()
 			own.connected = calm
-			reader = own
+			events(own)
 			calm()
 		} else {
 			pad, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
 			if err != nil {
-				return false
+				return useless
 			}
-			reader = pad
+			events(pad)
 		}
 	}
-	// begin starts the reading of a game controller's interface, once
-	// the device its events belong to is known.
+	// begin starts the reading of an interface that is read from the
+	// device, once the device its events belong to is known.
 	begin := func(d *Device) {
-		if reader == nil {
+		if deliver == nil {
 			return
 		}
 		stop, err := windows.CreateEvent(nil, 1, 0, nil)
@@ -837,7 +914,7 @@ func (w *Watcher) take(handle uintptr) bool {
 			return
 		}
 		w.followers[handle] = &follower{stop: stop}
-		go w.follow(path, reader, d, own, d.info.Name)
+		go w.follow(path, deliver(d), own, d.info.Name)
 	}
 	if d := w.byGroup[group]; d != nil {
 		w.byHandle[handle] = d
@@ -848,7 +925,7 @@ func (w *Watcher) take(handle uintptr) bool {
 			d.steam = append(d.steam, path)
 			d.mu.Unlock()
 		}
-		return true
+		return taken
 	}
 	// Some devices pad the name they give themselves with spaces.
 	name := strings.TrimSpace(productName(path))
@@ -890,7 +967,7 @@ func (w *Watcher) take(handle uintptr) bool {
 		w.forget(d)
 		d.end(ErrClosed)
 	}
-	return true
+	return taken
 }
 
 // remove handles an interface that went away. The device ends with its
@@ -1014,6 +1091,41 @@ func (w *Watcher) put(d *Device, code uint16, pressed bool) {
 		value = 1
 	}
 	d.queue.put(control.Event{Code: control.Key(code), Value: value, Time: time.Now()})
+}
+
+// consumerReader reads the reports of an interface of consumer controls:
+// the media keys of a keyboard.
+type consumerReader struct {
+	preparsed []byte
+	usages    []uint16
+	keys      consumerKeys
+}
+
+func newConsumerReader(handle uintptr) (*consumerReader, error) {
+	var n uint32
+	procGetRawInputDeviceInfo.Call(handle, ridiPreparsedData, 0, uintptr(unsafe.Pointer(&n)))
+	if n == 0 {
+		return nil, errors.New("the interface has no description")
+	}
+	r := &consumerReader{preparsed: make([]byte, n), usages: make([]uint16, 32)}
+	if got, _, err := procGetRawInputDeviceInfo.Call(handle, ridiPreparsedData, uintptr(unsafe.Pointer(&r.preparsed[0])), uintptr(unsafe.Pointer(&n))); int32(got) <= 0 {
+		return nil, fmt.Errorf("reading the description of the interface: %w", err)
+	}
+	return r, nil
+}
+
+// read returns the keys a report presses and lets go of.
+func (r *consumerReader) read(report []byte) []keyChange {
+	if len(report) == 0 {
+		return nil
+	}
+	count := uint32(len(r.usages))
+	status, _, _ := procHidGetUsages.Call(hidpInput, pageConsumer, 0, uintptr(unsafe.Pointer(&r.usages[0])), uintptr(unsafe.Pointer(&count)),
+		uintptr(unsafe.Pointer(&r.preparsed[0])), uintptr(unsafe.Pointer(&report[0])), uintptr(len(report)))
+	if uint32(status) != hidpStatusSuccess {
+		return nil
+	}
+	return r.keys.update(r.usages[:min(int(count), len(r.usages))])
 }
 
 // padReader reads the reports of one interface of a game controller. What

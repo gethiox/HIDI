@@ -93,6 +93,41 @@ the sixth round.
 | The settings in a better order, in sections, with switches two abreast | Six sections under lines across the sheet: on and off, devices, MIDI, lights, window, profiles. Switches stand two abreast where the sheet is at least 620 points wide, else one below the other. |
 | Settings in use at once | Every change on the sheet is handed to the running HIDI (`settings` on the control socket, `Host.TrySettings`), which takes it over as it does a changed file. Saving only writes. Revert, and closing the window, hand back what the file has. |
 
+### Review of the code, second pass (23 November 2026)
+
+Asked for: the code at the highest standard, hacks on the side of the
+window replaced by something meant, less written twice, and a look for
+faults. Done in stages, each committed by itself:
+
+- **The window has a toolkit.** `kit` owns what were package variables
+  (fonts, size, cursor, clipping, deafness) and frames a frame; the
+  widgets are its methods, one of each kind where there were two or
+  three; `flow` wraps rows; `latest` hands the newest value to something
+  slow; the settings page is a `sheet` with a method to a section.
+  Checked by comparing nineteen pictures before and after, pixel for
+  pixel.
+- **A device's run loop is a type.** `runner.run`, 584 lines of closures
+  over thirty variables, became `session` with fields and methods, by a
+  tool written for the purpose so that nothing was retyped.
+- **The run command lost its two programs within the program**:
+  `parseRunOptions` and `liveSettings`.
+- **Fuzzing** for everything that reads what it did not write: profiles,
+  the editing of profile text, settings, what an OpenRGB server sends,
+  the reports of the Steam Controller; and the engine itself, played at
+  random on the built-in profiles: no note is left sounding, and its
+  count of sounding notes agrees with the messages. Nothing was found.
+- staticcheck with every check turned on reports nothing.
+
+Left as it is, on purpose: `winmidi.open` (222 lines of one WinRT call
+after another, which reads best in a row), and `cmdRun`, still 290 lines
+of setting things up in order.
+
+Found on the way and fixed: the media keys of keyboards that have them
+on an interface of their own were never read on Windows (the
+maintainer's HyperX). That interface is now read like a game controller
+and its keys given to the keyboard it belongs to. **Written blind**: to
+be tried.
+
 ### Waiting for the maintainer
 
 To be tried on Windows, none of which has run there:
@@ -124,6 +159,9 @@ To be tried on Windows, none of which has run there:
 - Game controllers after the change in how they are read: the Gladiator's
   axes, buttons and hats, plugging in and out while HIDI runs, the Steam
   Controller, and whether the monitors now turn off with HIDI running.
+- The media keys of the HyperX: do volume, mute and the track keys show
+  as keys of the keyboard, play when bound, and stop changing the volume
+  while HIDI is on and the keyboard grabbed.
 - The size of the interface on a display with scaling of its own, and
   that the pointer and what it points at still agree.
 - Typing the OpenRGB address in the settings while the keyboard is not
