@@ -68,37 +68,33 @@ func TestOpenRGB(t *testing.T) {
 			t.Errorf("Hue(%v) = %v", angle, got)
 		}
 	}
-	img := OpenRGB(218, RGBColour)
-	if img.Bounds().Dx() != 165 {
-		t.Fatalf("the logo is %v", img.Bounds())
-	}
+	img := OpenRGB(164, RGBColour)
 	if got := img.NRGBAAt(20, 82); got.R != 255 || got.G > 5 || got.B > 5 {
-		t.Errorf("the left of the wheel is %v", got)
+		t.Errorf("the left of the ring is %v", got)
 	}
 	if got := img.NRGBAAt(145, 82); got.R != 0 || got.G < 250 || got.B < 250 {
-		t.Errorf("the right of the wheel is %v", got)
+		t.Errorf("the right of the ring is %v", got)
 	}
-	if got := img.NRGBAAt(82, 82); got != (color.NRGBA{255, 255, 255, 255}) {
-		t.Errorf("the keyhole is %v", got)
+	// Clear: the hole in the middle, the slice below it down to the
+	// rim, and the corners.
+	for _, at := range [][2]int{{82, 82}, {82, 130}, {82, 160}, {2, 2}, {161, 161}} {
+		if img.NRGBAAt(at[0], at[1]).A != 0 {
+			t.Errorf("the sign is drawn at %v", at)
+		}
 	}
-	if got := img.NRGBAAt(82, 140); got != (color.NRGBA{255, 255, 255, 255}) {
-		t.Errorf("the lower part of the keyhole is %v", got)
-	}
-	if got := img.NRGBAAt(82, 190); got.A != 255 || got.R < 150 {
-		t.Errorf("the base is %v", got)
-	}
-	if img.NRGBAAt(2, 2).A != 0 || img.NRGBAAt(20, 200).A != 0 {
-		t.Error("the logo is drawn outside of its shape")
+	// Beside the slice the ring goes on.
+	if img.NRGBAAt(40, 140).A != 255 || img.NRGBAAt(124, 140).A != 255 {
+		t.Error("the ring is missing beside the slice")
 	}
 	// Grey has no colour in it, yellow one.
-	grey := OpenRGB(218, RGBGrey).NRGBAAt(20, 82)
+	grey := OpenRGB(164, RGBGrey).NRGBAAt(20, 82)
 	if grey.R > grey.B || grey.B-grey.R > 40 {
-		t.Errorf("the grey wheel is %v", grey)
+		t.Errorf("the grey ring is %v", grey)
 	}
-	if got := OpenRGB(218, RGBYellow).NRGBAAt(20, 82); got.R < 200 || got.B > 120 {
-		t.Errorf("the yellow wheel is %v", got)
+	if got := OpenRGB(164, RGBYellow).NRGBAAt(20, 82); got.R < 200 || got.B > 120 {
+		t.Errorf("the yellow ring is %v", got)
 	}
-	if small := OpenRGB(20, RGBColour); small.Bounds().Dx() != 16 || small.NRGBAAt(2, 7).A == 0 {
-		t.Errorf("the small logo: %v", small.Bounds())
+	if small := OpenRGB(20, RGBColour); small.Bounds().Dx() != 20 || small.NRGBAAt(2, 10).A == 0 {
+		t.Errorf("the small sign: %v", small.Bounds())
 	}
 }
