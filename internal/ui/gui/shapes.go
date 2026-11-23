@@ -1,18 +1,22 @@
 package gui
 
-import "math"
+import (
+	"math"
+
+	"github.com/gethiox/HIDI/internal/ipc"
+)
 
 // The gear that opens the settings is made the way one is drawn with a
 // pair of compasses: a disc, teeth laid on it whose sides slope towards
 // their tops, the whole cut to a circle that rounds those tops, and a
 // hole taken out of the middle. Measures are parts of the radius.
 const (
-	gearTeeth    = 8
+	gearTeeth    = 6
 	gearTip      = 0.97 // the circle the tops of the teeth are cut to
 	gearRoot     = 0.70 // the disc the teeth stand on
 	gearHole     = 0.32
-	gearFootHalf = 0.215 // half the width of a tooth where it stands
-	gearTopHalf  = 0.115 // and at its top
+	gearFootHalf = 0.27 // half the width of a tooth where it stands
+	gearTopHalf  = 0.15 // and at its top
 )
 
 // inGear reports whether a point is part of the gear; the middle of the
@@ -90,4 +94,12 @@ func CutStart(s string, most int) string {
 		return s
 	}
 	return "…" + string(r[len(r)-most+1:])
+}
+
+// EntryKey names one instrument among those shown, for what the window
+// remembers of it: two devices of one name, or the keyboard and the game
+// controller one device is, are apart by their kind and by where they are
+// plugged in.
+func EntryKey(in ipc.Instrument) string {
+	return in.Name + " | " + in.Type + " | " + in.Location
 }

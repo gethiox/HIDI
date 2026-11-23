@@ -2,7 +2,10 @@ package gui
 
 import (
 	"math"
+	"slices"
 	"testing"
+
+	"github.com/gethiox/HIDI/internal/ipc"
 )
 
 func TestGearShape(t *testing.T) {
@@ -72,5 +75,21 @@ func TestCut(t *testing.T) {
 	}
 	if CutEnd("short", 12) != "short" || CutStart("short", 5) != "short" {
 		t.Error("a text that fits is cut")
+	}
+}
+
+func TestEntryKey(t *testing.T) {
+	// One device that is a keyboard and a game controller at once makes
+	// two entries of one name; what is remembered of one is not the
+	// other's.
+	pad := ipc.Instrument{Name: "Stick", Type: "gamepad", Location: "usb-1/input0"}
+	keys := ipc.Instrument{Name: "Stick", Type: "keyboard", Location: "usb-1/input1"}
+	second := ipc.Instrument{Name: "Stick", Type: "gamepad", Location: "usb-2/input0"}
+	if EntryKey(pad) == EntryKey(keys) || EntryKey(pad) == EntryKey(second) {
+		t.Errorf("entries share a key: %q, %q, %q", EntryKey(pad), EntryKey(keys), EntryKey(second))
+	}
+	shown := flip(nil, EntryKey(pad))
+	if len(shown) != 1 || slices.Contains(shown, EntryKey(keys)) {
+		t.Errorf("shown: %v", shown)
 	}
 }

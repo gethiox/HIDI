@@ -59,9 +59,7 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 		return update.Check(ctx, &http.Client{Timeout: 20 * time.Second}, url, version)
 	}
 	opts.Ports = backend.Ports
-	if !given["log-height"] {
-		opts.LogHeight = pl.settings.Window.LogHeight
-	}
+	opts.Scale = pl.settings.Window.Scale
 	if opts.FPS < 0 || opts.BackgroundFPS < 0 || opts.LogHeight < 0 {
 		fmt.Fprintln(stderr, "hidi gui: --fps, --background-fps and --log-height cannot be negative")
 		return 2

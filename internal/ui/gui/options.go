@@ -16,6 +16,9 @@ type Controller interface {
 	Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error
 	Toggle(ctx context.Context) (ipc.Snapshot, error)
 	ToggleLearning(ctx context.Context) (ipc.Snapshot, error)
+	// Simulate asks HIDI to show, or to stop showing, what the lights of
+	// a keyboard would show where it does not control them.
+	Simulate(ctx context.Context, name, kind, location string, on bool) error
 	// Preview makes HIDI use text in place of a profile file until the
 	// file changes; an empty text ends that.
 	Preview(ctx context.Context, file, text string) error
@@ -30,6 +33,9 @@ type Options struct {
 	// window has the focus. Zero means no limit of its own: the window
 	// then keeps to the monitor's refresh rate, as it does in front.
 	BackgroundFPS int
+	// Scale is the size of everything the window draws, in hundredths
+	// of its ordinary size; zero means the ordinary size.
+	Scale int
 	// LogHeight is the height of the log when the window opens, in
 	// pixels. Zero shows only its last line.
 	LogHeight int

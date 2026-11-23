@@ -47,6 +47,9 @@ type settingsView struct {
 	// green and blue, 0 for none.
 	colour string
 	slide  int
+	// typing says that the address of the OpenRGB server is being
+	// typed.
+	typing bool
 }
 
 const settingsRefresh = 2 * time.Second
@@ -243,6 +246,7 @@ func (w *window) drawOverlay(state *ipc.Snapshot, body rl.Rectangle) {
 		if hit, _ := w.button("Revert", drop.X, drop.Y+2); hit {
 			v.edit.drop()
 			w.pace.limit, w.pace.background = v.edit.shown.Window.FPS, v.edit.shown.Window.BackgroundFPS
+			w.wantScale = float32(v.edit.shown.Window.Scale) / 100
 			v.message = ""
 		}
 	}
@@ -516,15 +520,19 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 		y += 46
 	}
 
-	vx = row("Height of the log when the window opens", "")
-	text(w.mono, fmt.Sprintf("%d", s.Window.LogHeight), vx, y+3, sizeMono, col(colText))
-	if now := int(w.logHeight); now != s.Window.LogHeight {
-		if hit, _ := w.button(fmt.Sprintf("Keep the present height (%d)", now), vx+50, y-2); hit && editable {
-			s.Window.LogHeight = now
+	// The size of everything the window draws. The window follows at
+	// once, so that the choice can be seen; it is kept when saved.
+	vx = row("Size of the interface", "of everything this window draws")
+	for _, percent := range []int{85, 100, 125, 150, 175, 200} {
+		label := fmt.Sprintf("%d%%", percent)
+		if w.chip(label, s.Window.Scale == percent, vx, y) && editable && s.Window.Scale != percent {
+			s.Window.Scale = percent
+			w.wantScale = float32(percent) / 100
 			w.set(s)
 		}
+		vx += w.chipWidth(label) + 6
 	}
-	y += 44
+	y += 46
 
 	// Where things are.
 	heading("Where things are")
@@ -759,7 +767,64 @@ func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right flo
 		s.Lights.OpenRGB = !s.Lights.OpenRGB
 		w.set(*s)
 	}
-	text(w.mono, s.Lights.Address, vx+54, y+3, sizeMono, col(colFaint))
+	y += 46
+
+	// Where the server is. The usual place shows faintly while none is
+	// named. It can be changed while the lights are off: a HIDI that is
+	// talking to a server is not sent elsewhere letter by letter.
+	text(w.sans, "OpenRGB server", x, y+2, sizeText, col(colText))
+	about := "address and port; turn the lights off to change it"
+	if !s.Lights.OpenRGB {
+		about = "address and port; empty means the usual place"
+	}
+	text(w.sans, about, x, y+20, sizeText-2, col(colFaint))
+	field := rl.NewRectangle(vx, y-2, 200, 24)
+	free := editable && !s.Lights.OpenRGB
+	if !free {
+		v.typing = false
+	}
+	if free && hovered(field) {
+		setCursor(rl.MouseCursorIBeam)
+	}
+	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+		v.typing = free && hovered(field)
+	}
+	if v.typing {
+		address := s.Lights.Address
+		for r := rl.GetCharPressed(); r > 0; r = rl.GetCharPressed() {
+			if r > 0x20 && r < 0x7f && len(address) < 64 {
+				address += string(r)
+			}
+		}
+		if (rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace)) && address != "" {
+			address = address[:len(address)-1]
+		}
+		if rl.IsKeyPressed(rl.KeyEnter) || rl.IsKeyPressed(rl.KeyEscape) {
+			v.typing = false
+		}
+		if address != s.Lights.Address {
+			s.Lights.Address = address
+			w.set(*s)
+		}
+		w.moving = true // the caret blinks
+	}
+	rl.DrawRectangleRounded(field, 0.3, 6, col(colBar))
+	edge := colPanelEdge
+	if v.typing {
+		edge = colAccent
+	}
+	rl.DrawRectangleRoundedLinesEx(field, 0.3, 6, 1, col(edge))
+	switch {
+	case s.Lights.Address == "":
+		text(w.mono, settings.DefaultOpenRGBAddress, field.X+8, y+3, sizeMono, colA(colFaint, 110))
+	case free:
+		text(w.mono, s.Lights.Address, field.X+8, y+3, sizeMono, col(colText))
+	default:
+		text(w.mono, s.Lights.Address, field.X+8, y+3, sizeMono, col(colFaint))
+	}
+	if v.typing && time.Now().UnixMilli()/500%2 == 0 {
+		rl.DrawRectangleRec(rl.NewRectangle(field.X+9+width(w.mono, s.Lights.Address, sizeMono), y+3, 1, 14), col(colText))
+	}
 	y += 46
 
 	text(w.sans, "Colours of the keys", x, y+2, sizeText, col(colText))
@@ -815,7 +880,7 @@ func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right flo
 			}
 			if v.slide == i+1 {
 				if rl.IsMouseButtonDown(rl.MouseButtonLeft) {
-					at := (rl.GetMousePosition().X - track.X) / track.Width
+					at := (mouse().X - track.X) / track.Width
 					*part.value = uint8(min(max(at, 0), 1)*255 + 0.5)
 				} else {
 					v.slide = 0
