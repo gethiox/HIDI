@@ -204,12 +204,17 @@ interface serves all of them well:
   axis. XInput has no notifications, so HIDI asks it for the state of each
   connected controller every few milliseconds, and once a second whether
   another appeared. It knows four controllers at most.
-- Every other controller, old ones included, through Raw Input
-  (`input/rawinput`), which hands over the HID reports exactly as the
+- Every other controller, old ones included, from its HID device
+  (`input/rawinput`): the controllers are found in the list Raw Input
+  keeps, looked through once a second, and each is then opened and read
+  by a goroutine of its own, which gets the HID reports exactly as the
   controller sends them; `hid.dll` takes the buttons and axes out of a
-  report. Values are told apart by the index Windows gives each, not by
+  report. They are not asked for through Raw Input itself: Windows takes
+  input it delivers that way for somebody using the machine, so a stick
+  that reports all the time, as one with a little play does, kept the
+  screen from turning off for as long as HIDI ran. Values are told apart by the index Windows gives each, not by
   their usage, since a stick with four hats has four values of one usage.
-  Raw Input also reads Xbox controllers, with the shared trigger
+  The same way also reads Xbox controllers, with the shared trigger
   axis split in two, should XInput be missing.
 
 The newer interfaces of Windows for controllers were not chosen: they

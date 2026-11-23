@@ -86,7 +86,7 @@ the sixth round.
 | Reported or asked for | Done |
 |---|---|
 | The window was broken on Windows: drawn wrong, and the pointer did not hit what it showed | The size of the interface had been laid on with raylib's camera mode, which in this raylib throws the scaling of the display away. On a display set to anything but 100 % (the maintainer's is at 125 %) everything was drawn smaller than the window's own points, in which the pointer is still measured. The size is now a scaling laid over what `BeginDrawing` sets up. **Not seen on a scaled display**: GLFW did not scale under Xvfb whatever was tried, so this rests on reading raylib. |
-| HIDI keeps the monitors on | Not found. HIDI asks Windows for nothing of the kind and types nothing by itself. Suspected: Windows counting the reports of game controllers that HIDI has asked Raw Input for as someone using the machine, and a stick that never quite rests sends them all the time; or a request by the MIDI service for HIDI's devices. `powercfg /requests` while HIDI runs, and whether it happens without the stick plugged in, would tell them apart. |
+| HIDI keeps the monitors on | HIDI asked Raw Input for joysticks and game controllers, in the background. Windows counts what it delivers that way as somebody using the machine, and the Gladiator, like many sticks, reports without pause; so the idle time never left zero, whether HIDI was on or off. Another project found and fixed the same (scyto/hotas-bridge, pull request 23). Controllers are now read from their HID devices directly, by a goroutine each, and found by looking through the list of devices once a second; Raw Input is asked for keyboards only. **Written without a Windows machine and never run**: that controllers still play, come and go, and that the screen now turns off, are all to be tried. |
 | The OpenRGB sign simpler | A ring with a hole and a slice cut out below it, both clear; the mesh gradient as before. |
 | Everything that can be clicked lights up under the pointer | Switches, boxes, choices, the colour cells and sliders, the address field, the header's switches, and the controls of the profile editor. |
 | Carrying bindings in the editor | Drag a control onto another: it gets what the first does, and the first does nothing. With Ctrl both do the same. One step to take back. The right button empties a control, with Ctrl leaves a key to the system. `ProfileDoc.Carry`, `config.Get`. |
@@ -121,6 +121,9 @@ To be tried on Windows, none of which has run there:
   that it stops moving the mouse.
 - The window at 120 Hz: is motion smooth now.
 - Learning mode, and the middle click on the icon.
+- Game controllers after the change in how they are read: the Gladiator's
+  axes, buttons and hats, plugging in and out while HIDI runs, the Steam
+  Controller, and whether the monitors now turn off with HIDI running.
 - The size of the interface on a display with scaling of its own, and
   that the pointer and what it points at still agree.
 - Typing the OpenRGB address in the settings while the keyboard is not

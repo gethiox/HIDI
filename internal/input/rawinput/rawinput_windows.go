@@ -37,6 +37,7 @@ var (
 	procCallNextHookEx          = user32.NewProc("CallNextHookEx")
 	procSendInput               = user32.NewProc("SendInput")
 	procPostThreadMessage       = user32.NewProc("PostThreadMessageW")
+	procSetTimer                = user32.NewProc("SetTimer")
 	procGetProductString        = hid.NewProc("HidD_GetProductString")
 	cfgmgr                      = windows.NewLazySystemDLL("cfgmgr32.dll")
 	procLocateDevNode           = cfgmgr.NewProc("CM_Locate_DevNodeW")
@@ -57,6 +58,7 @@ const (
 	wmDestroy           = 0x0002
 	wmClose             = 0x0010
 	wmQuit              = 0x0012
+	wmTimer             = 0x0113
 	wmInput             = 0x00FF
 	wmInputDeviceChange = 0x00FE
 	wmKeyUp             = 0x0101
@@ -73,7 +75,6 @@ const (
 	rimTypeHID        = 2
 	ridevInputSink    = 0x00000100 // receive input without being the active window
 	ridevDevNotify    = 0x00002000 // be told when devices come and go
-	ridevPageOnly     = 0x00000020 // every usage of the page
 	usagePageDesktop  = 0x01
 	usageKeyboard     = 0x06
 	whKeyboardLL      = 13
@@ -135,12 +136,6 @@ type (
 	rawInputDeviceList struct {
 		device uintptr
 		typ    uint32
-	}
-	// rawHID is the start of what follows the header for a device that is
-	// neither keyboard nor mouse: count reports of size bytes each.
-	rawHID struct {
-		size  uint32
-		count uint32
 	}
 	// ridDeviceInfo is RID_DEVICE_INFO with the fields of its HID variant.
 	ridDeviceInfo struct {
@@ -227,9 +222,11 @@ type Watcher struct {
 	// The fields below belong to the window's thread.
 	byHandle map[uintptr]*Device // one entry for each interface
 	byGroup  map[string]*Device
-	readers  map[uintptr]reportReader // for the interfaces of game controllers
-	hook     uintptr
-	buf      []byte // what Windows reports is read into this
+	// followers read the interfaces of game controllers, each on a
+	// goroutine of its own; see follow.
+	followers map[uintptr]*follower
+	hook      uintptr
+	buf       []byte // what Windows reports is read into this
 
 	// rejected holds the interfaces that were looked at and are of no
 	// use, so that their input is not looked into again and again.
@@ -273,14 +270,14 @@ type reportReader interface {
 // Watch starts watching for keyboards and game controllers.
 func Watch(opts Options) (*Watcher, error) {
 	w := &Watcher{
-		opts:     opts,
-		devices:  make(chan *Device, 16),
-		done:     make(chan struct{}),
-		byHandle: map[uintptr]*Device{},
-		byGroup:  map[string]*Device{},
-		readers:  map[uintptr]reportReader{},
-		rejected: map[uintptr]bool{},
-		hookDone: make(chan struct{}),
+		opts:      opts,
+		devices:   make(chan *Device, 16),
+		done:      make(chan struct{}),
+		byHandle:  map[uintptr]*Device{},
+		byGroup:   map[string]*Device{},
+		followers: map[uintptr]*follower{},
+		rejected:  map[uintptr]bool{},
+		hookDone:  make(chan struct{}),
 	}
 	if !current.CompareAndSwap(nil, w) {
 		return nil, errors.New("input devices are already being watched")
@@ -344,22 +341,22 @@ func (w *Watcher) run(ready chan<- error) {
 	}
 	w.hwnd = hwnd
 
-	var requests []rawInputDevice
-	for _, usage := range []uint16{usageKeyboard, usageJoystick, usageGamepad, usageMultiAxis} {
-		requests = append(requests, rawInputDevice{usagePage: usagePageDesktop, usage: usage, flags: ridevInputSink | ridevDevNotify, target: hwnd})
-	}
+	// Raw Input is asked for keyboards only. Game controllers are read
+	// from their devices directly, see follow: what Windows delivers
+	// through Raw Input it also takes for somebody using the machine,
+	// and a stick that never quite rests, which reports all the time,
+	// then keeps the screen from ever turning off, whether HIDI is on or
+	// not. A key that is pressed is somebody using the machine.
+	requests := []rawInputDevice{{usagePage: usagePageDesktop, usage: usageKeyboard, flags: ridevInputSink | ridevDevNotify, target: hwnd}}
 	if r, _, err := procRegisterRawInputDevices.Call(uintptr(unsafe.Pointer(&requests[0])), uintptr(len(requests)), unsafe.Sizeof(requests[0])); r == 0 {
 		procDestroyWindow.Call(hwnd)
-		fail("asking Windows for the input of keyboards and game controllers", err)
+		fail("asking Windows for the input of keyboards", err)
 		return
 	}
-	// The interfaces devices keep for themselves, for the Steam
-	// Controller, which speaks on one. Asked for apart from the rest:
-	// should Windows refuse it, everything else still works.
-	vendor := rawInputDevice{usagePage: usagePageVendor, flags: ridevInputSink | ridevDevNotify | ridevPageOnly, target: hwnd}
-	if r, _, err := procRegisterRawInputDevices.Call(uintptr(unsafe.Pointer(&vendor)), 1, unsafe.Sizeof(vendor)); r == 0 && w.opts.Problem != nil {
-		w.opts.Problem("Steam Controller", fmt.Errorf("asking Windows for its reports: %w", err))
-	}
+	// Windows announces keyboards that come and go. Game controllers
+	// are looked for every second, in the list Windows keeps of all
+	// input devices.
+	procSetTimer.Call(hwnd, scanTimer, 1000, 0)
 	hooked := make(chan error, 1)
 	go w.runHook(instance, hooked)
 	if err := <-hooked; err != nil {
@@ -390,6 +387,9 @@ func (w *Watcher) run(ready chan<- error) {
 			break // WM_QUIT, or the window is gone
 		}
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
+	}
+	for handle := range w.followers {
+		w.unfollow(handle)
 	}
 	for _, d := range w.byGroup {
 		d.end(ErrClosed)
@@ -456,6 +456,11 @@ func windowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		switch uint32(msg) {
 		case wmInput:
 			w.input(lParam)
+		case wmTimer:
+			if wParam == scanTimer {
+				w.scan()
+				return 0
+			}
 		case wmInputDeviceChange:
 			switch wParam {
 			case deviceArrival:
@@ -642,6 +647,116 @@ func (w *Watcher) add(handle uintptr) {
 	}
 }
 
+// scanTimer names the timer that has the list of devices looked through.
+const scanTimer = 1
+
+// scan takes in the devices that have appeared and lets go of those that
+// are gone, by the list Windows keeps of all input devices.
+func (w *Watcher) scan() {
+	there := map[uintptr]bool{}
+	for _, handle := range deviceHandles() {
+		there[handle] = true
+		w.add(handle)
+	}
+	for handle := range w.rejected {
+		if !there[handle] {
+			delete(w.rejected, handle) // the number may be given out again
+		}
+	}
+	for handle := range w.followers {
+		if !there[handle] {
+			w.remove(handle)
+		}
+	}
+}
+
+// follower reads one interface of a game controller.
+type follower struct {
+	// stop, when set, ends the reading.
+	stop windows.Handle
+}
+
+// follow reads the reports of one interface of a game controller from
+// the device itself, until the device is gone or stop is set, and turns
+// them into the events of d. It runs on a goroutine of its own. The
+// reports are the same that Raw Input would deliver, the number of the
+// report first.
+func (w *Watcher) follow(path string, reader reportReader, d *Device, stop windows.Handle, name string) {
+	defer windows.CloseHandle(stop)
+	problem := func(err error) {
+		if w.opts.Problem != nil {
+			w.opts.Problem(name, fmt.Errorf("its input cannot be read: %w", err))
+		}
+	}
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return
+	}
+	share := uint32(windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, share, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
+	if err != nil {
+		problem(err)
+		return
+	}
+	defer windows.CloseHandle(h)
+	// A report has the length the device declares.
+	length := 0
+	var preparsed uintptr
+	if r, _, _ := procHidGetPreparsedData.Call(uintptr(h), uintptr(unsafe.Pointer(&preparsed))); r&0xff != 0 && preparsed != 0 {
+		var caps hidpCapsLengths
+		if status, _, _ := procHidGetCaps.Call(preparsed, uintptr(unsafe.Pointer(&caps))); uint32(status) == hidpStatusSuccess {
+			length = int(caps.input)
+		}
+		procHidFreePreparsedData.Call(preparsed)
+	}
+	if length <= 0 {
+		problem(errors.New("the device does not say how long its reports are"))
+		return
+	}
+	arrived, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		problem(err)
+		return
+	}
+	defer windows.CloseHandle(arrived)
+	// What Windows writes into while a read is under way must stay where
+	// it is: both are on the heap, not on a stack that may be moved.
+	state := &struct {
+		overlapped windows.Overlapped
+		buf        []byte
+	}{buf: make([]byte, length)}
+	defer runtime.KeepAlive(state)
+	for {
+		state.overlapped = windows.Overlapped{HEvent: arrived}
+		var n uint32
+		err := windows.ReadFile(h, state.buf, &n, &state.overlapped)
+		if errors.Is(err, windows.ERROR_IO_PENDING) {
+			which, werr := windows.WaitForMultipleObjects([]windows.Handle{arrived, stop}, false, windows.INFINITE)
+			if werr != nil || which != windows.WAIT_OBJECT_0 {
+				// Told to stop: the read is called off, and waited
+				// for, since Windows may still write into the buffer.
+				windows.CancelIoEx(h, &state.overlapped)
+				windows.GetOverlappedResult(h, &state.overlapped, &n, true)
+				return
+			}
+			err = windows.GetOverlappedResult(h, &state.overlapped, &n, false)
+		}
+		if err != nil {
+			// The device is gone; the next look through the list of
+			// devices, asked for now, lets go of it.
+			procPostMessage.Call(w.hwnd, wmTimer, scanTimer, 0)
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		now := time.Now()
+		for _, ev := range reader.read(state.buf[:n], now) {
+			d.queue.put(ev)
+		}
+	}
+}
+
 // take is add for an interface that was not looked at yet. It reports
 // false for one that is of no use.
 func (w *Watcher) take(handle uintptr) bool {
@@ -675,6 +790,7 @@ func (w *Watcher) take(handle uintptr) bool {
 		id.group = c
 	}
 	kind, typ, group := "Keyboard", control.DeviceKeyboard, id.group
+	var reader reportReader
 	if controller {
 		if id.xinput && w.opts.SkipXInput {
 			return false
@@ -690,21 +806,43 @@ func (w *Watcher) take(handle uintptr) bool {
 			// It is a mouse and a keyboard until it is told not to be,
 			// and again whenever it comes back to its receiver.
 			calm := func() { go w.steamCommand(path, steamLizardOff) }
-			reader := newSteamReader()
-			reader.connected = calm
-			w.readers[handle] = reader
+			own := newSteamReader()
+			own.connected = calm
+			reader = own
 			calm()
 		} else {
-			reader, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
+			pad, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)
 			if err != nil {
 				return false
 			}
-			w.readers[handle] = reader
+			reader = pad
 		}
+	}
+	// begin starts the reading of a game controller's interface, once
+	// the device its events belong to is known.
+	begin := func(d *Device) {
+		if reader == nil {
+			return
+		}
+		stop, err := windows.CreateEvent(nil, 1, 0, nil)
+		if err != nil {
+			return
+		}
+		// The goroutine closes its own copy; this one is the watcher's,
+		// to set.
+		var own windows.Handle
+		self := windows.CurrentProcess()
+		if err := windows.DuplicateHandle(self, stop, self, &own, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+			windows.CloseHandle(stop)
+			return
+		}
+		w.followers[handle] = &follower{stop: stop}
+		go w.follow(path, reader, d, own, d.info.Name)
 	}
 	if d := w.byGroup[group]; d != nil {
 		w.byHandle[handle] = d
 		d.handles++
+		begin(d)
 		if steam {
 			d.mu.Lock()
 			d.steam = append(d.steam, path)
@@ -739,6 +877,7 @@ func (w *Watcher) take(handle uintptr) bool {
 	}
 	w.byHandle[handle] = d
 	w.byGroup[group] = d
+	begin(d)
 	if !controller {
 		w.keys.Lock()
 		w.claims.add(d)
@@ -763,7 +902,7 @@ func (w *Watcher) remove(handle uintptr) {
 		return
 	}
 	delete(w.byHandle, handle)
-	delete(w.readers, handle)
+	w.unfollow(handle)
 	if d.handles--; d.handles > 0 {
 		return
 	}
@@ -779,13 +918,21 @@ func (w *Watcher) forget(d *Device) {
 	for handle, other := range w.byHandle {
 		if other == d {
 			delete(w.byHandle, handle)
-			delete(w.readers, handle)
+			w.unfollow(handle)
 		}
 	}
 }
 
-// input handles one message from Raw Input: a key, or reports of a game
-// controller.
+// unfollow ends the reading of an interface, if it is being read.
+func (w *Watcher) unfollow(handle uintptr) {
+	if f := w.followers[handle]; f != nil {
+		windows.SetEvent(f.stop)
+		windows.CloseHandle(f.stop)
+		delete(w.followers, handle)
+	}
+}
+
+// input handles one message from Raw Input: a key.
 func (w *Watcher) input(lParam uintptr) {
 	headerSize := unsafe.Sizeof(rawInputHeader{})
 	var size uint32
@@ -802,7 +949,7 @@ func (w *Watcher) input(lParam uintptr) {
 	}
 	data := w.buf[:r]
 	header := (*rawInputHeader)(unsafe.Pointer(&data[0]))
-	if header.typ != rimTypeKeyboard && header.typ != rimTypeHID {
+	if header.typ != rimTypeKeyboard {
 		return
 	}
 	d := w.byHandle[header.device]
@@ -814,29 +961,8 @@ func (w *Watcher) input(lParam uintptr) {
 			return
 		}
 	}
-	body := data[headerSize:]
-	switch header.typ {
-	case rimTypeKeyboard:
-		if uintptr(len(body)) >= unsafe.Sizeof(rawKeyboard{}) {
-			w.key(d, (*rawKeyboard)(unsafe.Pointer(&body[0])))
-		}
-	case rimTypeHID:
-		reader := w.readers[header.device]
-		if reader == nil || uintptr(len(body)) < unsafe.Sizeof(rawHID{}) {
-			return
-		}
-		hid := (*rawHID)(unsafe.Pointer(&body[0]))
-		reports := body[unsafe.Sizeof(rawHID{}):]
-		now := time.Now()
-		for i := uint32(0); i < hid.count && hid.size > 0; i++ {
-			if uint64(len(reports)) < uint64(hid.size) {
-				break
-			}
-			for _, ev := range reader.read(reports[:hid.size], now) {
-				d.queue.put(ev)
-			}
-			reports = reports[hid.size:]
-		}
+	if body := data[headerSize:]; uintptr(len(body)) >= unsafe.Sizeof(rawKeyboard{}) {
+		w.key(d, (*rawKeyboard)(unsafe.Pointer(&body[0])))
 	}
 }
 
