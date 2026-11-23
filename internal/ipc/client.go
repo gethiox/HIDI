@@ -74,6 +74,24 @@ func (c *Client) send(ctx context.Context, req request) (Snapshot, error) {
 // without the file being written: for trying a change before it is saved.
 // It lasts until the file changes on disk; an empty text ends it at once.
 func (c *Client) Preview(ctx context.Context, file, text string) error {
+	return c.long(ctx, previewHead, struct {
+		File string `json:"file"`
+		Text string `json:"text"`
+	}{file, text})
+}
+
+// TrySettings makes HIDI behave by settings, written as the settings file
+// is, without saving them.
+func (c *Client) TrySettings(ctx context.Context, text string) error {
+	return c.long(ctx, settingsHead, struct {
+		Text string `json:"text"`
+	}{text})
+}
+
+// long makes a request that may be longer than a line of the ordinary
+// kind: it begins with head, by which the server tells, and goes on with
+// the fields.
+func (c *Client) long(ctx context.Context, head string, fields any) error {
 	conn, err := c.dial(ctx)
 	if err != nil {
 		return err
@@ -81,14 +99,11 @@ func (c *Client) Preview(ctx context.Context, file, text string) error {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 	// Written by hand so that it begins the way the server tells it by.
-	rest, err := json.Marshal(struct {
-		File string `json:"file"`
-		Text string `json:"text"`
-	}{file, text})
+	rest, err := json.Marshal(fields)
 	if err != nil {
 		return err
 	}
-	if _, err := conn.Write(append([]byte(previewHead+","), append(rest[1:], '\n')...)); err != nil {
+	if _, err := conn.Write(append([]byte(head+","), append(rest[1:], '\n')...)); err != nil {
 		return fmt.Errorf("asking HIDI: %w", err)
 	}
 	var resp response

@@ -183,6 +183,10 @@ type request struct {
 // request may be longer than any other, and the server tells by this.
 const previewHead = `{"op":"preview"`
 
+// settingsHead begins a request that carries settings, which may be long
+// as well.
+const settingsHead = `{"op":"settings"`
+
 // response is one answer. Exactly one field is set.
 type response struct {
 	Snapshot *Snapshot `json:"snapshot,omitempty"`
@@ -203,6 +207,11 @@ type Host struct {
 	// an instrument, named as a snapshot names it. Nil for a host that
 	// cannot.
 	Simulate func(name, kind, location string, on bool)
+	// TrySettings makes HIDI behave by the settings in text, written as
+	// the settings file is, without anything being saved: the window
+	// tries what the user changes there. The settings file counts again
+	// when it changes. Nil for a host that cannot.
+	TrySettings func(text string) error
 	// Changes tells when a snapshot would be different from the last.
 	Changes *Notifier
 	// LogLines returns the kept log lines numbered from to to-1, and

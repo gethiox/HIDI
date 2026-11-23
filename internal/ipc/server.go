@@ -155,7 +155,7 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 	// that carries a profile, which says so in its first bytes.
 	reader := bufio.NewReaderSize(conn, maxRequest)
 	line, err := reader.ReadSlice('\n')
-	if errors.Is(err, bufio.ErrBufferFull) && bytes.HasPrefix(line, []byte(previewHead)) {
+	if errors.Is(err, bufio.ErrBufferFull) && (bytes.HasPrefix(line, []byte(previewHead)) || bytes.HasPrefix(line, []byte(settingsHead))) {
 		var rest []byte
 		start := bytes.Clone(line)
 		rest, err = bufio.NewReaderSize(reader, maxPreview).ReadSlice('\n')
@@ -194,6 +194,16 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 			return
 		}
 		host.SetLearning(!host.Snapshot().Learning)
+		snapshot()
+	case "settings":
+		if host.TrySettings == nil {
+			out.Encode(response{Error: "this HIDI takes no settings"})
+			return
+		}
+		if err := host.TrySettings(req.Text); err != nil {
+			out.Encode(response{Error: err.Error()})
+			return
+		}
 		snapshot()
 	case "simulate":
 		if host.Simulate == nil {

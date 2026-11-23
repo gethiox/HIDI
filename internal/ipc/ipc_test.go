@@ -52,6 +52,15 @@ func (h *fakeHost) host() Host {
 			h.mu.Unlock()
 			h.changes.Notify()
 		},
+		TrySettings: func(text string) error {
+			if text == "broken" {
+				return errors.New("line 1: these are no settings")
+			}
+			h.mu.Lock()
+			h.simulated = "settings of " + fmt.Sprint(len(text))
+			h.mu.Unlock()
+			return nil
+		},
 		Simulate: func(name, kind, location string, on bool) {
 			h.mu.Lock()
 			h.simulated = fmt.Sprintf("%s|%s|%s|%v", name, kind, location, on)
@@ -544,5 +553,23 @@ func TestSimulate(t *testing.T) {
 	h.mu.Unlock()
 	if got != "Some Keyboard|keyboard|usb-1/input0|true" {
 		t.Errorf("the host was told %q", got)
+	}
+}
+
+func TestTrySettings(t *testing.T) {
+	h, client, _ := start(t)
+	// Longer than an ordinary request may be, as real settings are.
+	text := strings.Repeat("# a line of the settings file\n", 400)
+	if err := client.TrySettings(t.Context(), text); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got := h.simulated
+	h.mu.Unlock()
+	if got != fmt.Sprintf("settings of %d", len(text)) {
+		t.Errorf("the host was told %q", got)
+	}
+	if err := client.TrySettings(t.Context(), "broken"); err == nil || !strings.Contains(err.Error(), "no settings") {
+		t.Errorf("broken settings: %v", err)
 	}
 }

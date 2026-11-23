@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -503,6 +504,21 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// their files.
 	tried := &previews{profiles: profiles}
 	host := controlHost(manager, logs, &changes, loadSeen(pl.paths.Seen))
+	// Settings the window is trying, before they are saved, are taken
+	// over as a changed file would be.
+	var trySettings atomic.Pointer[func(settings.Settings)]
+	host.TrySettings = func(text string) error {
+		apply := trySettings.Load()
+		if apply == nil {
+			return errors.New("this HIDI runs without a settings file and takes no settings")
+		}
+		s, err := settings.Parse([]byte(text))
+		if err != nil {
+			return err
+		}
+		(*apply)(s)
+		return nil
+	}
 	host.Preview = func(file, text string) error {
 		now, err := tried.set(file, text)
 		if err != nil {
@@ -562,11 +578,11 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		lightsNow := pl.settings.Lights
 		ownNow := pl.settings.Input.ToggleExclusive
 		inputNow := fmt.Sprint(toggle, !*noGrab, *grabGamepads, *toggleTap, *alwaysGrab)
-		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
-			if err != nil {
-				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
-				return
-			}
+		// One at a time: the file and the window may both bring some.
+		var applying sync.Mutex
+		apply := func(s settings.Settings) {
+			applying.Lock()
+			defer applying.Unlock()
 			newToggle, keyboards, gamepads := toggle, !*noGrab, *grabGamepads
 			if !given["toggle"] {
 				newToggle = s.Input.Toggle
@@ -633,6 +649,14 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 				hub.SetColours(s.Lights.Colours)
 				configLog.Info("settings changed: the colours of the keys")
 			}
+		}
+		trySettings.Store(&apply)
+		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
+			if err != nil {
+				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
+				return
+			}
+			apply(s)
 		})
 	}
 	manager.Run(ctx, source.Devices)
