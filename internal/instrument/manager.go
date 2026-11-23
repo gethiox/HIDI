@@ -99,8 +99,11 @@ type Manager struct {
 	names    map[string]bool      // the names of MIDI devices in use
 	active   bool
 	learning bool
-	done     sync.WaitGroup
-	quit     chan struct{} // closed when Run ends
+	// simulated are the keyboards whose lights are to be shown though
+	// HIDI does not control them, by lightKey.
+	simulated map[string]bool
+	done      sync.WaitGroup
+	quit      chan struct{} // closed when Run ends
 }
 
 // NewManager returns a manager with no instruments.
@@ -138,9 +141,9 @@ func (m *Manager) SetActive(active bool) {
 		r.setWanted(active)
 	}
 	if active {
-		m.log.Info("HIDI is on")
+		m.log.Debug("HIDI is on")
 	} else {
-		m.log.Info("HIDI is off; devices are released")
+		m.log.Debug("HIDI is off; devices are released")
 	}
 	m.changed()
 }
@@ -177,9 +180,9 @@ func (m *Manager) SetLearning(on bool) {
 	}
 	m.mu.Unlock()
 	if on {
-		m.log.Info("learning mode is on: axes stand still until they are moved far")
+		m.log.Debug("learning mode is on: axes stand still until they are moved far")
 	} else {
-		m.log.Info("learning mode is off")
+		m.log.Debug("learning mode is off")
 	}
 	m.changed()
 }
@@ -397,6 +400,7 @@ func (m *Manager) add(dev input.Device) {
 	r.rules.Store(m.rulesFor(info))
 	r.wanted.Store(m.active)
 	r.learn.Store(&learnWish{m.learning, m.opts.LearnThreshold})
+	r.simulate = m.simulated[lightKey(info.Name, info.Type.String(), info.Location)]
 	r.assign(m.choose(info, r.log))
 	m.mu.Unlock()
 
@@ -516,6 +520,39 @@ type Status struct {
 	Lit       bool
 	Lights    map[control.Code]light.RGB
 	LightRest light.RGB
+	// Simulated says that the lights are not the keyboard's own: HIDI
+	// does not control them, and Lights and LightRest are what it would
+	// show, as [Manager.SetSimulated] asked for.
+	Simulated bool
+}
+
+// lightKey names a device for [Manager.SetSimulated].
+func lightKey(name, kind, location string) string { return name + "\x00" + kind + "\x00" + location }
+
+// SetSimulated turns the showing of lights on or off for a keyboard whose
+// lights HIDI does not control: its status then carries what the lights
+// would show. The device is named as its status names it. It lasts while
+// HIDI runs, also while the device is away.
+func (m *Manager) SetSimulated(name, kind, location string, on bool) {
+	key := lightKey(name, kind, location)
+	m.mu.Lock()
+	if m.simulated == nil {
+		m.simulated = map[string]bool{}
+	}
+	if on {
+		m.simulated[key] = true
+	} else {
+		delete(m.simulated, key)
+	}
+	for r := range m.running {
+		if lightKey(r.info.Name, r.info.Type.String(), r.info.Location) == key {
+			r.mu.Lock()
+			r.simulate = on
+			r.mu.Unlock()
+		}
+	}
+	m.mu.Unlock()
+	m.changed()
 }
 
 // Status returns the running instruments, in no particular order.
@@ -613,6 +650,7 @@ type runner struct {
 	instrument bool // whether status describes a running instrument
 	input      inputTracker
 	lamp       Light // the lights in use, if any
+	simulate   bool  // show what the lights would show; see SetSimulated
 }
 
 // learnWish is what the manager wants of learning mode.
@@ -675,6 +713,10 @@ func (r *runner) snapshot() (Status, bool) {
 		}
 		if r.lamp != nil {
 			status.Lights, status.LightRest, status.Lit = r.lamp.Painted()
+			if !status.Lit && r.simulate {
+				status.Lights, status.LightRest = r.lamp.Preview()
+				status.Simulated = true
+			}
 		}
 	}
 	return status, r.instrument
@@ -1384,15 +1426,15 @@ func (r *runner) publish(eng *engine.Engine, last *engine.State) {
 	r.mu.Unlock()
 	r.changed()
 	if changed {
-		r.log.Info("instrument changed",
+		r.log.Debug("instrument changed",
 			"octave", now.Octave, "transpose", now.Transpose,
 			"channel", now.Channel+1, "velocity", now.Velocity, "layout", now.Layout)
 	}
 	switch {
 	case chord && now.Chord == "":
-		r.log.Info("chord forgotten")
+		r.log.Debug("chord forgotten")
 	case chord:
-		r.log.Info("chord remembered", "intervals", now.Chord)
+		r.log.Debug("chord remembered", "intervals", now.Chord)
 	}
 }
 

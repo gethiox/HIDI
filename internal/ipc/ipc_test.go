@@ -26,6 +26,8 @@ type fakeHost struct {
 	log    []LogLine
 	// previewed is what was last asked to be tried.
 	previewed [2]string
+	// simulated is the last request to show lights, as one text.
+	simulated string
 }
 
 func (h *fakeHost) host() Host {
@@ -49,6 +51,11 @@ func (h *fakeHost) host() Host {
 			h.learn = on
 			h.mu.Unlock()
 			h.changes.Notify()
+		},
+		Simulate: func(name, kind, location string, on bool) {
+			h.mu.Lock()
+			h.simulated = fmt.Sprintf("%s|%s|%s|%v", name, kind, location, on)
+			h.mu.Unlock()
 		},
 		Preview: func(file, text string) error {
 			if text == "broken" {
@@ -524,5 +531,18 @@ func TestLearningSwitch(t *testing.T) {
 	}
 	if s, err := client.ToggleLearning(ctx); err != nil || s.Learning {
 		t.Errorf("turned off again: %v, %v", s.Learning, err)
+	}
+}
+
+func TestSimulate(t *testing.T) {
+	h, client, _ := start(t)
+	if err := client.Simulate(t.Context(), "Some Keyboard", "keyboard", "usb-1/input0", true); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got := h.simulated
+	h.mu.Unlock()
+	if got != "Some Keyboard|keyboard|usb-1/input0|true" {
+		t.Errorf("the host was told %q", got)
 	}
 }

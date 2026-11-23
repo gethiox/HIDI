@@ -115,6 +115,10 @@ type Instrument struct {
 	Lit       bool       `json:"lit,omitempty"`
 	Lights    []KeyLight `json:"lights,omitempty"`
 	LightRest string     `json:"light_rest,omitempty"`
+	// Simulated says that HIDI does not control the lights and that
+	// Lights and LightRest are what they would show; a "simulate" request
+	// asked for it.
+	Simulated bool `json:"simulated,omitempty"`
 	// Buttons and Axes are the controls the device has reported so far,
 	// and where each stands: its raw input, before the profile.
 	Buttons []Button `json:"buttons"`
@@ -166,6 +170,13 @@ type request struct {
 	// Text ends that.
 	File string `json:"file,omitempty"`
 	Text string `json:"text,omitempty"`
+	// Name, Type and Location, for "simulate", name an instrument as a
+	// snapshot does, and On says whether the lights of its keyboard are
+	// to be shown though HIDI does not control them.
+	Name     string `json:"name,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Location string `json:"location,omitempty"`
+	On       bool   `json:"on,omitempty"`
 }
 
 // previewHead is how a preview request begins, byte for byte: such a
@@ -188,6 +199,10 @@ type Host struct {
 	// SetLearning turns learning mode on or off. Nil for a host that
 	// has none.
 	SetLearning func(on bool)
+	// Simulate turns the showing of a keyboard's lights on or off for
+	// an instrument, named as a snapshot names it. Nil for a host that
+	// cannot.
+	Simulate func(name, kind, location string, on bool)
 	// Changes tells when a snapshot would be different from the last.
 	Changes *Notifier
 	// LogLines returns the kept log lines numbered from to to-1, and

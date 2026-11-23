@@ -37,6 +37,7 @@ func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.No
 		Snapshot:    func() ipc.Snapshot { return withDevices(snapshot(manager), manager, seen) },
 		SetActive:   manager.SetActive,
 		SetLearning: manager.SetLearning,
+		Simulate:    manager.SetSimulated,
 		Changes:     changes,
 		LogLines: func(from, to int) []ipc.LogLine {
 			lines, first := logs.Lines(from, to)
@@ -109,7 +110,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 		}
 		var lights []ipc.KeyLight
 		rest := ""
-		if st.Lit {
+		if st.Lit || st.Simulated {
 			rest = settings.FormatColour(st.LightRest)
 			lights = make([]ipc.KeyLight, 0, len(st.Lights))
 			for code, colour := range st.Lights {
@@ -123,6 +124,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Lit:         st.Lit,
 			Lights:      lights,
 			LightRest:   rest,
+			Simulated:   st.Simulated,
 			Buttons:     buttons,
 			Axes:        axes,
 			Name:        logging.Printable(st.Device.Name),

@@ -124,6 +124,22 @@ func (l *Lamp) Painted() (keys map[control.Code]RGB, rest RGB, lit bool) {
 	return l.painted, l.rest, l.lit && !l.closed
 }
 
+// Preview returns what the keyboard would show for the scene it was last
+// given, whether or not the hub controls its lights: the colour of every
+// bound key and the colour of all others. It is for showing the lights of
+// a keyboard that has none HIDI can reach.
+func (l *Lamp) Preview() (keys map[control.Code]RGB, rest RGB) {
+	l.mu.Lock()
+	scene := l.scene
+	l.mu.Unlock()
+	c := *l.hub.colours.Load()
+	rest = c.Unbound
+	if !scene.Active {
+		rest = c.Idle
+	}
+	return Paint(scene, c), rest
+}
+
 type ledKey struct {
 	code  control.Code
 	isKey bool

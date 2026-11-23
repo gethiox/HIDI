@@ -43,13 +43,18 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 
 // ask sends a request that is answered with one snapshot.
 func (c *Client) ask(ctx context.Context, op string) (Snapshot, error) {
+	return c.send(ctx, request{Op: op})
+}
+
+// send makes one request and returns the state HIDI answers with.
+func (c *Client) send(ctx context.Context, req request) (Snapshot, error) {
 	conn, err := c.dial(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if err := json.NewEncoder(conn).Encode(request{Op: op}); err != nil {
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Snapshot{}, fmt.Errorf("asking HIDI: %w", err)
 	}
 	var resp response
@@ -99,6 +104,14 @@ func (c *Client) Preview(ctx context.Context, file, text string) error {
 // ToggleLearning turns learning mode on if it is off and off if it is on,
 // and returns the state afterwards.
 func (c *Client) ToggleLearning(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "learn") }
+
+// Simulate asks HIDI to show, or to stop showing, what the lights of an
+// instrument's keyboard would show, for a keyboard whose lights HIDI does
+// not control. The instrument is named as a snapshot names it.
+func (c *Client) Simulate(ctx context.Context, name, kind, location string, on bool) error {
+	_, err := c.send(ctx, request{Op: "simulate", Name: name, Type: kind, Location: location, On: on})
+	return err
+}
 
 // Status returns the current state.
 func (c *Client) Status(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "status") }

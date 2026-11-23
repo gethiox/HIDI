@@ -250,3 +250,39 @@ func TestOwnToggle(t *testing.T) {
 	r.manager.SetOwnToggle(false)
 	eventually(t, "the keyboard to be released", func() bool { return !kbd.isPassing() && !kbd.isGrabbed() })
 }
+
+func TestSimulatedLights(t *testing.T) {
+	// A keyboard whose lights HIDI does not control: its status carries
+	// no colours until they are asked for, and then what the lights
+	// would show.
+	r := newRigWith(t, Options{Toggle: toggleKeys, Lights: func(control.DeviceInfo) Light { return &fakeLight{dark: true} }})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.plug(kbd)
+	one := func() Status {
+		for _, s := range r.manager.Status() {
+			if s.Device.Name == "Test Keyboard" {
+				return s
+			}
+		}
+		t.Fatal("no status for the keyboard")
+		return Status{}
+	}
+	if s := one(); s.Lit || s.Simulated || s.Lights != nil {
+		t.Fatalf("before asking: lit %v, simulated %v, %d lights", s.Lit, s.Simulated, len(s.Lights))
+	}
+	info := kbd.Info()
+	// Another device of the same name is not meant.
+	r.manager.SetSimulated(info.Name, "gamepad", info.Location, true)
+	if one().Simulated {
+		t.Fatal("a device of another kind was meant, and this one shows lights")
+	}
+	r.manager.SetSimulated(info.Name, info.Type.String(), info.Location, true)
+	s := one()
+	if !s.Simulated || s.Lit || len(s.Lights) != 1 || s.LightRest != (light.RGB{R: 9}) {
+		t.Fatalf("asked for: %+v, rest %v, simulated %v", s.Lights, s.LightRest, s.Simulated)
+	}
+	r.manager.SetSimulated(info.Name, info.Type.String(), info.Location, false)
+	if s := one(); s.Simulated || s.Lights != nil {
+		t.Errorf("after ending it: simulated %v, %d lights", s.Simulated, len(s.Lights))
+	}
+}

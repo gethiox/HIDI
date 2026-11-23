@@ -410,3 +410,25 @@ func TestHubTurnedOffAndOn(t *testing.T) {
 		return len(got) == 4 && got[0] == openrgb.RGB(c.C)
 	})
 }
+
+func TestPreviewWithoutServer(t *testing.T) {
+	// A lamp of a hub that is turned off still knows what it would show.
+	hub := NewHub(Options{Disabled: true})
+	lamp := hub.Attach(control.DeviceInfo{Name: "Some Keyboard", Type: control.DeviceKeyboard})
+	keys, rest := lamp.Preview()
+	if len(keys) != 0 || rest != DefaultColours().Idle {
+		t.Errorf("before a scene: %v, %v", keys, rest)
+	}
+	lamp.Show(Scene{Active: false, Pressed: []control.Code{control.Key(30)}})
+	keys, rest = lamp.Preview()
+	if keys[control.Key(30)] != DefaultColours().Pressed || rest != DefaultColours().Idle {
+		t.Errorf("a key held while off: %v, rest %v", keys, rest)
+	}
+	lamp.Show(Scene{Active: true})
+	if _, rest = lamp.Preview(); rest != DefaultColours().Unbound {
+		t.Errorf("while on, the other keys are %v", rest)
+	}
+	if _, _, lit := lamp.Painted(); lit {
+		t.Error("the lamp claims to be lit")
+	}
+}

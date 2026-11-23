@@ -195,6 +195,13 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 		}
 		host.SetLearning(!host.Snapshot().Learning)
 		snapshot()
+	case "simulate":
+		if host.Simulate == nil {
+			out.Encode(response{Error: "this HIDI cannot show lights it does not control"})
+			return
+		}
+		host.Simulate(req.Name, req.Type, req.Location, req.On)
+		snapshot()
 	case "preview":
 		if host.Preview == nil {
 			out.Encode(response{Error: "this HIDI cannot try profiles"})

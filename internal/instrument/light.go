@@ -16,6 +16,9 @@ type Light interface {
 	// Painted returns what the keyboard shows, as [light.Lamp.Painted]
 	// does.
 	Painted() (keys map[control.Code]light.RGB, rest light.RGB, lit bool)
+	// Preview returns what the keyboard would show if it were lit, as
+	// [light.Lamp.Preview] does.
+	Preview() (keys map[control.Code]light.RGB, rest light.RGB)
 	// Close ends the use of the lights.
 	Close()
 }

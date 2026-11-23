@@ -1039,6 +1039,8 @@ type fakeLight struct {
 	scene  light.Scene
 	shown  int
 	closed bool
+	// dark says that the keyboard's lights are not HIDI's to set.
+	dark bool
 }
 
 func (l *fakeLight) Show(s light.Scene) {
@@ -1048,9 +1050,16 @@ func (l *fakeLight) Show(s light.Scene) {
 	l.mu.Unlock()
 }
 
+func (l *fakeLight) Preview() (map[control.Code]light.RGB, light.RGB) {
+	return map[control.Code]light.RGB{control.Key(30): {R: 1, G: 2, B: 3}}, light.RGB{R: 9}
+}
+
 func (l *fakeLight) Painted() (map[control.Code]light.RGB, light.RGB, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.dark {
+		return nil, light.RGB{}, false
+	}
 	// What a lamp would tell: one colour for a key that is down while
 	// HIDI is off, another for every other key.
 	keys := map[control.Code]light.RGB{}
