@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/spf13/pflag"
 	"io"
 	"log/slog"
 	"os"
@@ -14,10 +13,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/spf13/pflag"
 
 	"github.com/gethiox/HIDI/internal/backend"
 	"github.com/gethiox/HIDI/internal/buildinfo"
@@ -213,101 +213,29 @@ func oneDashLong(args []string) string {
 func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int {
 	ctx, quit := context.WithCancel(ctx)
 	defer quit()
-	who, name := "hidi run", "run"
-	if app {
-		who, name = "hidi", "hidi"
-	}
-	fs := pflag.NewFlagSet(name, pflag.ContinueOnError)
-	headless, showWindow := new(bool), new(bool)
-	*headless = !app
-	if app {
-		fs.BoolVar(headless, "headless", false, "run the instruments only, without the icon in the tray and the window")
-		fs.BoolVar(showWindow, "window", false, "open the window at once, whatever the settings say")
-	}
-	verbose := fs.BoolP("verbose", "v", false, "also log details, such as every ignored device")
-	logMIDI := fs.Bool("log-midi", false, "also log every MIDI message sent, for finding faults; implies -v")
-	noStatus := fs.Bool("no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
-	toggleFlag := fs.String("toggle", defaultToggle,
-		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
-	toggleTap := fs.Bool("toggle-tap", false, "the toggle is one key and works by a tap; held for longer than half a second,\nthe key does what it normally does")
-	alwaysGrab := fs.Bool("always-grab", false, "on Linux, keep keyboards grabbed while HIDI is off too and pass their keys on,\nso that the tapped toggle key is hidden from the system")
-	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
-	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
-	noColour := fs.Bool("no-color", false, "write the log without colours")
-	root, profilesDir := placeFlags(fs)
-	var connect listFlag
-	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
-	lightsFlag := fs.String("openrgb", "", "light the keys through the OpenRGB server at this `address`, such as "+settings.DefaultOpenRGBAddress)
-	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
-	socket := socketFlag(fs)
-	if ok, code := parseFlags(fs, args, stderr); !ok {
+	o, code, ok := parseRunOptions(args, stderr, app)
+	if !ok {
 		return code
 	}
-	if !*headless {
+	if !o.headless {
 		// Started by a double click on Windows, HIDI has a console
 		// window of its own that nobody asked for.
 		leaveOwnConsole()
 	}
-
-	// The settings file gives what the command line leaves open. Nothing
-	// is written yet: a HIDI that stops over its options, or because one
-	// is running already, leaves the directory as it is.
-	pl := findPlace(*root, *profilesDir, false)
-	given := map[string]bool{}
-	fs.Visit(func(f *pflag.Flag) { given[f.Name] = true })
-	toggle := pl.settings.Input.Toggle
-	if given["toggle"] {
-		var err error
-		if toggle, err = parseToggle(*toggleFlag); err != nil {
-			fmt.Fprintf(stderr, "%s: --toggle: %v\n", who, err)
-			return 2
-		}
-	}
-	if !given["no-grab"] {
-		*noGrab = !pl.settings.Input.GrabKeyboards
-	}
-	if !given["grab-gamepads"] {
-		*grabGamepads = pl.settings.Input.GrabGamepads
-	}
-	if !given["off"] {
-		*startOff = !pl.settings.Input.StartOn
-	}
-	if !given["toggle-tap"] {
-		*toggleTap = pl.settings.Input.ToggleTap
-	}
-	if !given["always-grab"] {
-		*alwaysGrab = pl.settings.Input.AlwaysGrab
-	}
-	if *toggleTap && len(toggle) != 1 {
-		fmt.Fprintln(stderr, who+": --toggle-tap needs a toggle of exactly one key, such as --toggle=KEY_CAPSLOCK")
-		return 2
-	}
-	if !given["connect"] {
-		connect = pl.settings.Output.Connect
-	}
+	pl := o.place
 	var err error
-	if len(toggle) == 0 && !*noGrab {
-		// A grabbed keyboard cannot type Ctrl+C, so without the combination
-		// a user with one keyboard could not get it back.
-		fmt.Fprintln(stderr, who+": grabbing keyboards needs a toggle combination to release them; set --toggle or pass --no-grab")
-		return 2
-	}
-	if len(toggle) == 0 && *startOff {
-		fmt.Fprintln(stderr, who+": --off needs a toggle combination to turn HIDI on")
-		return 2
-	}
 
 	level := slog.LevelInfo
-	if *verbose || *logMIDI {
+	if o.verbose || o.logMIDI {
 		level = slog.LevelDebug
 	}
 	file, isFile := stderr.(*os.File)
-	colour := !*noColour && isFile && logging.TerminalColour(file)
+	colour := !o.noColour && isFile && logging.TerminalColour(file)
 	// On a terminal the last lines show the state of HIDI, and the log
 	// runs above them.
 	var footer *logging.Footer
 	logOutput := stderr
-	if !*noStatus && isFile && logging.IsTerminal(file) {
+	if !o.noStatus && isFile && logging.IsTerminal(file) {
 		footer = logging.NewFooter(stderr)
 		footer.Rows = func() int { return logging.TerminalRows(file) }
 		logOutput = footer
@@ -327,18 +255,18 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// The control socket comes first: it is also what tells a second HIDI
 	// that one is running, before it would open any device.
 	var server *ipc.Server
-	if *socket != "" {
-		server, err = ipc.Listen(*socket)
+	if o.socket != "" {
+		server, err = ipc.Listen(o.socket)
 		switch {
-		case errors.Is(err, ipc.ErrRunning) && !*headless:
+		case errors.Is(err, ipc.ErrRunning) && !o.headless:
 			// Starting the application again shows the one that runs.
-			windowArgs := []string{"--socket", *socket}
-			if given["config"] {
-				windowArgs = append(windowArgs, "--config", *root)
+			windowArgs := []string{"--socket", o.socket}
+			if o.given["config"] {
+				windowArgs = append(windowArgs, "--config", o.root)
 			}
 			return cmdGui(ctx, windowArgs, stderr)
 		case errors.Is(err, ipc.ErrRunning):
-			log.Error("HIDI is already running; see \"hidi status\"", "socket", *socket)
+			log.Error("HIDI is already running; see \"hidi status\"", "socket", o.socket)
 			return 1
 		case err != nil:
 			log.Warn("no control socket; \"hidi status\" and the like will not reach this HIDI", "error", err)
@@ -354,7 +282,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}
 	}
 	// Now HIDI's directory is made ready: filled on the first start.
-	pl = findPlace(*root, *profilesDir, true)
+	pl = findPlace(o.root, o.profilesDir, true)
 	for _, note := range pl.notes {
 		configLog.Info(note)
 	}
@@ -379,24 +307,13 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	defer source.Close()
 
-	grabPolicy := func(keyboards, gamepads bool) func(control.DeviceInfo) bool {
-		return func(d control.DeviceInfo) bool {
-			switch d.Type {
-			case control.DeviceGamepad:
-				return gamepads
-			case control.DeviceMouse:
-				return false // taking the pointer away is never wanted
-			}
-			return keyboards
-		}
-	}
-	grab := grabPolicy(!*noGrab, *grabGamepads)
+	grab := grabPolicy(o.grabKeyboards, o.grabGamepads)
 
 	log.Info("HIDI started; press Ctrl+C to stop", "version", buildinfo.Get().String())
-	if len(toggle) > 0 {
-		log.Info("press the toggle combination to turn HIDI off and on", "keys", formatToggle(toggle))
+	if len(o.toggle) > 0 {
+		log.Info("press the o.toggle combination to turn HIDI off and on", "keys", formatToggle(o.toggle))
 	}
-	if !*noGrab {
+	if o.grabKeyboards {
 		log.Info("keyboards do not type while HIDI is on; turn it off to get them back")
 	}
 	openEndpoint := backend.OpenEndpoint
@@ -404,10 +321,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// that other programs can send to, so that their notes show too.
 	// The hub is always there and reaches for a server only while the
 	// lights are turned on, which the settings can change while HIDI runs.
-	lightsOn, lightsAddress := pl.settings.Lights.OpenRGB, pl.settings.Lights.Endpoint()
-	if given["openrgb"] {
-		lightsOn, lightsAddress = true, *lightsFlag
-	}
+	lightsOn, lightsAddress := o.lightsOn, o.lightsAddress
 	var changes ipc.Notifier
 	var address atomic.Pointer[string]
 	address.Store(&lightsAddress)
@@ -431,10 +345,10 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
 	}
 	plainEndpoint := openEndpoint
-	if len(connect) > 0 {
+	if len(o.connect) > 0 {
 		// A port that is not there yet is connected when it appears, so a
 		// MIDI interface can be plugged in later.
-		router := output.NewRouter(backend.Ports, output.MatchPorts(connect), logs.Logger("output"))
+		router := output.NewRouter(backend.Ports, output.MatchPorts(o.connect), logs.Logger("output"))
 		go router.Run(ctx, time.Second)
 		openEndpoint = func(name string) (output.Endpoint, error) {
 			e, err := plainEndpoint(name)
@@ -443,11 +357,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 			}
 			return router.Add(strings.TrimPrefix(name, instrument.EndpointPrefix), e), nil
 		}
-		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(connect, ", "))
-	}
-	// Which devices play is a matter of the settings alone.
-	allowed := func(d settings.Devices) func(control.DeviceInfo) bool {
-		return func(info control.DeviceInfo) bool { return d.Allowed(logging.Printable(info.Name)) }
+		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(o.connect, ", "))
 	}
 	manager := instrument.NewManager(instrument.Options{
 		Allow:          allowed(pl.settings.Devices),
@@ -456,13 +366,13 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		OpenEndpoint:   openEndpoint,
 		Logger:         logs.Logger("instrument"),
 		Grab:           grab,
-		Toggle:         toggle,
-		ToggleTap:      *toggleTap,
-		HideToggle:     hidesToggle(*alwaysGrab),
+		Toggle:         o.toggle,
+		ToggleTap:      o.toggleTap,
+		HideToggle:     hidesToggle(o.alwaysGrab),
 		OwnToggle:      pl.settings.Input.ToggleExclusive,
-		StartInactive:  *startOff,
+		StartInactive:  o.startOff,
 		Lights:         lights,
-		LogMIDI:        *logMIDI,
+		LogMIDI:        o.logMIDI,
 		Changed:        changes.Notify,
 	})
 	var shownToggle atomic.Pointer[string]
@@ -471,7 +381,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		shownToggle.Store(&text)
 		changes.Notify()
 	}
-	showToggle(toggle)
+	showToggle(o.toggle)
 	footerDone := make(chan struct{})
 	stopFooter := func() {}
 	if footer != nil {
@@ -542,15 +452,15 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	desktopDone := make(chan struct{})
 	var nothingToShow atomic.Bool
-	if *headless {
+	if o.headless {
 		close(desktopDone)
 	} else {
-		d := desktop{show: *showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
+		d := desktop{show: o.showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
 		d.failed = func() { nothingToShow.Store(true) }
 		if server != nil {
-			d.windowArgs = []string{"--socket", *socket}
-			if given["config"] {
-				d.windowArgs = append(d.windowArgs, "--config", *root)
+			d.windowArgs = []string{"--socket", o.socket}
+			if o.given["config"] {
+				d.windowArgs = append(d.windowArgs, "--config", o.root)
 			}
 		}
 		go func() {
@@ -567,96 +477,17 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	if pl.settingsFile != "" {
 		// Settings changed in the file, by hand or from the window, are
-		// taken over while HIDI runs, as far as they can be: the toggle
-		// combination and what is grabbed. What the command line set
-		// stays as it was set there.
-		settingsFile := pl.settingsFile
-		// What was last taken over, to tell what a change is about: the
-		// window writes this file for things only it cares about, too.
-		devicesNow, coloursNow := pl.settings.Devices, pl.settings.Lights.Colours
-		learnNow := pl.settings.Input.LearnThreshold
-		lightsNow := pl.settings.Lights
-		ownNow := pl.settings.Input.ToggleExclusive
-		inputNow := fmt.Sprint(toggle, !*noGrab, *grabGamepads, *toggleTap, *alwaysGrab)
-		// One at a time: the file and the window may both bring some.
-		var applying sync.Mutex
-		apply := func(s settings.Settings) {
-			applying.Lock()
-			defer applying.Unlock()
-			newToggle, keyboards, gamepads := toggle, !*noGrab, *grabGamepads
-			if !given["toggle"] {
-				newToggle = s.Input.Toggle
-			}
-			if !given["no-grab"] {
-				keyboards = s.Input.GrabKeyboards
-			}
-			if !given["grab-gamepads"] {
-				gamepads = s.Input.GrabGamepads
-			}
-			if len(newToggle) == 0 && keyboards {
-				configLog.Error("the changed settings are not used: grabbing keyboards needs a toggle combination", "file", settingsFile)
-				return
-			}
-			tap, always := *toggleTap, *alwaysGrab
-			if !given["toggle-tap"] {
-				tap = s.Input.ToggleTap
-			}
-			if !given["always-grab"] {
-				always = s.Input.AlwaysGrab
-			}
-			if tap && len(newToggle) != 1 {
-				configLog.Error("the changed settings are not used: toggle_tap needs a toggle of exactly one key", "file", settingsFile)
-				return
-			}
-			if input := fmt.Sprint(newToggle, keyboards, gamepads, tap, always); input != inputNow {
-				inputNow = input
-				manager.SetToggleTap(tap, hidesToggle(always))
-				manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
-				showToggle(newToggle)
-				configLog.Info("settings changed",
-					"toggle", formatToggle(newToggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
-			}
-			if s.Devices.Mode != devicesNow.Mode || !slices.Equal(s.Devices.List, devicesNow.List) {
-				devicesNow = s.Devices
-				manager.SetAllow(allowed(s.Devices))
-				changes.Notify()
-				configLog.Info("settings changed", "devices", s.Devices.Mode, "listed", len(s.Devices.List))
-			}
-			if s.Input.LearnThreshold != learnNow {
-				learnNow = s.Input.LearnThreshold
-				manager.SetLearnThreshold(float64(learnNow) / 100)
-				configLog.Info("settings changed", "learn_threshold", learnNow)
-			}
-			if s.Input.ToggleExclusive != ownNow {
-				ownNow = s.Input.ToggleExclusive
-				manager.SetOwnToggle(ownNow)
-				configLog.Info("settings changed", "toggle_exclusive", ownNow)
-			}
-			// The lights follow at once, unless the command line said
-			// where the server is.
-			if !given["openrgb"] && (s.Lights.OpenRGB != lightsNow.OpenRGB || s.Lights.Endpoint() != lightsNow.Endpoint()) {
-				if s.Lights.Endpoint() != lightsNow.Endpoint() {
-					to := s.Lights.Endpoint()
-					address.Store(&to)
-					hub.Reconnect()
-				}
-				lightsNow.OpenRGB, lightsNow.Address = s.Lights.OpenRGB, s.Lights.Address
-				hub.SetEnabled(s.Lights.OpenRGB)
-				configLog.Info("settings changed", "openrgb", s.Lights.OpenRGB, "address", s.Lights.Endpoint())
-			}
-			if s.Lights.Colours != coloursNow {
-				coloursNow = s.Lights.Colours
-				hub.SetColours(s.Lights.Colours)
-				configLog.Info("settings changed: the colours of the keys")
-			}
-		}
+		// taken over while HIDI runs, as far as they can be.
+		live := newLiveSettings(o, manager, hub, &address, configLog, func(keys []control.Code) { showToggle(keys) }, changes.Notify)
+		apply := live.apply
 		trySettings.Store(&apply)
+		settingsFile := pl.settingsFile
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
 				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
 				return
 			}
-			apply(s)
+			live.apply(s)
 		})
 	}
 	manager.Run(ctx, source.Devices)
