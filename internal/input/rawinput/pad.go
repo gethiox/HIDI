@@ -347,6 +347,32 @@ func (p *pad) buttons(pressed []uint16, at time.Time) []control.Event {
 	return events
 }
 
+// has lists the buttons and axes of the controller: the buttons numbered
+// from first to last, counted from one as the controller counts them, and
+// the axes that were added.
+func (p *pad) has(first, last uint16) []control.Input {
+	var out []control.Input
+	for n := first; n >= first && n <= last; n++ {
+		if code, ok := p.layout.button(n, p.joystick); ok {
+			out = append(out, control.Input{Code: control.Key(code)})
+		}
+		if n == 0xffff {
+			break
+		}
+	}
+	for _, a := range p.axes {
+		switch a.kind {
+		case axisHat:
+			out = append(out, control.Input{Code: control.Axis(a.code)}, control.Input{Code: control.Axis(a.code + 1)})
+		case axisTriggers:
+			out = append(out, control.Input{Code: control.Axis(absZ)}, control.Input{Code: control.Axis(absRZ)})
+		default:
+			out = append(out, control.Input{Code: control.Axis(a.code)})
+		}
+	}
+	return out
+}
+
 // value takes the raw value of axis i and returns events for what changed.
 func (p *pad) value(i int, raw uint32, at time.Time) []control.Event {
 	a := p.axes[i]

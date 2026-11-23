@@ -382,6 +382,12 @@ func usable(info control.DeviceInfo, p *config.Profile) bool {
 // later can still turn it into an instrument.
 func (m *Manager) add(dev input.Device) {
 	info := dev.Info()
+	// What a game controller says it has is listed from the start. A
+	// keyboard's keys are known by what it is.
+	var has []control.Input
+	if d, ok := dev.(input.Describer); ok && info.Type != control.DeviceKeyboard {
+		has = d.Controls()
+	}
 	r := &runner{
 		device: dev, info: info, log: m.log.With("device", info.Name),
 		open:     m.opts.OpenEndpoint,
@@ -393,6 +399,7 @@ func (m *Manager) add(dev input.Device) {
 		changed:  m.changed,
 		logMIDI:  m.opts.LogMIDI,
 	}
+	r.input.seed(has)
 	m.mu.Lock()
 	m.running[r] = struct{}{}
 	r.endpointName = m.takeName(EndpointPrefix + info.Name)

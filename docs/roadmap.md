@@ -118,6 +118,14 @@ faults. Done in stages, each committed by itself:
   count of sounding notes agrees with the messages. Nothing was found.
 - staticcheck with every check turned on reports nothing.
 
+- **Game controllers say what they have.** A device can list its
+  controls (`input.Describer`): Linux from the kernel's bits, Windows
+  from the HID button and value capabilities, XInput by its fixed set.
+  The window lists all of them from the start and numbers them from 0,
+  by code, so the numbers hold for every controller of a kind;
+  `window.control_names` shows names instead. The Windows part is
+  written blind.
+
 Left as it is, on purpose: `winmidi.open` (222 lines of one WinRT call
 after another, which reads best in a row), and `cmdRun`, still 290 lines
 of setting things up in order.

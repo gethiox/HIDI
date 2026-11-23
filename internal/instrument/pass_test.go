@@ -286,3 +286,35 @@ func TestSimulatedLights(t *testing.T) {
 		t.Errorf("after ending it: simulated %v, %d lights", s.Simulated, len(s.Lights))
 	}
 }
+
+func TestSeededControls(t *testing.T) {
+	var tr inputTracker
+	if tr.snapshot().Complete {
+		t.Fatal("a tracker that was told nothing claims to know every control")
+	}
+	// A controller says what it has, in no order; the lists are in the
+	// order of the codes, and nothing is down.
+	b0, b1, b2 := control.Key(0x130), control.Key(0x131), control.Key(0x133)
+	x, y := control.Axis(0), control.Axis(1)
+	tr.seed([]control.Input{{Code: y}, {Code: b2}, {Code: b0}, {Code: x}, {Code: b1}, {Code: b0}})
+	in := tr.snapshot()
+	if !in.Complete || len(in.Buttons) != 3 || len(in.Axes) != 2 {
+		t.Fatalf("seeded: %+v", in)
+	}
+	if in.Buttons[0].Code != b0 || in.Buttons[2].Code != b2 || in.Axes[0].Code != x || in.Buttons[1].Down {
+		t.Errorf("seeded: %+v", in)
+	}
+	// Using one changes it where it stands, and adds nothing.
+	if !tr.record(control.Event{Code: b1, Value: 1}) || !tr.record(control.Event{Code: y, Value: 0.25}) {
+		t.Error("a press and a moved axis changed nothing")
+	}
+	in = tr.snapshot()
+	if len(in.Buttons) != 3 || !in.Buttons[1].Down || in.Axes[1].Value != 0.25 {
+		t.Errorf("after use: %+v", in)
+	}
+	// A control the device did not announce still finds its place.
+	tr.record(control.Event{Code: control.Key(0x132), Value: 1})
+	if in = tr.snapshot(); len(in.Buttons) != 4 || in.Buttons[2].Code != control.Key(0x132) {
+		t.Errorf("an unannounced control: %+v", in.Buttons)
+	}
+}

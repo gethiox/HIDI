@@ -98,6 +98,9 @@ type window struct {
 	// their files, and tried the settings that are.
 	profiles latest[string, string]
 	tried    latest[struct{}, string]
+	// names says that the controls of game controllers are shown by
+	// name, not numbered.
+	names bool
 	// valueX is how far in the values of the settings begin.
 	valueX float32
 	// shown says what is drawn of which instrument.
@@ -230,6 +233,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		if s, err := settings.Load(opts.Paths.Settings); err == nil {
 			w.shown = s.Shown
 			w.newest.on = s.Window.CheckUpdates
+			w.names = s.Window.ControlNames
 		}
 	}
 
@@ -833,14 +837,6 @@ func (w *window) drawPiano(in ipc.Instrument, r rl.Rectangle) {
 // reported.
 func isKeyboard(in ipc.Instrument) bool { return in.Type == "keyboard" }
 
-// controlName is the name of a control with the part it belongs to.
-func controlName(part, name string) string {
-	if part != "" {
-		return part + ":" + name
-	}
-	return name
-}
-
 // An axis is drawn as a line of its own: its name, a bar that fills from
 // the left, and its value.
 const (
@@ -857,23 +853,17 @@ func (w *window) chipRows(in ipc.Instrument, inner float32) int {
 		return 0
 	}
 	row := newFlow(0, inner, 0, 1, 6)
-	for _, b := range in.Buttons {
-		row.put(w.chipWidth(controlName(b.Part, b.Name)))
+	for i := range in.Buttons {
+		row.put(w.chipWidth(ButtonLabel(in, i, w.names)))
 	}
 	return row.lines
-}
-
-// axisLabel is the name of an axis as it stands before its bar: without
-// the "ABS_" every one of them begins with.
-func axisLabel(part, name string) string {
-	return controlName(part, strings.TrimPrefix(name, "ABS_"))
 }
 
 // axisLayout says how the axes of an instrument are set out: how many
 // beside each other, how wide each of them, and how wide the names.
 func (w *window) axisLayout(in ipc.Instrument, inner float32) (cols int, cell, label float32) {
-	for _, a := range in.Axes {
-		label = max(label, width(w.mono, axisLabel(a.Part, a.Name), axisSize))
+	for i := range in.Axes {
+		label = max(label, width(w.mono, AxisLabel(in, i, w.names), axisSize))
 	}
 	least := label + 8 + axisBarMin + 8 + width(w.mono, "0.00", axisSize) + axisGap
 	cols = max(int((inner+axisGap)/least), 1)
@@ -917,8 +907,8 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 	}
 	// The buttons, one after another.
 	row := newFlow(x, x+inner, y, chipH+6, 6)
-	for _, b := range in.Buttons {
-		label := controlName(b.Part, b.Name)
+	for i, b := range in.Buttons {
+		label := ButtonLabel(in, i, w.names)
 		cw := w.chipWidth(label)
 		cx, cy := row.put(cw)
 		chip := rl.NewRectangle(cx, cy, cw, chipH)
@@ -940,7 +930,7 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 	for i, a := range in.Axes {
 		ax := x + float32(i%cols)*cell
 		ay := cy + float32(i/cols)*axisRowH
-		label := axisLabel(a.Part, a.Name)
+		label := AxisLabel(in, i, w.names)
 		w.text(w.mono, label, ax+labelW-width(w.mono, label, axisSize), ay+3, axisSize, col(colFaint))
 		bar := rl.NewRectangle(float32(int(ax+labelW+8)), ay+(axisRowH-axisBarH)/2, cell-axisGap-labelW-16-valueW, axisBarH)
 		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))

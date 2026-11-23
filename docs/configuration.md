@@ -104,6 +104,7 @@ scale = 100
 show_input = []
 show_output = []
 check_updates = false
+control_names = false
 ```
 
 | Setting | Meaning | Option |
@@ -124,6 +125,7 @@ check_updates = false
 | `lights.colours` | The colours of the keys, each as `"#rrggbb"`. See below. | |
 | `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
 | `window.check_updates` | Let the window ask GitHub, once when it opens and once a day after, whether a newer HIDI has been released. The answer is shown in the lower right corner; a click opens the release. Nothing is installed, and the request says nothing but the version of HIDI that asks. Off unless turned on. | |
+| `window.control_names` | Show the buttons and axes of game controllers by the names profiles use for them, such as `BTN_SOUTH`. Without it the window numbers them from 0, in an order that is the same whenever a controller of that kind is plugged in. | |
 | `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
 | `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
 | `window.scale` | The size of everything the window draws, in hundredths of its ordinary size, 50 to 300. | |

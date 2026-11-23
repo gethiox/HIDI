@@ -332,3 +332,35 @@ func TestXboxTriggersLeaveTheStick(t *testing.T) {
 		t.Error("ABS_RZ is free although the triggers use it")
 	}
 }
+
+func TestPadHas(t *testing.T) {
+	// A stick with four buttons, two axes and a hat says so: the buttons
+	// by the codes they will be reported with, the hat as its two axes.
+	p := newPad(layoutOf(0x231d, 0x0200, false), true)
+	p.addAxis(pageDesktop, usageX, 16, 0, 65535)
+	p.addAxis(pageDesktop, usageY, 16, 0, 65535)
+	p.addAxis(pageDesktop, usageHat, 4, 0, 7)
+	got := p.has(1, 4)
+	var keys, axes int
+	for _, c := range got {
+		switch c.Code.Kind {
+		case control.KindKey:
+			keys++
+		case control.KindAxis:
+			axes++
+		}
+	}
+	if keys != 4 || axes != 4 {
+		t.Fatalf("the stick has %d buttons and %d axes: %v", keys, axes, got)
+	}
+	// What it says it has is what it reports.
+	for _, ev := range p.buttons([]uint16{1, 4}, time.Time{}) {
+		if !slices.ContainsFunc(got, func(c control.Input) bool { return c.Code == ev.Code }) {
+			t.Errorf("%v is reported and was not announced", ev.Code)
+		}
+	}
+	// A controller that names no buttons has its axes.
+	if got := p.has(1, 0); len(got) != 4 {
+		t.Errorf("without buttons: %v", got)
+	}
+}

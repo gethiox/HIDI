@@ -72,3 +72,24 @@ func TestCodesHaveNames(t *testing.T) {
 		}
 	}
 }
+
+func TestControls(t *testing.T) {
+	// Everything a controller can report is announced, once.
+	got := controls()
+	seen := map[control.Code]bool{}
+	for _, c := range got {
+		if seen[c.Code] {
+			t.Errorf("%v is listed twice", c.Code)
+		}
+		seen[c.Code] = true
+	}
+	if len(got) != len(buttons)+8 {
+		t.Errorf("%d controls", len(got))
+	}
+	all := state{buttons: 0xffff, leftX: 1000, leftTrigger: 9}
+	for _, ev := range changes(state{}, all, true, time.Time{}) {
+		if !seen[ev.Code] {
+			t.Errorf("%v is reported and was not announced", ev.Code)
+		}
+	}
+}

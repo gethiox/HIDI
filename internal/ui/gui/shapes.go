@@ -2,6 +2,8 @@ package gui
 
 import (
 	"math"
+	"strconv"
+	"strings"
 
 	"github.com/gethiox/HIDI/internal/ipc"
 )
@@ -102,6 +104,58 @@ func CutStart(s string, most int) string {
 type entryID struct{ name, kind, location string }
 
 func idOf(in ipc.Instrument) entryID { return entryID{in.Name, in.Type, in.Location} }
+
+// ButtonLabel is what stands on button i of an instrument, and AxisLabel
+// what stands before axis i. Where the device has said what it has, its
+// controls are numbered from 0, in an order that is the same whenever a
+// device of that kind is plugged in; names shows them by the names
+// profiles use instead. A device that says nothing has only names: its
+// lists grow as it is used, and a number would not stay with its button.
+func ButtonLabel(in ipc.Instrument, i int, names bool) string {
+	b := in.Buttons[i]
+	if in.Complete && !names {
+		return strconv.Itoa(i)
+	}
+	return controlName(b.Part, b.Name)
+}
+
+func AxisLabel(in ipc.Instrument, i int, names bool) string {
+	a := in.Axes[i]
+	if in.Complete && !names {
+		return strconv.Itoa(i)
+	}
+	return controlName(a.Part, strings.TrimPrefix(a.Name, "ABS_"))
+}
+
+// ControlNumber returns the number a control of an instrument is shown
+// by, given the name of its code: its place among the buttons, or among
+// the axes. It reports false for a device that has not said what it has,
+// and for a control the device does not have.
+func ControlNumber(in *ipc.Instrument, name string) (int, bool) {
+	if in == nil || !in.Complete {
+		return 0, false
+	}
+	for i, b := range in.Buttons {
+		if b.Name == name && b.Part == "" {
+			return i, true
+		}
+	}
+	for i, a := range in.Axes {
+		if a.Name == name && a.Part == "" {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// controlName is the name of a control, with the part of the device it is
+// on where the device has several.
+func controlName(part, name string) string {
+	if part != "" {
+		return part + ":" + name
+	}
+	return name
+}
 
 // EntryKey names one instrument among those shown, for what the window
 // remembers of it: two devices of one name, or the keyboard and the game

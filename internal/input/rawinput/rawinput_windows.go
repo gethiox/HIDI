@@ -44,6 +44,7 @@ var (
 	procGetDevNodeProperty      = cfgmgr.NewProc("CM_Get_DevNode_PropertyW")
 	procHidGetCaps              = hid.NewProc("HidP_GetCaps")
 	procHidGetValueCaps         = hid.NewProc("HidP_GetValueCaps")
+	procHidGetButtonCaps        = hid.NewProc("HidP_GetButtonCaps")
 	procHidGetUsages            = hid.NewProc("HidP_GetUsages")
 	procHidGetData              = hid.NewProc("HidP_GetData")
 	procHidMaxDataListLength    = hid.NewProc("HidP_MaxDataListLength")
@@ -157,6 +158,26 @@ type (
 		inputButtonCaps   uint16
 		inputValueCaps    uint16
 		_                 [7]uint16
+	}
+	// hidpButtonCaps is HIDP_BUTTON_CAPS.
+	hidpButtonCaps struct {
+		usagePage      uint16
+		reportID       uint8
+		isAlias        uint8
+		bitField       uint16
+		linkCollection uint16
+		linkUsage      uint16
+		linkUsagePage  uint16
+		isRange        uint8
+		isStringRange  uint8
+		isDesignRange  uint8
+		isAbsolute     uint8
+		reportCount    uint16
+		_              uint16
+		_              [9]uint32
+		usageMin       uint16
+		usageMax       uint16
+		_              [6]uint16
 	}
 	// hidpValueCaps is HIDP_VALUE_CAPS.
 	hidpValueCaps struct {
@@ -833,6 +854,7 @@ func (w *Watcher) take(handle uintptr) verdict {
 	// deliver takes the reports of an interface that is read from the
 	// device; see follow. It is given the device they belong to.
 	var deliver func(d *Device) func(report []byte)
+	var has []control.Input // what a game controller's interface declares
 	events := func(reader reportReader) {
 		deliver = func(d *Device) func([]byte) {
 			return func(report []byte) {
@@ -893,6 +915,7 @@ func (w *Watcher) take(handle uintptr) verdict {
 				return useless
 			}
 			events(pad)
+			has = pad.controls
 		}
 	}
 	// begin starts the reading of an interface that is read from the
@@ -901,6 +924,9 @@ func (w *Watcher) take(handle uintptr) verdict {
 		if deliver == nil {
 			return
 		}
+		d.mu.Lock()
+		d.controls = append(d.controls, has...)
+		d.mu.Unlock()
 		stop, err := windows.CreateEvent(nil, 1, 0, nil)
 		if err != nil {
 			return
@@ -1133,6 +1159,8 @@ func (r *consumerReader) read(report []byte) []keyChange {
 // controller's own description; functions of hid.dll read a report with
 // it.
 type padReader struct {
+	// controls are the buttons and axes the controller declares.
+	controls  []control.Input
 	preparsed []byte
 	pad       *pad
 	usages    []uint16
@@ -1212,6 +1240,36 @@ func newPadReader(handle uintptr, l layout, joystick bool) (*padReader, error) {
 	if n, _, _ := procHidMaxDataListLength.Call(hidpInput, r.data()); n > 0 {
 		r.items = make([]hidpData, n)
 	}
+	// The buttons the controller declares, for listing them before any
+	// is pressed. A controller that cannot say has them listed as they
+	// are pressed.
+	if caps.inputButtonCaps > 0 {
+		buttons := make([]hidpButtonCaps, caps.inputButtonCaps)
+		count := caps.inputButtonCaps
+		status, _, _ := procHidGetButtonCaps.Call(hidpInput, uintptr(unsafe.Pointer(&buttons[0])), uintptr(unsafe.Pointer(&count)), r.data())
+		if uint32(status) == hidpStatusSuccess {
+			first, last := uint16(0), uint16(0)
+			for _, b := range buttons[:min(int(count), len(buttons))] {
+				if b.usagePage != pageButton {
+					continue
+				}
+				lo, hi := b.usageMin, b.usageMin
+				if b.isRange != 0 {
+					hi = b.usageMax
+				}
+				if first == 0 || lo < first {
+					first = lo
+				}
+				last = max(last, hi)
+			}
+			if first != 0 {
+				r.controls = r.pad.has(first, last)
+			}
+		}
+	}
+	if r.controls == nil {
+		r.controls = r.pad.has(1, 0) // the axes alone
+	}
 	return r, nil
 }
 
@@ -1279,6 +1337,9 @@ type Device struct {
 	// steam holds the paths of the interfaces of a Steam Controller,
 	// which is made a mouse and keyboard again when the device ends.
 	steam []string
+	// controls are the buttons and axes the interfaces of a game
+	// controller declare; mu guards them.
+	controls []control.Input
 }
 
 // llkhfExtended marks a key with the E0 prefix in what the hook is told.
@@ -1392,6 +1453,14 @@ func (d *Device) Type(key control.Code, down bool) error {
 
 // Info describes the device.
 func (d *Device) Info() control.DeviceInfo { return d.info }
+
+// Controls lists the buttons and axes a game controller declares. A
+// keyboard lists none: its keys are known by what it is.
+func (d *Device) Controls() []control.Input {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.controls)
+}
 
 // Events returns the channel the device's input arrives on.
 func (d *Device) Events() <-chan control.Event { return d.queue.out }

@@ -125,6 +125,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Lights:      lights,
 			LightRest:   rest,
 			Simulated:   st.Simulated,
+			Complete:    st.Input.Complete,
 			Buttons:     buttons,
 			Axes:        axes,
 			Name:        logging.Printable(st.Device.Name),

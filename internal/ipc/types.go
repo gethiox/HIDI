@@ -119,8 +119,12 @@ type Instrument struct {
 	// Lights and LightRest are what they would show; a "simulate" request
 	// asked for it.
 	Simulated bool `json:"simulated,omitempty"`
-	// Buttons and Axes are the controls the device has reported so far,
-	// and where each stands: its raw input, before the profile.
+	// Complete says that Buttons and Axes list every control the device
+	// has; the place of a control in its list is then its number.
+	Complete bool `json:"complete,omitempty"`
+	// Buttons and Axes are the controls of the device, all of them or
+	// those it has reported so far, and where each stands: its raw
+	// input, before the profile.
 	Buttons []Button `json:"buttons"`
 	Axes    []Axis   `json:"axes"`
 }

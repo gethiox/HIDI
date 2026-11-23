@@ -38,6 +38,14 @@ type Device interface {
 	Close() error
 }
 
+// Describer is a [Device] that knows which keys, buttons and absolute
+// axes it has, before any of them is used. The window lists them from the
+// start, and numbers them: the order is that of their codes, part by
+// part, and so the same whenever the same kind of device is plugged in.
+type Describer interface {
+	Controls() []control.Input
+}
+
 // Passer is a [Device] that can also be shared with the rest of the
 // system in part: its input goes on to the system, except for some keys
 // that are kept back. HIDI uses it for a key that turns it off and on with

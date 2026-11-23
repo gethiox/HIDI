@@ -144,6 +144,10 @@ type Window struct {
 	// Scale is the size of everything the window draws, in hundredths
 	// of its ordinary size.
 	Scale int
+	// ControlNames shows the buttons and axes of game controllers by
+	// the names of their codes, such as BTN_SOUTH, where the window
+	// would otherwise number them.
+	ControlNames bool
 	// CheckUpdates lets the window ask GitHub whether a newer HIDI has
 	// been released. It is off unless the user turns it on.
 	CheckUpdates bool
@@ -201,6 +205,7 @@ type file struct {
 		ShowInput    *[]string `toml:"show_input"`
 		ShowOutput   *[]string `toml:"show_output"`
 		CheckUpdates *bool     `toml:"check_updates"`
+		ControlNames *bool     `toml:"control_names"`
 	} `toml:"window"`
 }
 
@@ -282,6 +287,7 @@ func Parse(data []byte) (Settings, error) {
 		problems = append(problems, fmt.Sprintf("window.scale: %d is not a size in hundredths from %d to %d", s.Window.Scale, MinScale, MaxScale))
 	}
 	set(&s.Window.CheckUpdates, f.Window.CheckUpdates)
+	set(&s.Window.ControlNames, f.Window.ControlNames)
 	set(&s.Shown.Input, f.Window.ShowInput)
 	set(&s.Shown.Output, f.Window.ShowOutput)
 	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 {
@@ -481,11 +487,17 @@ show_output = %s
 # nothing about you or your devices is sent: it is one request for the
 # newest release of the project. Off unless you turn it on.
 check_updates = %t
+
+# The buttons and axes of a game controller are numbered in the window,
+# from 0, in an order that is the same whenever a controller of that kind
+# is plugged in. With this they are shown by the names profiles use for
+# them instead, such as BTN_SOUTH and ABS_X.
+control_names = %t
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.Scale,
-		list(s.Shown.Input), list(s.Shown.Output), s.Window.CheckUpdates)
+		list(s.Shown.Input), list(s.Shown.Output), s.Window.CheckUpdates, s.Window.ControlNames)
 	return []byte(b.String())
 }
 

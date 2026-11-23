@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -552,7 +553,12 @@ func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32
 	row := newFlow(x, x+inner, y, chipH+6, 6)
 	for _, code := range codes {
 		role := e.doc.Role(e.layout, code)
+		// The number the window shows the control by, where the device
+		// is there to give it one, and the name the profile knows it by.
 		label := code.String()
+		if n, ok := ControlNumber(device, label); ok && !w.names {
+			label = strconv.Itoa(n) + " · " + label
+		}
 		switch {
 		case role.Kind != RoleNone:
 			label += "  " + role.Text

@@ -22,6 +22,7 @@ func TestStructSizes(t *testing.T) {
 		{"DEVPROPKEY", unsafe.Sizeof(devPropKey{}), 20},
 		{"RID_DEVICE_INFO", unsafe.Sizeof(ridDeviceInfo{}), 32},
 		{"HIDP_CAPS", unsafe.Sizeof(hidpCaps{}), 64},
+		{"HIDP_BUTTON_CAPS", unsafe.Sizeof(hidpButtonCaps{}), 72},
 		{"HIDP_VALUE_CAPS", unsafe.Sizeof(hidpValueCaps{}), 72},
 		{"HIDP_VALUE_CAPS.logicalMin", unsafe.Offsetof(hidpValueCaps{}.logicalMin), 40},
 		{"HIDP_VALUE_CAPS.usageMin", unsafe.Offsetof(hidpValueCaps{}.usageMin), 56},

@@ -93,3 +93,39 @@ func TestEntryKey(t *testing.T) {
 		t.Errorf("shown: %v", shown)
 	}
 }
+
+func TestControlLabels(t *testing.T) {
+	pad := ipc.Instrument{
+		Buttons: []ipc.Button{{Name: "BTN_SOUTH"}, {Name: "BTN_EAST"}, {Name: "BTN_TOUCH", Part: "Touchpad"}},
+		Axes:    []ipc.Axis{{Name: "ABS_X"}, {Name: "ABS_Y"}},
+	}
+	// A device that has not said what it has: names, whatever is asked.
+	if got := ButtonLabel(pad, 1, false); got != "BTN_EAST" {
+		t.Errorf("a button of a device that says nothing: %q", got)
+	}
+	if _, ok := ControlNumber(&pad, "BTN_EAST"); ok {
+		t.Error("a device that says nothing numbers its controls")
+	}
+	pad.Complete = true
+	if got := ButtonLabel(pad, 1, false); got != "1" {
+		t.Errorf("button 1: %q", got)
+	}
+	if got := AxisLabel(pad, 1, false); got != "1" {
+		t.Errorf("axis 1: %q", got)
+	}
+	if got := ButtonLabel(pad, 2, true); got != "Touchpad:BTN_TOUCH" {
+		t.Errorf("a named button on a part: %q", got)
+	}
+	if got := AxisLabel(pad, 0, true); got != "X" {
+		t.Errorf("a named axis: %q", got)
+	}
+	if n, ok := ControlNumber(&pad, "ABS_Y"); !ok || n != 1 {
+		t.Errorf("the number of ABS_Y: %d, %v", n, ok)
+	}
+	if _, ok := ControlNumber(&pad, "BTN_NORTH"); ok {
+		t.Error("a control the device does not have has a number")
+	}
+	if _, ok := ControlNumber(nil, "BTN_SOUTH"); ok {
+		t.Error("no device, and a number")
+	}
+}

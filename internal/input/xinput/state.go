@@ -88,6 +88,18 @@ func (s state) axes() [8]struct {
 	}
 }
 
+// controls lists what every controller has.
+func controls() []control.Input {
+	var out []control.Input
+	for _, b := range buttons {
+		out = append(out, control.Input{Code: control.Key(b.code)})
+	}
+	for _, a := range (state{}).axes() {
+		out = append(out, control.Input{Code: control.Axis(a.code)})
+	}
+	return out
+}
+
 // changes returns the events that lead from one state to the next. For
 // the first state of a controller, every axis is reported, and the
 // buttons that are down.

@@ -180,7 +180,12 @@ A keyboard is drawn as a full-size keyboard. Every key has the colour of
 what it does in the layout that is selected, and the keys that are down
 stand out. Where HIDI lights the keyboard through OpenRGB, the keys also
 glow in the colours of their lights, so the drawing shows what the keyboard
-shows. Every other device shows the buttons and axes it has reported so far.
+shows. A game controller shows all the buttons and axes it has, numbered
+from 0: the numbers are the same whenever a controller of that kind is
+plugged in. "Name the controls of game controllers" in the settings shows
+them by the names profiles use instead, such as BTN_SOUTH and ABS_X; the
+profile editor shows both. A controller that cannot say what it has shows
+its controls by name as they are used.
 While HIDI is off, what is pressed shows in grey.
 
 Every keyboard has the sign of OpenRGB, a ring of colours, beside "show". It is
