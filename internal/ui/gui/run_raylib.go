@@ -14,7 +14,6 @@ import (
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 
-	"github.com/gethiox/HIDI/internal/assets/fonts"
 	"github.com/gethiox/HIDI/internal/assets/icon"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
@@ -37,11 +36,6 @@ const (
 	chipH            = 20
 	axisRowH         = 20
 	lineH            = 18 // of the log
-
-	sizeTitle = 24
-	sizeName  = 17
-	sizeText  = 14
-	sizeMono  = 13
 
 	// The keyboard shows every MIDI note.
 	firstNote, lastNote = 0, 127
@@ -77,7 +71,7 @@ type window struct {
 	opts  Options
 	ctx   context.Context
 
-	sans, bold, title, mono rl.Font
+	kit
 
 	logHeight   float32 // of the open log, 0 when only the bar shows
 	savedHeight float32 // what a click on the bar opens the log to
@@ -89,44 +83,33 @@ type window struct {
 
 	// active says whether HIDI is on, as of the frame being drawn.
 	active bool
-	// moving says that something drawn in this frame is on its way
-	// somewhere, so that another frame has to follow; dt is the time
-	// since the frame before, and drawn when that one was drawn.
-	moving bool
-	dt     time.Duration
-	drawn  time.Time
+	// dt is the time since the frame before, and drawn when that one
+	// was drawn.
+	dt    time.Duration
+	drawn time.Time
 	// trails says, for every instrument, when its trail last gained a
 	// step.
-	trails map[string]*trailSeen
+	trails map[entryID]*trailSeen
 	// docs are the profiles that were opened for changing, by their
 	// files: what was changed in one and not saved is still there when
 	// its page is opened again.
 	docs map[string]*editor
-	// trying holds, by profile file, the text HIDI is still to be given
-	// to play with; tryBusy says that somebody is giving.
-	tryMu   sync.Mutex
-	trying  map[string]string
-	tryBusy bool
-	// tryText is the settings HIDI is still to be given to behave by,
-	// tryWaiting says that there are some, and trySending that somebody
-	// is giving.
-	tryText                string
-	tryWaiting, trySending bool
+	// profiles hands HIDI the profiles that are tried and not saved, by
+	// their files, and tried the settings that are.
+	profiles latest[string, string]
+	tried    latest[struct{}, string]
 	// valueX is how far in the values of the settings begin.
 	valueX float32
 	// shown says what is drawn of which instrument.
 	shown settings.Shown
-	// glow is the picture of a light under a key, wheel that of the gear
+	// glow is the picture of a light under a key, cog that of the gear
 	// and icons HIDI's icon while off, on, and in the other half of the
 	// blinking of learning mode.
 	glow  rl.Texture2D
-	wheel rl.Texture2D
+	cog   rl.Texture2D
 	icons [3]rl.Texture2D
 	// signs are the logo of OpenRGB in its three looks, by icon.RGBLook.
 	signs [3]rl.Texture2D
-	// wantScale is the size everything is to be drawn at from the next
-	// frame on, as a factor.
-	wantScale float32
 	// version is the version of this HIDI and newest what is known of
 	// newer ones.
 	version string
@@ -192,10 +175,21 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	go Follow(ctx, hidi, model)
 
 	w := &window{hidi: hidi, model: model, opts: opts, ctx: ctx, toggling: make(chan struct{}, 1)}
-	if opts.Scale >= settings.MinScale && opts.Scale <= settings.MaxScale {
-		uiScale = float32(opts.Scale) / 100
+	w.scale = 1
+	w.profiles.hand = func(file, text string) {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		hidi.Preview(ctx, file, text) // no HIDI, nothing to play with
 	}
-	w.wantScale = uiScale
+	w.tried.hand = func(_ struct{}, text string) {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		hidi.TrySettings(ctx, text) // no HIDI, nothing to follow
+	}
+	if opts.Scale >= settings.MinScale && opts.Scale <= settings.MaxScale {
+		w.scale = float32(opts.Scale) / 100
+	}
+	w.wantScale = w.scale
 	w.loadFonts()
 	defer w.unloadFonts()
 	// What was tried and not saved ends with the window: the files count
@@ -216,8 +210,8 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	}()
 	w.glow = loadGlow()
 	defer rl.UnloadTexture(w.glow)
-	w.wheel = loadGear()
-	defer rl.UnloadTexture(w.wheel)
+	w.cog = loadGear()
+	defer rl.UnloadTexture(w.cog)
 	for i, colours := range []icon.Colours{icon.Off, icon.On, icon.Learning} {
 		w.icons[i] = loadIcon(colours)
 		defer rl.UnloadTexture(w.icons[i])
@@ -280,29 +274,14 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 			// short whatever the frame limit, since a click that begins
 			// and ends between two looks is not seen.
 			rl.PollInputEvents()
-			applyCursor()
+			w.applyCursor()
 			time.Sleep(min(time.Second/time.Duration(pace.target), idlePoll))
 			continue
 		}
 		settle--
-		// A new size is taken up between two frames: the fonts are
-		// made anew for it.
-		if w.wantScale != uiScale {
-			w.unloadFonts()
-			uiScale = w.wantScale
-			w.loadFonts()
-		}
-		rl.BeginDrawing()
-		// The size of the interface is laid over the scaling of the
-		// display, which BeginDrawing has set up. raylib's camera mode
-		// would not do: it throws the scaling of the display away, and
-		// on a dense display everything was drawn small in a corner
-		// while the pointer was still measured in the window's own
-		// points.
-		rl.Scalef(uiScale, uiScale, 1)
-		w.draw()
-		rl.EndDrawing()
-		applyCursor()
+		wide, high := w.begin()
+		w.draw(wide, high)
+		w.end()
 		if shoot {
 			rl.TakeScreenshot(opts.Screenshot)
 			break
@@ -367,192 +346,15 @@ func (p *pacer) frame() {
 	}
 }
 
-// glyphs are the characters the fonts are prepared for: Latin with its
-// accented letters, and the signs the window uses.
-func glyphs() []rune {
-	var out []rune
-	for r := rune(0x20); r <= 0x17f; r++ {
-		if r >= 0x7f && r < 0xa0 {
-			continue
-		}
-		out = append(out, r)
-	}
-	return append(out, []rune("–—−‘’“”…·•←→↑↓▲▼♯♭")...)
-}
-
-// loadFonts prepares the fonts at the sizes used, in the pixels of the
-// display, so that text is sharp on a dense one.
-func (w *window) loadFonts() {
-	scale := rl.GetWindowScaleDPI().X
-	if scale < 1 {
-		scale = 1
-	}
-	scale *= uiScale
-	load := func(data []byte, size float32) rl.Font {
-		font := rl.LoadFontFromMemory(".ttf", data, int32(size*scale+0.5), glyphs())
-		rl.SetTextureFilter(font.Texture, rl.FilterBilinear)
-		return font
-	}
-	w.sans = load(fonts.Sans, sizeText)
-	w.bold = load(fonts.Bold, sizeName)
-	w.title = load(fonts.Bold, sizeTitle)
-	w.mono = load(fonts.Mono, sizeMono)
-}
-
-func (w *window) unloadFonts() {
-	for _, f := range []rl.Font{w.sans, w.bold, w.title, w.mono} {
-		rl.UnloadFont(f)
-	}
-}
-
-func text(font rl.Font, s string, x, y, size float32, c rl.Color) {
-	// Whole pixels keep the letters sharp: those of the screen, which
-	// the lens makes other than the window's own.
-	x, y = float32(int(x*uiScale+0.5))/uiScale, float32(int(y*uiScale+0.5))/uiScale
-	rl.DrawTextEx(font, s, rl.NewVector2(x, y), size, 0, c)
-}
-
-func width(font rl.Font, s string, size float32) float32 {
-	return rl.MeasureTextEx(font, s, size, 0).X
-}
-
-// wantCursor is the cursor the frame being drawn asks for, and shownCursor
-// the one that was last set. The cursor is set once a frame, when all of
-// it is drawn, and not by every part that has a wish: a cursor that is
-// set and set again flickers, and each setting makes a new one on some
-// systems.
-var wantCursor, shownCursor int32 = rl.MouseCursorDefault, rl.MouseCursorDefault
-
-func setCursor(c int32) { wantCursor = c }
-
-// applyCursor makes the pointer look as the last frame asked. On Windows
-// the system gives the pointer its arrow back whenever it moves, so there
-// the wish is repeated after every look at the pointer, as long as it is
-// over the window.
-func applyCursor() {
-	again := runtime.GOOS == "windows" && wantCursor != rl.MouseCursorDefault && rl.IsCursorOnScreen()
-	if wantCursor != shownCursor || again {
-		rl.SetMouseCursor(wantCursor)
-		shownCursor = wantCursor
-	}
-}
-
-// uiScale is the size everything is drawn at, as a factor: the window is
-// laid out in its ordinary measures and drawn through a lens. The fonts
-// are made for the size they end up at, so that text stays sharp.
-var uiScale float32 = 1
-
-// hair is the width of a thin line: one of the window's points, and not
-// less than a pixel where everything is drawn smaller, since a line
-// thinner than that breaks up.
-func hair() float32 { return max(1, 1/uiScale) }
-
-// mouse returns where the pointer is, in the measures the window is laid
-// out in.
-func mouse() rl.Vector2 {
-	p := rl.GetMousePosition()
-	return rl.NewVector2(p.X/uiScale, p.Y/uiScale)
-}
-
-// scissor holds drawing to r, which is in the window's own measures.
-func scissor(r rl.Rectangle) {
-	rl.BeginScissorMode(int32(r.X*uiScale), int32(r.Y*uiScale), int32(max(r.Width, 0)*uiScale+0.5), int32(max(r.Height, 0)*uiScale+0.5))
-}
-
-// inputOff makes what is drawn deaf to the pointer: it is set while the
-// part of the window that lies under the settings is drawn. The window is
-// drawn by one goroutine.
-var inputOff bool
-
-func clicked(r rl.Rectangle) bool {
-	return rl.IsMouseButtonPressed(rl.MouseButtonLeft) && hovered(r)
-}
-
-func hovered(r rl.Rectangle) bool {
-	// A pointer that left the window in a hurry is last seen inside it;
-	// nothing is under a pointer that is not over the window.
-	if inputOff || !rl.IsCursorOnScreen() {
-		return false
-	}
-	p := mouse()
-	// What is cut off from view is not there for the pointer either: a
-	// button scrolled under the log or the header must not take a click
-	// meant for what covers it.
-	if clipped && !rl.CheckCollisionPointRec(p, clip) {
-		return false
-	}
-	return rl.CheckCollisionPointRec(p, r)
-}
-
-// clip is the part of the window that drawing is held to at the moment,
-// if clipped is set.
-var (
-	clip    rl.Rectangle
-	clipped bool
-)
-
-// beginClip holds drawing, and the pointer, to r until endClip.
-func beginClip(r rl.Rectangle) {
-	scissor(r)
-	clip, clipped = r, true
-}
-
-func endClip() {
-	rl.EndScissorMode()
-	clipped = false
-}
-
-// beginClipWithin holds drawing to the part of r that the clip in force
-// leaves, until endClipWithin puts that clip back.
-func beginClipWithin(r rl.Rectangle) {
-	outer, was := clip, clipped
-	if was {
-		r = rl.GetCollisionRec(r, outer)
-		rl.EndScissorMode()
-	}
-	scissor(r)
-	clipStack = append(clipStack, struct {
-		r  rl.Rectangle
-		on bool
-	}{outer, was})
-	clip, clipped = r, true
-}
-
-func endClipWithin() {
-	rl.EndScissorMode()
-	last := clipStack[len(clipStack)-1]
-	clipStack = clipStack[:len(clipStack)-1]
-	clip, clipped = last.r, last.on
-	if clipped {
-		scissor(clip)
-	}
-}
-
-// clipStack holds the clips that wait for the ones inside them to end.
-var clipStack []struct {
-	r  rl.Rectangle
-	on bool
-}
-
-// wheel returns how far the mouse wheel was turned over r.
-func wheel(r rl.Rectangle) float32 {
-	if !hovered(r) {
-		return 0
-	}
-	return rl.GetMouseWheelMove()
-}
-
-func (w *window) draw() {
-	sw, sh := float32(rl.GetScreenWidth())/uiScale, float32(rl.GetScreenHeight())/uiScale
+// draw draws the window, which is sw wide and sh high.
+func (w *window) draw(sw, sh float32) {
 	rl.ClearBackground(col(colBackground))
 	state := w.model.Snapshot()
-	// Whatever lies under the pointer may ask for another cursor.
-	wantCursor = rl.MouseCursorDefault
 	// What moves by itself moves by the time since the last frame. After
 	// a pause in which nothing was drawn that is one frame's worth.
 	now := time.Now()
 	w.dt = min(now.Sub(w.drawn), 50*time.Millisecond)
-	w.drawn, w.moving = now, false
+	w.drawn = now
 	w.follow(state, now)
 
 	// The log takes its height from the bottom; the rest is for the
@@ -568,13 +370,13 @@ func (w *window) draw() {
 	// The settings lie over everything else, which stays in view beside
 	// and faintly through them, and takes no clicks meanwhile.
 	body := rl.NewRectangle(0, headerH, sw, logTop-headerH)
-	inputOff = w.gear.open
+	w.deaf = w.gear.open
 	if w.edit != nil {
 		w.drawEditor(state, body)
 	} else {
 		w.drawInstruments(state, body)
 	}
-	inputOff = false
+	w.deaf = false
 	if w.gear.open {
 		w.drawOverlay(state, body)
 	}
@@ -600,59 +402,42 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	rl.DrawTexturePro(picture, rl.NewRectangle(0, 0, float32(picture.Width), float32(picture.Height)),
 		rl.NewRectangle(margin, (headerH-iconSize)/2, iconSize, iconSize), rl.NewVector2(0, 0), 0, rl.NewColor(255, 255, 255, strength))
 	nameX := float32(margin + iconSize + 10)
-	text(w.title, "HIDI", nameX, 20, sizeTitle, col(colText))
+	w.text(w.title, "HIDI", nameX, 20, sizeTitle, col(colText))
 	x := nameX + width(w.title, "HIDI", sizeTitle) + 18
 
 	if state == nil {
-		text(w.sans, "HIDI is not running. Start it with \"hidi\".", x, 27, sizeText, col(colFaint))
+		w.text(w.sans, "HIDI is not running. Start it with \"hidi\".", x, 27, sizeText, col(colFaint))
 		return
 	}
 	// The switch: a pill with a knob, and the state in words.
 	pill := rl.NewRectangle(x, 20, 52, 26)
-	back, knobX, label := colOff, pill.X+13, "off"
+	label := "off"
 	if state.Active {
-		back, knobX, label = colOn, pill.X+pill.Width-13, "on"
+		label = "on"
 	}
-	if hovered(pill) {
-		setCursor(rl.MouseCursorPointingHand)
-		back = Mix(back, colText, 0.22)
+	if w.toggle(pill, state.Active, colOn, pill) {
+		w.switchHIDI()
 	}
-	rl.DrawRectangleRounded(pill, 1, 16, col(back))
-	rl.DrawCircle(int32(knobX), int32(pill.Y+13), 9, col(colText))
-	text(w.bold, label, pill.X+pill.Width+10, 23, sizeName, col(colText))
-	if clicked(pill) {
-		w.toggle()
-	}
+	w.text(w.bold, label, pill.X+pill.Width+10, 23, sizeName, col(colText))
 	// What follows stands where it stands, whichever word is shown.
 	hx := pill.X + pill.Width + 10 + max(width(w.bold, "on", sizeName), width(w.bold, "off", sizeName))
 
 	// Learning mode: a smaller switch with a fainter word, yellow while
 	// it is on.
 	small := rl.NewRectangle(hx+26, 24, 34, 18)
-	back, knobX = colOff, small.X+9
-	if state.Learning {
-		back, knobX = colUnsaved, small.X+small.Width-9
-	}
 	word := "learning mode"
 	area := rl.NewRectangle(small.X, small.Y, small.Width+8+width(w.sans, word, sizeText-1), small.Height)
-	overLearn := hovered(area)
-	if overLearn {
-		setCursor(rl.MouseCursorPointingHand)
-		back = Mix(back, colText, 0.22)
-	}
-	rl.DrawRectangleRounded(small, 1, 12, col(back))
-	rl.DrawCircle(int32(knobX), int32(small.Y+9), 6, col(colText))
 	ink := colOff
 	if state.Learning {
 		ink = colUnsaved
 	}
-	if overLearn {
+	if w.hovered(area) {
 		ink = Mix(ink, colText, 0.4)
 	}
-	text(w.sans, word, small.X+small.Width+8, 26, sizeText-1, col(ink))
-	if clicked(area) {
+	if w.toggle(small, state.Learning, colUnsaved, area) {
 		w.ask(func(ctx context.Context) { w.hidi.ToggleLearning(ctx) })
 	}
+	w.text(w.sans, word, small.X+small.Width+8, 26, sizeText-1, col(ink))
 
 	// Of "hidi 2.0.0 (commit) go1.27 linux/amd64", the version and the
 	// commit.
@@ -670,7 +455,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	leftEnd := area.X + area.Width + 16
 	vx := sw - margin - 44 - width(w.mono, version, sizeMono)
 	if vx > leftEnd {
-		text(w.mono, version, vx, 28, sizeMono, col(colFaint))
+		w.text(w.mono, version, vx, 28, sizeMono, col(colFaint))
 	} else {
 		vx = sw - margin - 44 + 22
 	}
@@ -693,30 +478,12 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 			ink = rate.busy
 		}
 		rx -= width(w.mono, number, sizeMono)
-		text(w.mono, number, rx, 28, sizeMono, col(ink))
+		w.text(w.mono, number, rx, 28, sizeMono, col(ink))
 		rx -= width(w.sans, rate.label, sizeText) + 4
-		text(w.sans, rate.label, rx, 27, sizeText, col(colFaint))
+		w.text(w.sans, rate.label, rx, 27, sizeText, col(colFaint))
 		rx -= 16
 	}
 }
-
-// fit cuts a text off at its end so that it is no wider than room.
-func fit(font rl.Font, s string, size, room float32) string {
-	if width(font, s, size) <= room {
-		return s
-	}
-	r := []rune(s)
-	for len(r) > 0 && width(font, string(r)+"…", size) > room {
-		r = r[:len(r)-1]
-	}
-	if len(r) == 0 {
-		return ""
-	}
-	return string(r) + "…"
-}
-
-// trailKey tells the instruments apart for their trails.
-func trailKey(in ipc.Instrument) string { return in.Name + "\x00" + in.Location + "\x00" + in.Type }
 
 // trailSeen is when the window saw a trail gain its newest step.
 type trailSeen struct {
@@ -731,14 +498,14 @@ func (w *window) follow(state *ipc.Snapshot, now time.Time) {
 		return
 	}
 	if w.trails == nil {
-		w.trails = map[string]*trailSeen{}
+		w.trails = map[entryID]*trailSeen{}
 	}
-	there := map[string]bool{}
+	there := map[entryID]bool{}
 	for _, in := range state.Instruments {
 		if in.Trail == nil {
 			continue
 		}
-		key := trailKey(in)
+		key := idOf(in)
 		there[key] = true
 		seen := w.trails[key]
 		if seen == nil {
@@ -770,7 +537,7 @@ func (w *window) follow(state *ipc.Snapshot, now time.Time) {
 // one, and one value at each end is kept out of view: the oldest leaves,
 // and the newest comes in, over a whole step.
 func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
-	seen := w.trails[trailKey(in)]
+	seen := w.trails[idOf(in)]
 	if seen == nil || in.Trail == nil || len(in.Trail.Input) < 4 || len(in.Trail.MIDI) != len(in.Trail.Input) {
 		return
 	}
@@ -778,8 +545,8 @@ func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
 	phase := TrailPhase(w.drawn.Sub(seen.at), time.Duration(in.Trail.StepMS)*time.Millisecond)
 	// Both curves on one scale, so that they can be compared.
 	most := float32(max(slices.Max(in.Trail.Input), slices.Max(in.Trail.MIDI), 20))
-	beginClipWithin(area)
-	defer endClipWithin()
+	w.clip(area)
+	defer w.unclip()
 	floor := area.Y + area.Height
 	for i, values := range [][]int{in.Trail.Input, in.Trail.MIDI} {
 		if slices.Max(values) == 0 {
@@ -803,7 +570,7 @@ func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
 }
 
 // toggle asks HIDI to turn on or off.
-func (w *window) toggle() {
+func (w *window) switchHIDI() {
 	w.ask(func(ctx context.Context) { w.hidi.Toggle(ctx) })
 }
 
@@ -828,7 +595,7 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 		return
 	}
 	if len(state.Instruments) == 0 {
-		text(w.sans, "No instruments. Connect a keyboard or a game controller.", margin, area.Y+8, sizeText, col(colFaint))
+		w.text(w.sans, "No instruments. Connect a keyboard or a game controller.", margin, area.Y+8, sizeText, col(colFaint))
 		return
 	}
 	w.active = state.Active
@@ -839,14 +606,14 @@ func (w *window) drawInstruments(state *ipc.Snapshot, area rl.Rectangle) {
 		heights[i] = w.cardHeight(in, cardW-2*cardPad)
 		total += heights[i] + cardGap
 	}
-	w.cards.Target -= wheel(area) * 60
+	w.cards.Target -= w.wheel(area) * 60
 	w.cards.Clamp(total - area.Height)
 	if w.cards.Step(w.dt) {
 		w.moving = true
 	}
 
-	beginClip(area)
-	defer endClip()
+	w.clip(area)
+	defer w.unclip()
 	y := area.Y - float32(int(w.cards.At))
 	for i, in := range state.Instruments {
 		if y+heights[i] >= area.Y && y <= area.Y+area.Height {
@@ -875,38 +642,13 @@ func (w *window) isShown(list []string, name string) bool {
 	return w.opts.ShowAll || slices.Contains(list, name)
 }
 
-// chip draws a small switch with a name, lit when it is on, and reports a
-// click on it.
-func (w *window) chip(label string, on bool, x, y float32) bool {
-	r := rl.NewRectangle(x, y, w.chipWidth(label), chipH)
-	over := hovered(r)
-	if over {
-		setCursor(rl.MouseCursorPointingHand)
-	}
-	switch {
-	case on && over:
-		rl.DrawRectangleRounded(r, 0.4, 6, col(Mix(colAccent, colText, 0.3)))
-		text(w.mono, label, x+7, y+3, sizeMono, col(colBar))
-	case on:
-		rl.DrawRectangleRounded(r, 0.4, 6, col(colAccent))
-		text(w.mono, label, x+7, y+3, sizeMono, col(colBar))
-	case over:
-		rl.DrawRectangleRounded(r, 0.4, 6, col(colPanelEdge))
-		text(w.mono, label, x+7, y+3, sizeMono, col(colText))
-	default:
-		rl.DrawRectangleRoundedLinesEx(r, 0.4, 6, hair(), col(colPanelEdge))
-		text(w.mono, label, x+7, y+3, sizeMono, col(colFaint))
-	}
-	return clicked(r)
-}
-
 func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	rl.DrawRectangleRounded(r, 16/r.Height, 8, col(colPanel))
 	// Behind the two lines of the card, how busy the instrument was.
-	beginClipWithin(rl.NewRectangle(r.X+1, r.Y+1, r.Width-2, cardTop-2))
+	w.clip(rl.NewRectangle(r.X+1, r.Y+1, r.Width-2, cardTop-2))
 	w.drawTrails(in, rl.NewRectangle(r.X, r.Y+6, r.Width, cardTop-12))
-	endClipWithin()
-	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, hair(), col(colPanelEdge))
+	w.unclip()
+	rl.DrawRectangleRoundedLinesEx(r, 16/r.Height, 8, w.hair(), col(colPanelEdge))
 	x, y := r.X+cardPad, r.Y+12
 
 	// In the corner of the card: the way to the instrument's profile,
@@ -934,7 +676,7 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		w.saveShown()
 	}
 	right -= width(w.sans, "show", sizeText) + 8
-	text(w.sans, "show", right, r.Y+13, sizeText, col(colFaint))
+	w.text(w.sans, "show", right, r.Y+13, sizeText, col(colFaint))
 	if isKeyboard(in) {
 		w.drawSign(in, right-12, r.Y+10)
 		right -= 12 + 18
@@ -942,10 +684,10 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	// The name and what the device is have the room that is left.
 	room := right - 14 - x
 	name := fit(w.bold, in.Name, sizeName, room)
-	text(w.bold, name, x, y, sizeName, col(colText))
+	w.text(w.bold, name, x, y, sizeName, col(colText))
 	if left := room - width(w.bold, name, sizeName) - 12; left > 40 {
 		about := fit(w.sans, in.Type+" · profile "+in.Profile, sizeText, left)
-		text(w.sans, about, x+width(w.bold, name, sizeName)+12, y+3, sizeText, col(colFaint))
+		w.text(w.sans, about, x+width(w.bold, name, sizeName)+12, y+3, sizeText, col(colFaint))
 	}
 
 	// The numbers are set in the fixed-width font with a fixed number of
@@ -969,13 +711,13 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		if field.value == "" {
 			continue // no chord remembered, not learning
 		}
-		text(w.sans, field.label, x, y, sizeText, col(colFaint))
+		w.text(w.sans, field.label, x, y, sizeText, col(colFaint))
 		x += width(w.sans, field.label, sizeText) + 6
 		ink := colText
 		if field.busy != nil {
 			ink = *field.busy
 		}
-		text(w.mono, field.value, x, y+1, sizeMono, col(ink))
+		w.text(w.mono, field.value, x, y+1, sizeMono, col(ink))
 		x += width(w.mono, field.value, sizeMono) + 20
 	}
 
@@ -1009,12 +751,12 @@ func (w *window) drawSign(in ipc.Instrument, right, y float32) {
 	area := rl.NewRectangle(right-wide, y, wide, high)
 	strength := uint8(255)
 	if !in.Lit {
-		if hovered(area) {
-			setCursor(rl.MouseCursorPointingHand)
+		if w.hovered(area) {
+			w.setCursor(rl.MouseCursorPointingHand)
 		} else if !in.Simulated {
 			strength = 170
 		}
-		if clicked(area) {
+		if w.clicked(area) {
 			name, kind, location, on := in.Name, in.Type, in.Location, !in.Simulated
 			// The lights are shown on the drawn keyboard, so that is
 			// brought into view with them.
@@ -1081,7 +823,7 @@ func (w *window) drawPiano(in ipc.Instrument, r rl.Rectangle) {
 			if k.Note%12 == 0 && k.W >= 9 {
 				// Every C carries its octave; note 60 is C3 in HIDI.
 				label := fmt.Sprintf("%d", k.Note/12-2)
-				text(w.mono, label, k.X+(k.W-width(w.mono, label, 9))/2, k.Y+k.H-11, 9, col(colOff))
+				w.text(w.mono, label, k.X+(k.W-width(w.mono, label, 9))/2, k.Y+k.H-11, 9, col(colOff))
 			}
 		}
 	}
@@ -1099,25 +841,6 @@ func controlName(part, name string) string {
 	return name
 }
 
-func (w *window) chipWidth(label string) float32 { return width(w.mono, label, sizeMono) + 14 }
-
-// chipRows counts the rows the buttons take when they are set one after
-// another across the width.
-func (w *window) chipRows(in ipc.Instrument, inner float32) int {
-	if len(in.Buttons) == 0 {
-		return 0
-	}
-	rows, x := 1, float32(0)
-	for _, b := range in.Buttons {
-		cw := w.chipWidth(controlName(b.Part, b.Name))
-		if x > 0 && x+cw > inner {
-			rows, x = rows+1, 0
-		}
-		x += cw + 6
-	}
-	return rows
-}
-
 // An axis is drawn as a line of its own: its name, a bar that fills from
 // the left, and its value.
 const (
@@ -1126,6 +849,19 @@ const (
 	axisSize   = 12 // of the lettering
 	axisGap    = 22 // between two axes beside each other
 )
+
+// chipRows counts the rows the buttons take when they are set one after
+// another across the width.
+func (w *window) chipRows(in ipc.Instrument, inner float32) int {
+	if len(in.Buttons) == 0 {
+		return 0
+	}
+	row := newFlow(0, inner, 0, 1, 6)
+	for _, b := range in.Buttons {
+		row.put(w.chipWidth(controlName(b.Part, b.Name)))
+	}
+	return row.lines
+}
 
 // axisLabel is the name of an axis as it stands before its bar: without
 // the "ABS_" every one of them begins with.
@@ -1176,28 +912,26 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 		return
 	}
 	if len(in.Buttons) == 0 && len(in.Axes) == 0 {
-		text(w.sans, "Press a button or move a stick to see it here.", x, y+2, sizeText, col(colFaint))
+		w.text(w.sans, "Press a button or move a stick to see it here.", x, y+2, sizeText, col(colFaint))
 		return
 	}
 	// The buttons, one after another.
-	cx, cy := x, y
+	row := newFlow(x, x+inner, y, chipH+6, 6)
 	for _, b := range in.Buttons {
 		label := controlName(b.Part, b.Name)
 		cw := w.chipWidth(label)
-		if cx > x && cx+cw > x+inner {
-			cx, cy = x, cy+chipH+6
-		}
+		cx, cy := row.put(cw)
 		chip := rl.NewRectangle(cx, cy, cw, chipH)
 		if b.Down {
 			rl.DrawRectangleRounded(chip, 0.4, 6, col(w.pressed()))
-			text(w.mono, label, cx+7, cy+3, sizeMono, col(colBar))
+			w.text(w.mono, label, cx+7, cy+3, sizeMono, col(colBar))
 		} else {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, hair(), col(colPanelEdge))
-			text(w.mono, label, cx+7, cy+3, sizeMono, col(colFaint))
+			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, w.hair(), col(colPanelEdge))
+			w.text(w.mono, label, cx+7, cy+3, sizeMono, col(colFaint))
 		}
-		cx += cw + 6
 	}
-	if len(in.Buttons) > 0 {
+	cy := row.y
+	if !row.empty() {
 		cy += chipH + 6
 	}
 	// The axes: the name, a bar for the position, and the number.
@@ -1207,7 +941,7 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 		ax := x + float32(i%cols)*cell
 		ay := cy + float32(i/cols)*axisRowH
 		label := axisLabel(a.Part, a.Name)
-		text(w.mono, label, ax+labelW-width(w.mono, label, axisSize), ay+3, axisSize, col(colFaint))
+		w.text(w.mono, label, ax+labelW-width(w.mono, label, axisSize), ay+3, axisSize, col(colFaint))
 		bar := rl.NewRectangle(float32(int(ax+labelW+8)), ay+(axisRowH-axisBarH)/2, cell-axisGap-labelW-16-valueW, axisBarH)
 		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
 		value := float32(min(max(a.Value, 0), 1))
@@ -1216,7 +950,7 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 		}
 		// A mark in the middle, where a stick rests.
 		rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
-		text(w.mono, fmt.Sprintf("%.2f", a.Value), bar.X+bar.Width+8, ay+3, axisSize, col(colText))
+		w.text(w.mono, fmt.Sprintf("%.2f", a.Value), bar.X+bar.Width+8, ay+3, axisSize, col(colText))
 	}
 }
 
@@ -1307,7 +1041,7 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 			ink = colKeyInk
 		}
 		if key.Label != "" && unit >= 16 {
-			text(w.mono, key.Label, r.X+(r.Width-width(w.mono, key.Label, labelSize))/2, r.Y+(r.Height-labelSize)/2, labelSize, col(ink))
+			w.text(w.mono, key.Label, r.X+(r.Width-width(w.mono, key.Label, labelSize))/2, r.Y+(r.Height-labelSize)/2, labelSize, col(ink))
 		}
 	}
 	// What is left is down and has no key on the drawing.
@@ -1320,7 +1054,7 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 	}
 	slices.Sort(others)
 	oy := y + unit*KeyboardUnitsH + 5
-	text(w.sans, "other keys", x, oy, sizeText, col(colFaint))
+	w.text(w.sans, "other keys", x, oy, sizeText, col(colFaint))
 	ox := x + width(w.sans, "other keys", sizeText) + 10
 	for _, name := range others {
 		cw := w.chipWidth(name)
@@ -1328,7 +1062,7 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 			break
 		}
 		rl.DrawRectangleRounded(rl.NewRectangle(ox, oy-2, cw, chipH), 0.4, 6, col(pressed))
-		text(w.mono, name, ox+7, oy+1, sizeMono, col(colBar))
+		w.text(w.mono, name, ox+7, oy+1, sizeMono, col(colBar))
 		ox += cw + 6
 	}
 }
@@ -1395,23 +1129,6 @@ func loadIcon(colours icon.Colours) rl.Texture2D {
 		c := img.NRGBAAt(x, y)
 		return rl.NewColor(c.R, c.G, c.B, c.A)
 	})
-}
-
-// drawFloppy draws the floppy disk of the buttons that save, each of its
-// sixteen points pixel wide and high.
-func drawFloppy(x, y, pixel float32, c rl.Color) {
-	for row := range 16 {
-		for column := 0; column < 16; column++ {
-			if !FloppyPoint(column, row) {
-				continue
-			}
-			from := column
-			for column+1 < 16 && FloppyPoint(column+1, row) {
-				column++
-			}
-			rl.DrawRectangleRec(rl.NewRectangle(x+float32(from)*pixel, y+float32(row)*pixel, float32(column-from+1)*pixel, pixel), c)
-		}
-	}
 }
 
 // newest is what the window knows about newer releases of HIDI.
@@ -1496,8 +1213,8 @@ func (w *window) drawUpdate(bar rl.Rectangle) float32 {
 	if news {
 		ink = col(colUnsaved)
 	}
-	if hovered(area) {
-		setCursor(rl.MouseCursorPointingHand)
+	if w.hovered(area) {
+		w.setCursor(rl.MouseCursorPointingHand)
 		if !news {
 			ink = col(colFaint)
 		}
@@ -1507,7 +1224,7 @@ func (w *window) drawUpdate(bar rl.Rectangle) float32 {
 			}
 		}
 	}
-	text(w.sans, label, area.X+6, bar.Y+8, sizeText-1, ink)
+	w.text(w.sans, label, area.X+6, bar.Y+8, sizeText-1, ink)
 	return area.Width + 10
 }
 
@@ -1520,8 +1237,8 @@ func (w *window) drawLog(area rl.Rectangle) {
 
 	// Pulling the bar up and down changes the height of the log; a click
 	// on it opens and closes the log.
-	if hovered(bar) || w.dragging {
-		setCursor(rl.MouseCursorResizeNS)
+	if w.hovered(bar) || w.dragging {
+		w.setCursor(rl.MouseCursorResizeNS)
 	}
 	// What is known of newer releases has the right end of the bar; a
 	// click there is not a pull at the bar.
@@ -1531,11 +1248,11 @@ func (w *window) drawLog(area rl.Rectangle) {
 		cw := width(w.sans, label, sizeText-1) + 12 + margin
 		corner = rl.NewRectangle(bar.X+bar.Width-cw, bar.Y, cw, bar.Height)
 	}
-	if clicked(bar) && !rl.CheckCollisionPointRec(mouse(), corner) {
+	if w.clicked(bar) && !rl.CheckCollisionPointRec(w.mouse(), corner) {
 		w.dragging, w.dragMoved = true, false
 	}
 	if w.dragging {
-		if delta := rl.GetMouseDelta().Y / uiScale; delta != 0 {
+		if delta := w.dragged().Y; delta != 0 {
 			w.dragMoved = true
 			w.logHeight = max(w.logHeight-delta, 0)
 		}
@@ -1564,7 +1281,7 @@ func (w *window) drawLog(area rl.Rectangle) {
 	if n := len(lines); n > 0 {
 		w.drawLine(lines[n-1].Text, margin, area.Y+9, area.Width-2*margin-taken, 120)
 	} else {
-		text(w.mono, "no log yet", margin, area.Y+9, sizeMono, colA(colFaint, 120))
+		w.text(w.mono, "no log yet", margin, area.Y+9, sizeMono, colA(colFaint, 120))
 	}
 	if !open {
 		return
@@ -1579,11 +1296,11 @@ func (w *window) drawLog(area rl.Rectangle) {
 	rl.DrawRectangleRec(rl.NewRectangle(area.X, strip.Y, area.Width, 1), colA(colPanelEdge, 120))
 	w.drawFilter(strip)
 	visible := int(body.Height / lineH)
-	w.logScroll += wheel(body) * 3
+	w.logScroll += w.wheel(body) * 3
 	w.logScroll = min(max(w.logScroll, 0), float32(max(len(lines)-visible, 0)))
 
-	beginClip(body)
-	defer endClip()
+	w.clip(body)
+	defer w.unclip()
 	// The newest line sits at the bottom.
 	last := len(lines) - int(w.logScroll)
 	y := body.Y + body.Height - lineH - 4
@@ -1592,7 +1309,7 @@ func (w *window) drawLog(area rl.Rectangle) {
 		y -= lineH
 	}
 	if len(lines) == 0 {
-		text(w.mono, "nothing at this level yet", margin, body.Y+8, sizeMono, col(colFaint))
+		w.text(w.mono, "nothing at this level yet", margin, body.Y+8, sizeMono, col(colFaint))
 	}
 }
 
@@ -1612,27 +1329,27 @@ func (w *window) filterButtons(bar rl.Rectangle) []rl.Rectangle {
 // drawFilter draws the choice of the least severe level to show: the
 // chosen level and those above it are lit.
 func (w *window) drawFilter(bar rl.Rectangle) {
-	text(w.sans, "Log", margin, bar.Y+9, sizeText, col(colFaint))
+	w.text(w.sans, "Log", margin, bar.Y+9, sizeText, col(colFaint))
 	chosen := w.model.MinLevel()
 	levelColours := []RGB{AnsiColour(90), AnsiColour(32), AnsiColour(33), AnsiColour(91)}
 	buttons := w.filterButtons(bar)
 	label := "show from"
-	text(w.sans, label, buttons[0].X-width(w.sans, label, sizeText)-10, bar.Y+9, sizeText, col(colFaint))
+	w.text(w.sans, label, buttons[0].X-width(w.sans, label, sizeText)-10, bar.Y+9, sizeText, col(colFaint))
 	for i, b := range buttons {
-		if hovered(b) {
-			setCursor(rl.MouseCursorPointingHand)
+		if w.hovered(b) {
+			w.setCursor(rl.MouseCursorPointingHand)
 		}
-		if clicked(b) {
+		if w.clicked(b) {
 			w.model.SetMinLevel(i)
 			w.logScroll = 0
 			chosen = i
 		}
 		if i >= chosen {
 			rl.DrawRectangleRounded(b, 0.4, 6, colA(levelColours[i], 50))
-			text(w.mono, Levels[i], b.X+8, b.Y+3, sizeMono, col(levelColours[i]))
+			w.text(w.mono, Levels[i], b.X+8, b.Y+3, sizeMono, col(levelColours[i]))
 		} else {
-			rl.DrawRectangleRoundedLinesEx(b, 0.4, 6, hair(), col(colPanelEdge))
-			text(w.mono, Levels[i], b.X+8, b.Y+3, sizeMono, col(colOff))
+			rl.DrawRectangleRoundedLinesEx(b, 0.4, 6, w.hair(), col(colPanelEdge))
+			w.text(w.mono, Levels[i], b.X+8, b.Y+3, sizeMono, col(colOff))
 		}
 	}
 }
@@ -1651,7 +1368,7 @@ func (w *window) drawLine(line string, x, y, maxW float32, alpha uint8) {
 		if len(s) > room {
 			s = append(s[:max(room-1, 0)], '…')
 		}
-		text(w.mono, string(s), x, y, sizeMono, colA(AnsiColour(span.Fg.Code), alpha))
+		w.text(w.mono, string(s), x, y, sizeMono, colA(AnsiColour(span.Fg.Code), alpha))
 		x += float32(len(s)) * charW
 		room -= len(s)
 	}

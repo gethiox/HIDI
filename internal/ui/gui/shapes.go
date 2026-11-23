@@ -96,10 +96,18 @@ func CutStart(s string, most int) string {
 	return "…" + string(r[len(r)-most+1:])
 }
 
+// entryID tells the instruments of a snapshot apart: two devices of one
+// name, or the keyboard and the game controller one device is, differ by
+// their kind and by where they are plugged in.
+type entryID struct{ name, kind, location string }
+
+func idOf(in ipc.Instrument) entryID { return entryID{in.Name, in.Type, in.Location} }
+
 // EntryKey names one instrument among those shown, for what the window
 // remembers of it: two devices of one name, or the keyboard and the game
 // controller one device is, are apart by their kind and by where they are
 // plugged in.
 func EntryKey(in ipc.Instrument) string {
-	return in.Name + " | " + in.Type + " | " + in.Location
+	id := idOf(in)
+	return id.name + " | " + id.kind + " | " + id.location
 }
