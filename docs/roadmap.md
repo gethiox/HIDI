@@ -136,6 +136,79 @@ maintainer's HyperX). That interface is now read like a game controller
 and its keys given to the keyboard it belongs to. **Written blind**: to
 be tried.
 
+### Proposed, not built: one generated mapping for every game controller
+
+The maintainer wants the factory profiles to be two, a keyboard and a
+game controller, with no profile written for one product; a game
+controller of any make should play by a mapping worked out from what it
+has, the same at every start. This is how it could be done. Nothing of
+it is built: it changes what a profile can say, and which factory
+profiles exist, and both are the maintainer's to decide.
+
+What is there already, since this round: a device lists its controls,
+and they have numbers that are the same for every device of a kind
+(button 0 to n, axis 0 to m, in the order of their codes).
+
+1. **Controls can be bound by number.** Beside `BTN_SOUTH = "C3"` a
+   profile could say `button.0 = "C3"` and `axis.2 = { controller = 7 }`,
+   resolved against the controls of the device when its engine is made.
+   Names stay, for a profile written for one product. A number the
+   device does not have is skipped without complaint, so one profile
+   fits a pad with ten buttons and a stick with forty.
+2. **A profile can ask for the rest to be generated.** For instance
+
+   ```toml
+   [generate]
+   buttons = { from = "C2", step = 1 }   # button n plays C2 + n
+   axes    = { from = 1 }                # axis n sends controller 1 + n
+   ```
+
+   Every button and axis that has no line of its own gets one by this
+   rule. The rule depends on nothing but the list of controls, so every
+   start gives the same mapping. Controllers that mean something special
+   to synthesisers (0, 6, 32, 38, 64 to 69, 96 to 101, 120 to 127)
+   would be stepped over.
+3. **The factory game-controller profile is then a dozen lines**: a
+   match on the type, the starting values, and `[generate]`. The four
+   profiles for single products go (PS4, the two halves of the X56, the
+   Steam Controller), or stay in the documentation as examples.
+4. **Making it one's own writes the generated lines out.** "Customise"
+   on a connected controller would make a user profile that matches that
+   product and holds every generated binding as a line, to be changed
+   like any other. Nothing is generated behind the user's back after
+   that.
+
+Open, and needing the maintainer's word:
+
+- Which notes and which controllers the rule gives. A chromatic row
+  from C2 is the simplest; a scale would play better and skip more.
+- Hats. They are axes that rest in the middle and only ever sit at the
+  ends: as two axes they are poor controllers. Each direction as a note
+  is likely what is wanted.
+- Where an axis rests. A stick rests in the middle and a trigger at one
+  end, and the device does not say which is which. Linux reports where
+  an axis stands when the device is opened, which is a good guess for
+  one that is not being held; Windows says nothing until the axis
+  moves. Without it a resting stick sends 64 and a resting trigger 0,
+  which is what a controller should do in both cases, so this may not
+  matter.
+- Commands. Octave, layout and the like cannot be given to buttons by a
+  rule that suits every controller; the generated mapping would have
+  none, and the instrument's octave would be changed from the window or
+  a keyboard.
+
+Smaller things about profiles that would make them easier to live with,
+none of them built:
+
+- Removing a profile of one's own from the window, and renaming it.
+- "New profile for this device" on an instrument's card, which today
+  needs a file copied and its `[match]` written by hand.
+- Saying on the card why this profile was chosen for this device, where
+  two fit.
+
+TOML stays: profiles are changed line by line with notes kept, by hand
+and by the window, and nothing asked for so far needs more than it has.
+
 ### Waiting for the maintainer
 
 To be tried on Windows, none of which has run there:
