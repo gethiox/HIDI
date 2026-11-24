@@ -165,3 +165,29 @@ func TestEnabled(t *testing.T) {
 		t.Error("enabled = \"yes\" was accepted")
 	}
 }
+
+func TestSame(t *testing.T) {
+	a := "schema = 1\nname = \"T\"\n[match]\ntype = \"keyboard\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"\nKEY_B = \"D3\"\n"
+	// The same lines in another order, and with a note beside one.
+	b := "schema = 1\nname = \"T\"\n[match]\ntype = \"keyboard\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_B = \"D3\"  # second\nKEY_A = \"C3\"\n"
+	// Another note on one key.
+	c := "schema = 1\nname = \"T\"\n[match]\ntype = \"keyboard\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"\nKEY_B = \"E3\"\n"
+	parse := func(text string) *Profile {
+		p, err := Parse([]byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	pa, pb, pc := parse(a), parse(b), parse(c)
+	pb.Source, pb.Kind = "/elsewhere.toml", KindUser
+	if !Same(pa, pb) {
+		t.Error("the same bindings in another order are another profile")
+	}
+	if Same(pa, pc) {
+		t.Error("another note is the same profile")
+	}
+	if Same(pa, nil) || !Same(nil, nil) {
+		t.Error("nil is compared wrongly")
+	}
+}

@@ -22,8 +22,9 @@ type ProfileDoc struct {
 	Path    string
 	Profile *config.Profile
 	// text is the profile as it is shown, and saved as it is in the file,
-	// as far as the window knows.
+	// as far as the window knows; was is what saved says.
 	text, saved []byte
+	was         *config.Profile
 	// undo holds the texts before each change, the newest last, and redo
 	// those that were taken back.
 	undo, redo [][]byte
@@ -58,6 +59,20 @@ func (d *ProfileDoc) show(text []byte) {
 	}
 	p.Source = d.Path
 	d.text, d.Profile = text, p
+	d.settle()
+}
+
+// settle looks whether the profile as it is shown is the profile that is
+// saved, after every change. It compares the profiles, not their text: a
+// binding that was carried to another control and back is written at
+// another place in the file and binds what it bound. Where they are the
+// same profile, the text is again the saved one, to the letter, so that
+// nothing waits to be saved and nothing in the file would move.
+func (d *ProfileDoc) settle() {
+	if d.was != nil && !bytes.Equal(d.text, d.saved) && config.Same(d.Profile, d.was) {
+		d.text = d.saved
+		d.Profile = d.was
+	}
 }
 
 // Undo takes the last change back and reports whether there was one.
@@ -92,17 +107,14 @@ func (d *ProfileDoc) Save() error {
 	if err := writeWhole(d.Path, d.text); err != nil {
 		return err
 	}
-	d.saved, d.Elsewhere = d.text, false
+	d.saved, d.was, d.Elsewhere = d.text, d.Profile, false
 	return nil
 }
 
-// Revert drops every change that is not saved.
+// Revert goes back to the profile as it is saved, and forgets the changes
+// that led away from it: there is nothing to take back afterwards.
 func (d *ProfileDoc) Revert() {
-	if !d.Dirty() {
-		return
-	}
-	d.undo = append(d.undo, d.text)
-	d.redo = nil
+	d.undo, d.redo = nil, nil
 	d.show(d.saved)
 }
 
@@ -117,7 +129,7 @@ func OpenProfile(path string) (*ProfileDoc, error) {
 		return nil, err
 	}
 	p.Source = path
-	return &ProfileDoc{Path: path, Profile: p, text: text, saved: text}, nil
+	return &ProfileDoc{Path: path, Profile: p, text: text, saved: text, was: p}, nil
 }
 
 // Layouts returns the names of the profile's layouts, in order.
@@ -400,7 +412,7 @@ func (d *ProfileDoc) Reload() (bool, error) {
 		return false, fmt.Errorf("the file was changed meanwhile and has mistakes now:\n%w", err)
 	}
 	p.Source = d.Path
-	d.text, d.saved, d.Profile = fresh, fresh, p
+	d.text, d.saved, d.Profile, d.was = fresh, fresh, p, p
 	d.undo, d.redo, d.Elsewhere = nil, nil, false
 	return true, nil
 }
@@ -501,6 +513,7 @@ func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
 	d.redo = nil
 	p.Source = d.Path
 	d.text, d.Profile = text, p
+	d.settle()
 	return nil
 }
 

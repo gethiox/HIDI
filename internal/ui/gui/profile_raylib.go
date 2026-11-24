@@ -295,6 +295,14 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	if w.saveButton(doc.Dirty(), tools, y) {
 		e.save()
 	}
+	// Back to the profile as it is saved, with nothing left to take
+	// back.
+	revertW := width(w.sans, "Revert", sizeText) + 20
+	tools -= revertW + 8
+	if hit, _ := w.dimButton("Revert", doc.Dirty(), tools, y); hit {
+		doc.Revert()
+		e.try(nil)
+	}
 	redoW := width(w.sans, "Redo", sizeText) + 20
 	tools -= redoW + 8
 	if hit, _ := w.dimButton("Redo", doc.CanRedo(), tools, y); hit && doc.Redo() {

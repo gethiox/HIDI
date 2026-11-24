@@ -231,3 +231,59 @@ func TestCarry(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestCarriedAndPutBackIsNotAChange(t *testing.T) {
+	file, userDir, _ := factoryProfile(t)
+	own, _, err := Customise(file, userDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := OpenProfile(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := doc.DefaultLayout()
+	keyZ, f24 := control.Key(44), control.Key(194)
+	saved := string(doc.Text())
+
+	// A binding carried away and back binds what it bound. Its line is
+	// written elsewhere meanwhile; the profile is the saved one all the
+	// same, and so is its text, to the letter.
+	if err := doc.Carry(layout, keyZ, f24, true); err != nil {
+		t.Fatal(err)
+	}
+	if !doc.Dirty() {
+		t.Fatal("a carried binding is no change")
+	}
+	if err := doc.Carry(layout, f24, keyZ, true); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Dirty() || string(doc.Text()) != saved {
+		t.Errorf("carried away and back, the profile still waits to be saved")
+	}
+	// The same by other means: a note changed and changed back.
+	was := doc.Role(layout, keyZ)
+	if err := doc.SetNote(layout, keyZ, midi.Note(100)); err != nil || !doc.Dirty() {
+		t.Fatalf("a changed note: %v, dirty %v", err, doc.Dirty())
+	}
+	if err := doc.SetNote(layout, keyZ, midi.Note(was.Note)); err != nil || doc.Dirty() {
+		t.Errorf("a note changed back: %v, dirty %v", err, doc.Dirty())
+	}
+
+	// Revert: the saved profile, and nothing to take back.
+	doc.Carry(layout, keyZ, f24, true)
+	doc.AddLayout("More")
+	doc.Revert()
+	if doc.Dirty() || doc.CanUndo() || doc.CanRedo() || string(doc.Text()) != saved {
+		t.Errorf("after Revert: dirty %v, undo %v, redo %v", doc.Dirty(), doc.CanUndo(), doc.CanRedo())
+	}
+	// After saving, the saved profile is the new one.
+	doc.Carry(layout, keyZ, f24, true)
+	if err := doc.Save(); err != nil || doc.Dirty() {
+		t.Fatalf("Save: %v, dirty %v", err, doc.Dirty())
+	}
+	doc.Carry(layout, f24, keyZ, true)
+	if !doc.Dirty() {
+		t.Error("back to what was saved before the last saving counts as saved")
+	}
+}
