@@ -851,8 +851,8 @@ func TestLearnAtRestAndThroughReset(t *testing.T) {
 		Binding{Source: Source{Code: stickX, Centered: true}, Action: PitchBend{}},
 	))
 	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
-	r.expect("on", r.e.SetLearning(true, 0, nil), "") // no threshold given: a fifth
-	r.set(stickX, 0.65, "")                           // 0.3 of the range of 2: within
+	r.expect("on", r.e.SetLearning(true, 0.2, nil), "") // a fifth
+	r.set(stickX, 0.65, "")                             // 0.3 of the range of 2: within
 	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
 	r.set(stickX, 0.6, "PitchBend ch=1 bend=+0") // back within: at rest
 	r.set(stickX, 0.5, "")

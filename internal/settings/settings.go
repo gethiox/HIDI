@@ -157,14 +157,20 @@ type Window struct {
 func Default() Settings {
 	return Settings{
 		Input: Input{
-			Toggle:         []control.Code{control.Key(29), control.Key(42), control.Key(56)}, // left Ctrl, Shift, Alt
-			GrabKeyboards:  true,
-			StartOn:        true,
-			LearnThreshold: 20,
+			// Caps Lock, tapped, and HIDI's alone: one key that does
+			// nothing else any more. HIDI starts turned off, with its
+			// window open, so that a keyboard types until it is asked
+			// to play.
+			Toggle:          []control.Code{control.Key(58)},
+			ToggleTap:       true,
+			ToggleExclusive: true,
+			GrabKeyboards:   true,
+			StartOn:         false,
+			LearnThreshold:  50,
 		},
 		Devices: Devices{Mode: Blacklist},
 		Lights:  Lights{Colours: light.DefaultColours()},
-		Window:  Window{Scale: 100},
+		Window:  Window{Scale: 100, ShowAtStart: true},
 	}
 }
 
@@ -249,6 +255,20 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.StartOn, f.Input.StartOn)
 	set(&s.Input.ToggleTap, f.Input.ToggleTap)
 	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
+	// A file that names its own toggle and says nothing more gets what
+	// goes with that toggle: a combination of keys cannot be tapped or
+	// kept from the system, and without a toggle HIDI has to start on.
+	if f.Input.Toggle != nil && len(s.Input.Toggle) != 1 {
+		if f.Input.ToggleTap == nil {
+			s.Input.ToggleTap = false
+		}
+		if f.Input.ToggleExclusive == nil {
+			s.Input.ToggleExclusive = false
+		}
+		if f.Input.StartOn == nil && len(s.Input.Toggle) == 0 {
+			s.Input.StartOn = true
+		}
+	}
 	set(&s.Input.LearnThreshold, f.Input.LearnThreshold)
 	set(&s.Input.ToggleExclusive, f.Input.ToggleExclusive)
 	if s.Input.LearnThreshold < 1 || s.Input.LearnThreshold > 100 {

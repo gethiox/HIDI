@@ -97,6 +97,14 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 			return fail("--toggle: %v", err)
 		}
 	}
+	if o.given["toggle"] && len(o.toggle) != 1 && !o.given["toggle-tap"] {
+		// A combination named on the command line is not tapped, even
+		// where the settings tap their one key.
+		s.Input.ToggleTap = false
+	}
+	if o.given["toggle"] && len(o.toggle) == 0 && !o.given["off"] {
+		s.Input.StartOn = true // without a toggle HIDI could not be turned on
+	}
 	o.grabKeyboards = !*noGrab
 	for _, from := range []struct {
 		option string

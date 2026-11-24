@@ -62,7 +62,7 @@ func TestRun(t *testing.T) {
 
 func TestParseToggle(t *testing.T) {
 	keys, err := parseToggle(defaultToggle)
-	if err != nil || len(keys) != 3 {
+	if err != nil || len(keys) != 1 {
 		t.Fatalf("parseToggle(default) = %v, %v", keys, err)
 	}
 	if got := formatToggle(keys); got != defaultToggle {

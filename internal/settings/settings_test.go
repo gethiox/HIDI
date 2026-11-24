@@ -19,14 +19,15 @@ func TestDefaultRoundTrip(t *testing.T) {
 	}
 	want := Default()
 	if !slices.Equal(got.Input.Toggle, want.Input.Toggle) || got.Input.GrabKeyboards != want.Input.GrabKeyboards ||
-		got.Input.GrabGamepads || !got.Input.StartOn || len(got.Output.Connect) != 0 || got.Window != want.Window {
+		got.Input.GrabGamepads || got.Input.StartOn || !got.Input.ToggleTap || !got.Input.ToggleExclusive ||
+		len(got.Output.Connect) != 0 || got.Window != want.Window || !got.Window.ShowAtStart {
 		t.Errorf("the default file reads as %+v", got)
 	}
 	names := []string{}
 	for _, c := range want.Input.Toggle {
 		names = append(names, c.String())
 	}
-	if strings.Join(names, " ") != "KEY_LEFTCTRL KEY_LEFTSHIFT KEY_LEFTALT" {
+	if strings.Join(names, " ") != "KEY_CAPSLOCK" {
 		t.Errorf("the default toggle is %v", names)
 	}
 
@@ -49,13 +50,19 @@ func TestDefaultRoundTrip(t *testing.T) {
 func TestParse(t *testing.T) {
 	// What is left out keeps its default.
 	s, err := Parse([]byte("schema = 1\n[input]\ngrab_gamepads = true\n"))
-	if err != nil || !s.Input.GrabGamepads || !s.Input.GrabKeyboards || len(s.Input.Toggle) != 3 {
+	if err != nil || !s.Input.GrabGamepads || !s.Input.GrabKeyboards || len(s.Input.Toggle) != 1 {
 		t.Errorf("partial file: %+v, %v", s, err)
 	}
 	// An empty list is not the same as no list.
 	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = []\ngrab_keyboards = false\n"))
-	if err != nil || len(s.Input.Toggle) != 0 {
-		t.Errorf("no toggle: %+v, %v", s, err)
+	if err != nil || len(s.Input.Toggle) != 0 || s.Input.ToggleTap || s.Input.ToggleExclusive || !s.Input.StartOn {
+		t.Errorf("no toggle: %+v, %v", s.Input, err)
+	}
+	// A combination of keys in a file that says nothing else is not
+	// tapped, and is not HIDI's alone.
+	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_LEFTCTRL\", \"KEY_F1\"]\n"))
+	if err != nil || len(s.Input.Toggle) != 2 || s.Input.ToggleTap || s.Input.ToggleExclusive || s.Input.StartOn {
+		t.Errorf("a combination: %+v, %v", s.Input, err)
 	}
 
 	for _, tt := range []struct{ name, text, want string }{
@@ -74,7 +81,7 @@ func TestParse(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: error %v, want one about %q", tt.name, err, tt.want)
 		}
-		if !s.Input.GrabKeyboards || len(s.Input.Toggle) != 3 {
+		if !s.Input.GrabKeyboards || len(s.Input.Toggle) != 1 {
 			t.Errorf("%s: a file with mistakes did not give the defaults: %+v", tt.name, s)
 		}
 	}
@@ -82,7 +89,7 @@ func TestParse(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
-	if s, err := Load(filepath.Join(dir, "none.toml")); err != nil || !s.Input.StartOn {
+	if s, err := Load(filepath.Join(dir, "none.toml")); err != nil || s.Input.StartOn || !s.Window.ShowAtStart {
 		t.Errorf("a missing file: %+v, %v", s, err)
 	}
 	file := filepath.Join(dir, "settings.toml")
@@ -381,7 +388,7 @@ func TestToggleTapSettings(t *testing.T) {
 		t.Errorf("written and read again: %+v, %v", again.Input, err)
 	}
 	// A tap needs exactly one key.
-	if _, err := Parse([]byte("schema = 1\n[input]\ntoggle_tap = true\n")); err == nil || !strings.Contains(err.Error(), "toggle_tap") {
+	if _, err := Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_A\", \"KEY_B\", \"KEY_C\"]\ntoggle_tap = true\n")); err == nil || !strings.Contains(err.Error(), "toggle_tap") {
 		t.Errorf("a tap with three keys: %v", err)
 	}
 }
@@ -480,7 +487,7 @@ func TestDevicesAndColoursSettings(t *testing.T) {
 
 func TestLearnThreshold(t *testing.T) {
 	s := Default()
-	if s.Input.LearnThreshold != 20 {
+	if s.Input.LearnThreshold != 50 {
 		t.Errorf("the default is %d", s.Input.LearnThreshold)
 	}
 	s.Input.LearnThreshold = 35

@@ -174,7 +174,7 @@ type Engine struct {
 
 // DefaultLearnThreshold is how far an axis has to be moved to get through
 // in learning mode, unless it is set: a fifth of its range.
-const DefaultLearnThreshold = 0.2
+const DefaultLearnThreshold = 0.5
 
 // SetLearning turns learning mode on or off and sets how far an axis has
 // to move in it, as a part of its whole range from 0 to 1.
