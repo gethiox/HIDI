@@ -37,6 +37,9 @@ type Axis struct {
 	Part string
 	// Value is the position, from 0 to 1.
 	Value float64
+	// Said says that the device has reported where the axis stands. An
+	// axis the device only listed has not, and its Value means nothing.
+	Said bool
 }
 
 type inputKey struct {
@@ -142,13 +145,13 @@ func (t *inputTracker) record(ev control.Event) bool {
 	case control.KindAxis:
 		value := math.Round(ev.Value/axisStep) * axisStep
 		if i, seen := t.axisAt[key]; seen {
-			if t.axes[i].Value == value {
+			if t.axes[i].Value == value && t.axes[i].Said {
 				return false
 			}
-			t.axes[i].Value = value
+			t.axes[i].Value, t.axes[i].Said = value, true
 			return true
 		}
-		t.axes = append(t.axes, Axis{Code: ev.Code, Part: ev.Part, Value: value})
+		t.axes = append(t.axes, Axis{Code: ev.Code, Part: ev.Part, Value: value, Said: true})
 		t.axisAt = nil
 		t.index()
 		return true
@@ -168,9 +171,18 @@ func (t *inputTracker) keysDown() []control.Code {
 	return out
 }
 
-// axesNow returns the axes with where each stands, ordered by part and
-// code.
-func (t *inputTracker) axesNow() []Axis { return slices.Clone(t.axes) }
+// axesNow returns the axes the device has reported, with where each
+// stands, ordered by part and code. An axis the device listed and has
+// said nothing of is left out: nobody knows where it stands.
+func (t *inputTracker) axesNow() []Axis {
+	var out []Axis
+	for _, a := range t.axes {
+		if a.Said {
+			out = append(out, a)
+		}
+	}
+	return out
+}
 
 func (t *inputTracker) snapshot() Input {
 	in := Input{Buttons: slices.Clone(t.buttons), Axes: slices.Clone(t.axes), Complete: t.complete}

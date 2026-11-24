@@ -34,14 +34,35 @@ type fakeDevice struct {
 	closed  bool
 	grabbed bool
 	grabErr error
+	// has is what the device says it has.
+	has []control.Input
+}
+
+// padControls is what a game controller of the tests says it has: the
+// buttons and axes of an ordinary pad, its hat among them.
+func padControls() []control.Input {
+	var out []control.Input
+	for _, n := range []uint16{0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c, 0x13d, 0x13e} {
+		out = append(out, control.Input{Code: control.Key(n)})
+	}
+	for _, n := range []uint16{0, 1, 2, 3, 4, 5, 0x10, 0x11} {
+		out = append(out, control.Input{Code: control.Axis(n)})
+	}
+	return out
 }
 
 func newFakeDevice(name string, typ control.DeviceType) *fakeDevice {
-	return &fakeDevice{
+	d := &fakeDevice{
 		info:   control.DeviceInfo{Name: name, Type: typ},
 		events: make(chan control.Event, 16),
 	}
+	if typ == control.DeviceGamepad {
+		d.has = padControls()
+	}
+	return d
 }
+
+func (d *fakeDevice) Controls() []control.Input { return d.has }
 
 func (d *fakeDevice) Info() control.DeviceInfo     { return d.info }
 func (d *fakeDevice) Events() <-chan control.Event { return d.events }
