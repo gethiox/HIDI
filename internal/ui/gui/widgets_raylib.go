@@ -88,6 +88,18 @@ func (k *kit) toggle(r rl.Rectangle, on bool, lit RGB, area rl.Rectangle) bool {
 	return k.clicked(area)
 }
 
+// frozen draws an on/off switch that cannot be used here, faintly: a
+// setting that does not apply on this system.
+func (k *kit) frozen(r rl.Rectangle, on bool) {
+	half := r.Height / 2
+	knob := r.X + half
+	if on {
+		knob = r.X + r.Width - half
+	}
+	rl.DrawRectangleRoundedLinesEx(r, 1, 12, k.hair(), col(colPanelEdge))
+	rl.DrawCircle(int32(knob), int32(r.Y+half), float32(int(r.Height*0.35)), col(colPanelEdge))
+}
+
 // pill draws the on/off switch of a setting and reports a click on it.
 func (k *kit) pill(on bool, x, y float32) bool {
 	r := rl.NewRectangle(x, y, 40, 20)

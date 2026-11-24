@@ -25,3 +25,39 @@ func TestFlow(t *testing.T) {
 		t.Errorf("%d lines", f.lines)
 	}
 }
+
+func TestWrap(t *testing.T) {
+	// Every letter is one wide.
+	measure := func(s string) float32 { return float32(len(s)) }
+	got := Wrap("one two three four\nfive incomprehensibilities six", 9, measure)
+	want := []string{"one two", "three", "four", "five", "incomprehensibilities", "six"}
+	if len(got) != len(want) {
+		t.Fatalf("lines: %q", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: %q, want %q", i, got[i], want[i])
+		}
+	}
+	if got := Wrap("", 9, measure); len(got) != 1 || got[0] != "" {
+		t.Errorf("nothing wraps to %q", got)
+	}
+}
+
+func TestBeside(t *testing.T) {
+	// Room on all sides: below and to the right.
+	if x, y := Beside(100, 100, 50, 20, 400, 300); x != 116 || y != 116 {
+		t.Errorf("in the open: %v, %v", x, y)
+	}
+	// At the bottom edge it goes above the point, at the right edge it
+	// is moved in, and it never leaves at the top or the left.
+	if _, y := Beside(100, 290, 50, 20, 400, 300); y != 262 {
+		t.Errorf("at the bottom: %v", y)
+	}
+	if x, _ := Beside(390, 100, 50, 20, 400, 300); x != 350 {
+		t.Errorf("at the right: %v", x)
+	}
+	if x, y := Beside(5, 5, 500, 400, 400, 300); x != 0 || y != 0 {
+		t.Errorf("larger than the area: %v, %v", x, y)
+	}
+}

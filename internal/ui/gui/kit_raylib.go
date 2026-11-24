@@ -4,6 +4,7 @@ package gui
 
 import (
 	"runtime"
+	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 
@@ -43,6 +44,15 @@ type kit struct {
 	// somewhere, a caret that blinks for one, so that another frame has
 	// to follow though nothing else changed.
 	moving bool
+
+	// blocked makes everything deaf while a question waits for its
+	// answer; see confirm. asking is that question.
+	blocked bool
+	asking  *question
+	hints   hints
+	// wide and high are the size of the window in its own points, as of
+	// the frame being drawn.
+	wide, high float32
 
 	// clips are the parts of the window that drawing, and the pointer,
 	// are held to, each inside the one before; the last is in force.
@@ -113,11 +123,16 @@ func (k *kit) begin() (wide, high float32) {
 	// Whatever lies under the pointer may ask for another cursor.
 	k.cursor = rl.MouseCursorDefault
 	k.deaf, k.moving, k.clips = false, false, k.clips[:0]
-	return float32(rl.GetScreenWidth()) / k.scale, float32(rl.GetScreenHeight()) / k.scale
+	k.blocked = k.asking != nil
+	k.wide, k.high = float32(rl.GetScreenWidth())/k.scale, float32(rl.GetScreenHeight())/k.scale
+	return k.wide, k.high
 }
 
-// end ends a frame.
+// end ends a frame: what lies over everything is drawn, and the frame
+// shown.
 func (k *kit) end() {
+	k.drawQuestion()
+	k.drawHint(time.Now())
 	rl.EndDrawing()
 	k.applyCursor()
 }
@@ -186,7 +201,7 @@ func (k *kit) dragged() rl.Vector2 {
 func (k *kit) hovered(r rl.Rectangle) bool {
 	// A pointer that left the window in a hurry is last seen inside it;
 	// nothing is under a pointer that is not over the window.
-	if k.deaf || !rl.IsCursorOnScreen() {
+	if k.deaf || k.blocked || !rl.IsCursorOnScreen() {
 		return false
 	}
 	p := k.mouse()

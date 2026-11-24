@@ -230,7 +230,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	}()
 	// The keys that take a change back, make it again, and save. They
 	// reach the window only while the keyboard is not HIDI's alone.
-	if !w.deaf && !e.adding && ctrlHeld() {
+	if !w.deaf && !w.blocked && !e.adding && ctrlHeld() {
 		shift := rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
 		switch {
 		case rl.IsKeyPressed(rl.KeyZ) && !shift:

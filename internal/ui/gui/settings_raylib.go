@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -245,6 +246,10 @@ func (w *window) drawOverlay(state *ipc.Snapshot, body rl.Rectangle) {
 type toggleItem struct {
 	name, about string
 	value       *bool
+	// only names the system the setting applies to, as runtime.GOOS
+	// has it; empty for every system. Elsewhere the setting is shown
+	// faintly and cannot be changed.
+	only string
 }
 
 // sheet is the settings page while it is drawn: where the next thing
@@ -304,6 +309,15 @@ func (sh *sheet) switches(items ...toggleItem) {
 			room := cell - 50 - 16
 			name, about := fit(sh.sans, item.name, sizeText, room), fit(sh.sans, item.about, sizeText-2, room)
 			wide := max(width(sh.sans, name, sizeText), width(sh.sans, about, sizeText-2))
+			if item.only != "" && item.only != runtime.GOOS {
+				// Not for this system: shown, and not to be changed.
+				sh.frozen(rl.NewRectangle(cx, sh.y, 40, 20), *item.value)
+				sh.text(sh.sans, name, cx+50, sh.y+2, sizeText, col(colOff))
+				if about != "" {
+					sh.text(sh.sans, about, cx+50, sh.y+20, sizeText-2, col(colOff))
+				}
+				continue
+			}
 			// The words beside a switch take the click too.
 			if sh.toggle(rl.NewRectangle(cx, sh.y, 40, 20), *item.value, colOn, rl.NewRectangle(cx, sh.y-2, 50+wide, 24)) && sh.editable {
 				*item.value = !*item.value
@@ -461,9 +475,9 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 	}
 	sh.y += 48
 	sh.switches(
-		toggleItem{"The toggle is one key, tapped", "held longer, the key does what it normally does", &sh.s.Input.ToggleTap},
-		toggleItem{"The toggle key is HIDI's alone", "one key, such as Caps Lock, never reaches the system", &sh.s.Input.ToggleExclusive},
-		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn},
+		toggleItem{"The toggle is one key, tapped", "held longer, the key does what it normally does", &sh.s.Input.ToggleTap, ""},
+		toggleItem{"The toggle key is HIDI's alone", "one key, such as Caps Lock, never reaches the system", &sh.s.Input.ToggleExclusive, ""},
+		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn, ""},
 	)
 }
 
@@ -472,9 +486,9 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 	w := sh.window
 	sh.section("Devices")
 	sh.switches(
-		toggleItem{"Keyboards do not type while HIDI is on", "needs a toggle combination", &sh.s.Input.GrabKeyboards},
-		toggleItem{"Game controllers are kept from other programs", "not possible on Windows", &sh.s.Input.GrabGamepads},
-		toggleItem{"Keyboards stay grabbed while HIDI is off", "Linux; hides the tapped key from the system", &sh.s.Input.AlwaysGrab},
+		toggleItem{"Keyboards do not type while HIDI is on", "needs a toggle combination", &sh.s.Input.GrabKeyboards, ""},
+		toggleItem{"Game controllers are kept from other programs", "Linux only: Windows cannot", &sh.s.Input.GrabGamepads, "linux"},
+		toggleItem{"Keyboards stay grabbed while HIDI is off", "Linux only: hides the tapped key from the system", &sh.s.Input.AlwaysGrab, "linux"},
 	)
 	sh.y = w.drawDeviceList(state, sh.s, sh.editable, sh.x, sh.y, sh.right)
 	// How far an axis has to move in learning mode.
@@ -553,9 +567,9 @@ func (sh *sheet) lights() {
 func (sh *sheet) windowSettings() {
 	sh.section("Window")
 	sh.switches(
-		toggleItem{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &sh.s.Window.ShowAtStart},
-		toggleItem{"Look for a newer HIDI", "asks GitHub once a day; installs nothing", &sh.s.Window.CheckUpdates},
-		toggleItem{"Name the controls of game controllers", "BTN_SOUTH and ABS_X, as profiles call them; otherwise numbers", &sh.s.Window.ControlNames},
+		toggleItem{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &sh.s.Window.ShowAtStart, ""},
+		toggleItem{"Look for a newer HIDI", "asks GitHub once a day; installs nothing", &sh.s.Window.CheckUpdates, ""},
+		toggleItem{"Name the controls of game controllers", "BTN_SOUTH and ABS_X, as profiles call them; otherwise numbers", &sh.s.Window.ControlNames, ""},
 	)
 	// The window itself follows these at once.
 	vx := sh.row("Size of the interface", "of everything this window draws")
@@ -659,6 +673,10 @@ func (sh *sheet) profiles() {
 		if hit {
 			w.show(profile.Source)
 		}
+		remove, end := w.button("Delete", end+6, sh.y)
+		if remove {
+			w.deleteProfile(profile)
+		}
 		ink := colText
 		if !profile.Enabled {
 			ink = colOff
@@ -705,6 +723,31 @@ func (sh *sheet) profiles() {
 		}
 		sh.y += 8
 	}
+}
+
+// deleteProfile asks whether a profile of the user's is to be removed,
+// and removes its file when the answer is yes.
+func (w *window) deleteProfile(profile *config.Profile) {
+	file := profile.Source
+	question := fmt.Sprintf("Delete your profile %q?\n\nIts file, %s, is removed. This cannot be taken back. Devices that played by it play by the next profile that fits them.",
+		profile.Name, filepath.Base(file))
+	w.confirm(question, "Delete", func() {
+		if err := os.Remove(file); err != nil {
+			w.settings.message = fmt.Sprintf("%s could not be removed: %v", file, err)
+			return
+		}
+		// What was being changed in it goes with it, also for the
+		// running HIDI.
+		if e := w.docs[file]; e != nil {
+			if w.edit == e {
+				w.edit = nil
+			}
+			delete(w.docs, file)
+			w.profiles.put(file, "")
+		}
+		w.settings.message = ""
+		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+	})
 }
 
 // show shows a file in the file manager.
