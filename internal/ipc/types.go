@@ -194,8 +194,10 @@ const settingsHead = `{"op":"settings"`
 // response is one answer. Exactly one field is set.
 type response struct {
 	Snapshot *Snapshot `json:"snapshot,omitempty"`
-	Log      *LogLine  `json:"log,omitempty"`
-	Error    string    `json:"error,omitempty"`
+	// Settings, for "current_settings", are the settings HIDI goes by.
+	Settings string   `json:"settings,omitempty"`
+	Log      *LogLine `json:"log,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // Host is what the server needs from the running HIDI.
@@ -211,11 +213,12 @@ type Host struct {
 	// an instrument, named as a snapshot names it. Nil for a host that
 	// cannot.
 	Simulate func(name, kind, location string, on bool)
-	// TrySettings makes HIDI behave by the settings in text, written as
-	// the settings file is, without anything being saved: the window
-	// tries what the user changes there. The settings file counts again
-	// when it changes. Nil for a host that cannot.
+	// TrySettings makes HIDI go by the settings in text, written as the
+	// settings file is, without anything being saved: the window hands
+	// over what the user changes there. Settings returns the settings
+	// HIDI goes by, written the same way. Nil for a host that has none.
 	TrySettings func(text string) error
+	Settings    func() string
 	// Changes tells when a snapshot would be different from the last.
 	Changes *Notifier
 	// LogLines returns the kept log lines numbered from to to-1, and

@@ -144,13 +144,8 @@ func (w *window) set(s settings.Settings) {
 // useSettings makes the window and the running HIDI behave by the settings as
 // the sheet shows them, saved or not.
 func (w *window) useSettings() {
+	w.useLocal()
 	s := w.settings.edit.shown
-	w.pace.limit, w.pace.background = s.Window.FPS, s.Window.BackgroundFPS
-	if s.Window.Scale >= settings.MinScale && s.Window.Scale <= settings.MaxScale {
-		w.wantScale = float32(s.Window.Scale) / 100
-	}
-	w.newest.on = s.Window.CheckUpdates
-	w.names = s.Window.ControlNames
 	// Settings with a mistake in them, an address half typed for one,
 	// wait until they are right.
 	if len(s.Check()) > 0 {
@@ -161,8 +156,19 @@ func (w *window) useSettings() {
 	w.tried.put(struct{}{}, string(out.Text()))
 }
 
-// saveSettings writes the settings as they are shown and says what came
-// of it.
+// useLocal makes this window go by the settings that are its own.
+func (w *window) useLocal() {
+	s := w.settings.edit.shown
+	w.pace.limit, w.pace.background = s.Window.FPS, s.Window.BackgroundFPS
+	if s.Window.Scale >= settings.MinScale && s.Window.Scale <= settings.MaxScale {
+		w.wantScale = float32(s.Window.Scale) / 100
+	}
+	w.newest.on = s.Window.CheckUpdates
+	w.names = s.Window.ControlNames
+}
+
+// saveSettings writes the settings as they are shown into the settings
+// file, and does nothing else: they are in use since they were changed.
 func (w *window) saveSettings() {
 	v := &w.settings
 	if !v.edit.Dirty() {
@@ -175,19 +181,12 @@ func (w *window) saveSettings() {
 		v.message = strings.ReplaceAll(err.Error(), "\n", " ")
 		return
 	}
-	v.message = soonNote
-	if v.edit.restart() {
-		v.message = restartNote
-	}
+	// Nothing else: the settings are in use already, and saving only
+	// keeps them.
+	v.message = "Saved."
 	v.edit.disk = clone(v.edit.shown)
-	v.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+	v.edit.disk.Shown = clone(out).Shown
 }
-
-// What the page says after saving, by when a running HIDI follows.
-const (
-	soonNote    = "Saved."
-	restartNote = "Saved. Whether HIDI starts on and with its window, and the MIDI ports it also sends to, are followed when it is started again."
-)
 
 // drawOverlay draws the settings as a sheet over the body of the window:
 // smaller than it, so that the instruments show around it, and not quite
@@ -464,7 +463,7 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 	sh.switches(
 		toggleItem{"The toggle is one key, tapped", "held longer, the key does what it normally does", &sh.s.Input.ToggleTap},
 		toggleItem{"The toggle key is HIDI's alone", "one key, such as Caps Lock, never reaches the system", &sh.s.Input.ToggleExclusive},
-		toggleItem{"HIDI is on when it starts", "followed at the next start", &sh.s.Input.StartOn},
+		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn},
 	)
 }
 
@@ -492,7 +491,7 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 func (sh *sheet) midi() {
 	w, v := sh.window, &sh.window.settings
 	sh.section("MIDI")
-	vx := sh.row("Also send to MIDI ports", "every instrument; followed at the next start")
+	vx := sh.row("Also send to MIDI ports", "every instrument")
 	ports := newFlow(vx, sh.right, sh.y, chipH+6, 6)
 	portChip := func(label string, on bool) bool {
 		px, py := ports.put(w.chipWidth(label))
@@ -874,7 +873,11 @@ func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right flo
 			if v.slide == i+1 {
 				if rl.IsMouseButtonDown(rl.MouseButtonLeft) {
 					at := (w.mouse().X - track.X) / track.Width
-					*part.value = uint8(min(max(at, 0), 1)*255 + 0.5)
+					if to := uint8(min(max(at, 0), 1)*255 + 0.5); to != *part.value {
+						// In use at once: the lights follow the slider.
+						*part.value = to
+						w.useSettings()
+					}
 				} else {
 					v.slide = 0
 				}
@@ -891,6 +894,7 @@ func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right flo
 			if d.Name == n.Name && *d.Colour != *n.Colour {
 				if hit, _ := w.button("Back to the default", vx, y+2); hit && editable {
 					*n.Colour = *d.Colour
+					w.useSettings()
 				}
 				y += 30
 			}

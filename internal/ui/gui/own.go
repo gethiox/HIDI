@@ -92,14 +92,6 @@ func (p *pending) Dirty() bool { return !reflect.DeepEqual(normal(p.shown), norm
 // drop forgets what is not saved.
 func (p *pending) drop() { p.shown = clone(p.disk) }
 
-// restart reports whether what is to be saved includes something a
-// running HIDI only follows when it is started again.
-func (p *pending) restart() bool {
-	return p.shown.Input.StartOn != p.disk.Input.StartOn ||
-		p.shown.Window.ShowAtStart != p.disk.Window.ShowAtStart ||
-		!slices.Equal(p.shown.Output.Connect, p.disk.Output.Connect)
-}
-
 // clone copies settings so that the copy shares no list with the
 // original.
 func clone(s settings.Settings) settings.Settings {

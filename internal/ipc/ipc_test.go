@@ -52,6 +52,7 @@ func (h *fakeHost) host() Host {
 			h.mu.Unlock()
 			h.changes.Notify()
 		},
+		Settings: func() string { return "schema = 1\n# as HIDI has them\n" },
 		TrySettings: func(text string) error {
 			if text == "broken" {
 				return errors.New("line 1: these are no settings")
@@ -571,5 +572,13 @@ func TestTrySettings(t *testing.T) {
 	}
 	if err := client.TrySettings(t.Context(), "broken"); err == nil || !strings.Contains(err.Error(), "no settings") {
 		t.Errorf("broken settings: %v", err)
+	}
+}
+
+func TestCurrentSettings(t *testing.T) {
+	_, client, _ := start(t)
+	got, err := client.Settings(t.Context())
+	if err != nil || got != "schema = 1\n# as HIDI has them\n" {
+		t.Errorf("Settings = %q, %v", got, err)
 	}
 }

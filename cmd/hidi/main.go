@@ -344,19 +344,22 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	if lightsOn {
 		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
 	}
+	// The ports every instrument also sends to. A port that is not there
+	// yet is connected when it appears, so a MIDI interface can be
+	// plugged in later; and which ports these are can change while HIDI
+	// runs.
 	plainEndpoint := openEndpoint
-	if len(o.connect) > 0 {
-		// A port that is not there yet is connected when it appears, so a
-		// MIDI interface can be plugged in later.
-		router := output.NewRouter(backend.Ports, output.MatchPorts(o.connect), logs.Logger("output"))
-		go router.Run(ctx, time.Second)
-		openEndpoint = func(name string) (output.Endpoint, error) {
-			e, err := plainEndpoint(name)
-			if err != nil {
-				return nil, err
-			}
-			return router.Add(strings.TrimPrefix(name, instrument.EndpointPrefix), e), nil
+	router := output.NewRouter(backend.Ports, output.MatchPorts(nil), logs.Logger("output"))
+	router.Choose(o.connect)
+	go router.Run(ctx, time.Second)
+	openEndpoint = func(name string) (output.Endpoint, error) {
+		e, err := plainEndpoint(name)
+		if err != nil {
+			return nil, err
 		}
+		return router.Add(strings.TrimPrefix(name, instrument.EndpointPrefix), e), nil
+	}
+	if len(o.connect) > 0 {
 		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(o.connect, ", "))
 	}
 	manager := instrument.NewManager(instrument.Options{
@@ -414,21 +417,18 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// their files.
 	tried := &previews{profiles: profiles}
 	host := controlHost(manager, logs, &changes, loadSeen(pl.paths.Seen))
-	// Settings the window is trying, before they are saved, are taken
-	// over as a changed file would be.
-	var trySettings atomic.Pointer[func(settings.Settings)]
+	// The settings HIDI runs by. The window changes them as the user
+	// does, without writing anything; a changed file changes them too.
+	live := newLiveSettings(o, pl.settings, manager, hub, &address, router, configLog, func(keys []control.Code) { showToggle(keys) }, changes.Notify)
 	host.TrySettings = func(text string) error {
-		apply := trySettings.Load()
-		if apply == nil {
-			return errors.New("this HIDI runs without a settings file and takes no settings")
-		}
 		s, err := settings.Parse([]byte(text))
 		if err != nil {
 			return err
 		}
-		(*apply)(s)
+		live.try(s)
 		return nil
 	}
+	host.Settings = live.text
 	host.Preview = func(file, text string) error {
 		now, err := tried.set(file, text)
 		if err != nil {
@@ -476,18 +476,13 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		})
 	}
 	if pl.settingsFile != "" {
-		// Settings changed in the file, by hand or from the window, are
-		// taken over while HIDI runs, as far as they can be.
-		live := newLiveSettings(o, manager, hub, &address, configLog, func(keys []control.Code) { showToggle(keys) }, changes.Notify)
-		apply := live.apply
-		trySettings.Store(&apply)
 		settingsFile := pl.settingsFile
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
 				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
 				return
 			}
-			live.apply(s)
+			live.fileChanged(s)
 		})
 	}
 	manager.Run(ctx, source.Devices)
@@ -521,7 +516,7 @@ const footerPause = 100 * time.Millisecond
 // of modifier keys only, so that pressing it while HIDI is off, when the
 // keys reach the desktop, does not trigger anything there, and every
 // keyboard has the three keys.
-const defaultToggle = "KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT"
+const defaultToggle = "KEY_CAPSLOCK"
 
 // parseToggle reads a key combination written like "KEY_A+KEY_B".
 func parseToggle(s string) ([]control.Code, error) {

@@ -213,3 +213,42 @@ func TestRouterRun(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// fakeDisconnector is a connector that can also end connections.
+type fakeDisconnector struct {
+	fakeConnector
+	ended []string
+}
+
+func (c *fakeDisconnector) Disconnect(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ended = append(c.ended, id)
+	delete(c.connected, id)
+	return nil
+}
+
+func TestRouterChangesItsPorts(t *testing.T) {
+	s := &system{ports: []Port{usb, synth}}
+	r, log := newTestRouter(s, "usb")
+	c := &fakeDisconnector{}
+	r.Add("Keyboard", c)
+	if c.calls(usb.ID) != 1 || c.calls(synth.ID) != 0 {
+		t.Fatalf("at first: usb %d, synth %d", c.calls(usb.ID), c.calls(synth.ID))
+	}
+	// Another port is chosen while the router runs: the new one is
+	// connected and the old one, which is still there, let go of.
+	r.SetMatch(MatchPorts([]string{"synth"}))
+	if c.calls(synth.ID) != 1 || len(c.ended) != 1 || c.ended[0] != usb.ID {
+		t.Fatalf("after the change: synth %d, ended %v", c.calls(synth.ID), c.ended)
+	}
+	if !strings.Contains(log.String(), "disconnected from MIDI port") || strings.Contains(log.String(), "MIDI port is gone") {
+		t.Errorf("the log:\n%s", log)
+	}
+	// None chosen: everything is let go of, once.
+	r.SetMatch(MatchPorts(nil))
+	r.Sync()
+	if len(c.ended) != 2 || c.ended[1] != synth.ID {
+		t.Errorf("after choosing none: ended %v", c.ended)
+	}
+}

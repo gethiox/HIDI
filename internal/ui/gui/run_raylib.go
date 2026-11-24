@@ -198,11 +198,6 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	// What was tried and not saved ends with the window: the files count
 	// again.
 	defer func() {
-		if v := &w.settings; v.exists && v.edit.Dirty() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			hidi.TrySettings(ctx, string(v.edit.disk.Text()))
-			cancel()
-		}
 		for path, e := range w.docs {
 			if e.doc.Dirty() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -229,12 +224,21 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	}
 	w.version = opts.Version
 	w.newest.check = opts.CheckUpdate
-	if opts.Paths.Root != "" {
-		if s, err := settings.Load(opts.Paths.Settings); err == nil {
-			w.shown = s.Shown
-			w.newest.on = s.Window.CheckUpdates
-			w.names = s.Window.ControlNames
+	// The settings the window shows: those of the file and, where a HIDI
+	// runs that was handed changes which were not saved, those. The
+	// running HIDI is what the settings are about; the file is only where
+	// they are kept.
+	w.settings.refresh(opts.Paths, opts.Ports, time.Now(), true)
+	w.shown = w.settings.edit.disk.Shown
+	if w.settings.exists {
+		ask, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		if text, err := hidi.Settings(ask); err == nil && text != "" {
+			if s, err := settings.Parse([]byte(text)); err == nil {
+				w.settings.edit.shown = clone(s)
+				w.settings.edit.shown.Shown = clone(w.settings.edit.disk).Shown
+			}
 		}
+		cancel()
 	}
 
 	w.savedHeight = 220
@@ -244,6 +248,12 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 
 	pace := newPacer(opts.FPS, opts.BackgroundFPS)
 	w.pace = pace
+	// What the command line said about the window holds, unless settings
+	// are in use that were changed since.
+	w.newest.on, w.names = w.settings.edit.shown.Window.CheckUpdates, w.settings.edit.shown.Window.ControlNames
+	if w.settings.edit.Dirty() {
+		w.useLocal()
+	}
 	if opts.ShowSettings {
 		w.gear.set(true, time.Now())
 	}

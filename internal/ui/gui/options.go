@@ -19,6 +19,9 @@ type Controller interface {
 	// TrySettings makes HIDI behave by settings, written as the settings
 	// file is, without saving them.
 	TrySettings(ctx context.Context, text string) error
+	// Settings returns the settings HIDI goes by, which may hold what
+	// was changed and not saved.
+	Settings(ctx context.Context) (string, error)
 	// Simulate asks HIDI to show, or to stop showing, what the lights of
 	// a keyboard would show where it does not control them.
 	Simulate(ctx context.Context, name, kind, location string, on bool) error

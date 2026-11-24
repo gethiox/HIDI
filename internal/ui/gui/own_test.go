@@ -106,8 +106,8 @@ func TestPendingSettings(t *testing.T) {
 	}
 	p.shown.Input.GrabGamepads = true
 	p.shown.Devices.List = append(p.shown.Devices.List, "Some Keyboard")
-	if !p.Dirty() || p.restart() {
-		t.Errorf("after a change: dirty %v, restart %v", p.Dirty(), p.restart())
+	if !p.Dirty() {
+		t.Error("a change does not count as one")
 	}
 	if len(p.disk.Devices.List) != 0 {
 		t.Error("a change reached what the file has")
@@ -119,9 +119,6 @@ func TestPendingSettings(t *testing.T) {
 	p.load(disk)
 	if !p.shown.Input.GrabGamepads || len(p.shown.Shown.Input) != 1 {
 		t.Errorf("after the file changed: %+v", p.shown)
-	}
-	if !p.restart() {
-		t.Error("starting on or off is said to be followed at once")
 	}
 	p.drop()
 	if p.Dirty() || p.shown.Input.GrabGamepads || p.shown.Input.StartOn {

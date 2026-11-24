@@ -88,6 +88,29 @@ func (c *Client) TrySettings(ctx context.Context, text string) error {
 	}{text})
 }
 
+// Settings returns the settings the running HIDI goes by, written as the
+// settings file is. They are the file's unless something was changed
+// since and not saved.
+func (c *Client) Settings(ctx context.Context) (string, error) {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := json.NewEncoder(conn).Encode(request{Op: "current_settings"}); err != nil {
+		return "", fmt.Errorf("asking HIDI: %w", err)
+	}
+	var resp response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return "", fmt.Errorf("reading HIDI's answer: %w", err)
+	}
+	if resp.Error != "" {
+		return "", errors.New("HIDI answered: " + resp.Error)
+	}
+	return resp.Settings, nil
+}
+
 // long makes a request that may be longer than a line of the ordinary
 // kind: it begins with head, by which the server tells, and goes on with
 // the fields.

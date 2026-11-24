@@ -120,6 +120,25 @@ func formatAddr(a addr) string {
 	return strconv.Itoa(int(a.Client)) + ":" + strconv.Itoa(int(a.Port))
 }
 
+// Disconnect ends what Connect began. A port that is gone, or was never
+// connected, is not an error. Disconnect implements [output.Disconnector].
+func (e *Endpoint) Disconnect(portID string) error {
+	dest, err := parseAddr(portID)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.client == nil {
+		return ErrClosed
+	}
+	err = e.client.unsubscribe(e.port, dest)
+	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.EINVAL) {
+		return nil // nothing to end
+	}
+	return err
+}
+
 func parseAddr(id string) (addr, error) {
 	client, port, ok := strings.Cut(id, ":")
 	c, err1 := strconv.ParseUint(client, 10, 8)

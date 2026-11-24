@@ -61,6 +61,7 @@ func TestStructLayout(t *testing.T) {
 		{"SET_CLIENT_INFO", ioctlSetClientInfo, unsafe.Sizeof(clientInfo{})},
 		{"CREATE_PORT", ioctlCreatePort, unsafe.Sizeof(portInfo{})},
 		{"SUBSCRIBE_PORT", ioctlSubscribePort, unsafe.Sizeof(portSubscribe{})},
+		{"UNSUBSCRIBE_PORT", ioctlUnsubscribe, unsafe.Sizeof(portSubscribe{})},
 		{"QUERY_NEXT_CLIENT", ioctlNextClient, unsafe.Sizeof(clientInfo{})},
 		{"QUERY_NEXT_PORT", ioctlNextPort, unsafe.Sizeof(portInfo{})},
 	}

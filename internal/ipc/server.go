@@ -205,6 +205,12 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 			return
 		}
 		snapshot()
+	case "current_settings":
+		if host.Settings == nil {
+			out.Encode(response{Error: "this HIDI has no settings to tell"})
+			return
+		}
+		out.Encode(response{Settings: host.Settings()})
 	case "simulate":
 		if host.Simulate == nil {
 			out.Encode(response{Error: "this HIDI cannot show lights it does not control"})

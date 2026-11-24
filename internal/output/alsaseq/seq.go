@@ -23,6 +23,7 @@ const (
 	ioctlSetClientInfo = 0x40bc5311
 	ioctlCreatePort    = 0xc0a85320
 	ioctlSubscribePort = 0x40505330
+	ioctlUnsubscribe   = 0x40505331
 	ioctlNextClient    = 0xc0bc5351
 	ioctlNextPort      = 0xc0a85352
 )
@@ -177,6 +178,16 @@ func (c *client) subscribe(sender, dest addr) error {
 	sub := portSubscribe{Sender: sender, Dest: dest}
 	if err := c.ioctl(ioctlSubscribePort, unsafe.Pointer(&sub)); err != nil {
 		return fmt.Errorf("connecting sequencer port %d:%d to %d:%d: %w",
+			sender.Client, sender.Port, dest.Client, dest.Port, err)
+	}
+	return nil
+}
+
+// unsubscribe ends what subscribe began.
+func (c *client) unsubscribe(sender, dest addr) error {
+	sub := portSubscribe{Sender: sender, Dest: dest}
+	if err := c.ioctl(ioctlUnsubscribe, unsafe.Pointer(&sub)); err != nil {
+		return fmt.Errorf("disconnecting sequencer port %d:%d from %d:%d: %w",
 			sender.Client, sender.Port, dest.Client, dest.Port, err)
 	}
 	return nil
