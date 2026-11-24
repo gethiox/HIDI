@@ -4,6 +4,7 @@ package evdev
 
 import (
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/gethiox/HIDI/internal/control"
@@ -73,7 +74,7 @@ func (d *Device) Controls() []control.Input {
 			out = append(out, control.Input{Code: code, Part: d.parts[i]})
 		}
 		for _, code := range info.Axes {
-			out = append(out, control.Input{Code: code, Part: d.parts[i]})
+			out = append(out, control.Input{Code: code, Part: d.parts[i], Hat: slices.Contains(info.Hats, code)})
 		}
 	}
 	return out

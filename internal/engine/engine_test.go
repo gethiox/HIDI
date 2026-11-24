@@ -898,3 +898,53 @@ func TestPassthrough(t *testing.T) {
 		t.Errorf("Passed() in a layout without one = %v", got)
 	}
 }
+
+// A control that is told to do nothing does nothing, also where a binding
+// for every layout would give it something to do; and it is not among the
+// keys that have a part.
+func TestNothing(t *testing.T) {
+	a, b, next := control.Key(30), control.Key(48), control.Key(88)
+	x := control.Axis(0)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Global: []Binding{
+			{Source: Source{Code: next}, Action: CommandLayoutNext},
+			{Source: Source{Code: a}, Action: Note{Note: 60}},
+			{Source: Source{Code: x}, Action: ControlChange{Controller: 7}},
+		},
+		Layouts: []Layout{
+			{Name: "Quiet", Bindings: []Binding{
+				{Source: Source{Code: a}, Action: Nothing{}},
+				{Source: Source{Code: x}, Action: Nothing{}},
+				{Source: Source{Code: b}, Action: Note{Note: 62}},
+			}},
+			{Name: "Loud"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range []control.Event{{Code: a, Value: 1}, {Code: a, Value: 0}, {Code: x, Value: 0.7}, {Code: x, Value: 0.2}} {
+		if out := e.Handle(ev, nil); len(out) != 0 {
+			t.Errorf("%v of a control that does nothing sent %v", ev, out)
+		}
+	}
+	keys, _, _ := e.Keys()
+	for _, k := range keys {
+		if k.Code == a {
+			t.Errorf("a key that does nothing has a part: %+v", k)
+		}
+	}
+	if len(keys) != 2 {
+		t.Errorf("keys with a part: %+v, want the note and the command", keys)
+	}
+	// In the other layout the bindings for every layout count again.
+	e.Handle(control.Event{Code: next, Value: 1}, nil)
+	e.Handle(control.Event{Code: next, Value: 0}, nil)
+	if out := e.Handle(control.Event{Code: a, Value: 1}, nil); len(out) != 1 {
+		t.Errorf("the key in the layout that does not silence it sent %v", out)
+	}
+	if out := e.Handle(control.Event{Code: x, Value: 1}, nil); len(out) != 1 {
+		t.Errorf("the axis in the layout that does not silence it sent %v", out)
+	}
+}

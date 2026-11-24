@@ -908,6 +908,7 @@ func (w *Watcher) take(handle uintptr) verdict {
 			own := newSteamReader()
 			own.connected = calm
 			events(own)
+			has = own.controls()
 			calm()
 		} else {
 			pad, err := newPadReader(handle, layoutOf(id.vendor, id.product, id.xinput), info.usage == usageJoystick)

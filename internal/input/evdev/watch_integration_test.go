@@ -112,7 +112,10 @@ func typingNums(n uint16) []uint16 {
 // that repeats an axis must be a named part.
 func TestWatcherMergesNodes(t *testing.T) {
 	stick := map[uint16]axisRange{0: {min: 0, max: 255}}
-	pad := createVirtualDevice(t, virtualSpec{name: "HIDI test pad", phys: "hidi-merge/input0", keys: []uint16{0x130}, axes: stick})
+	// The main part has a hat as well: an axis a step to either side of
+	// its middle.
+	withHat := map[uint16]axisRange{0: {min: 0, max: 255}, 0x10: {min: -1, max: 1}}
+	pad := createVirtualDevice(t, virtualSpec{name: "HIDI test pad", phys: "hidi-merge/input0", keys: []uint16{0x130}, axes: withHat})
 	touch := createVirtualDevice(t, virtualSpec{name: "HIDI test pad Touchpad", phys: "hidi-merge/input1", keys: []uint16{0x110}, axes: stick})
 	w := startWatcher(t)
 
@@ -122,6 +125,23 @@ func TestWatcherMergesNodes(t *testing.T) {
 	}
 	if got := d.Info().Type; got != control.DeviceGamepad {
 		t.Errorf("Type = %v, want gamepad", got)
+	}
+	// The device says what it has, part by part, and which axis is a
+	// hat's.
+	has := map[control.Input]bool{}
+	for _, c := range d.Controls() {
+		has[c] = true
+	}
+	for _, want := range []control.Input{
+		{Code: control.Key(0x130)}, {Code: control.Axis(0)}, {Code: control.Axis(0x10), Hat: true},
+		{Code: control.Key(0x110), Part: "Touchpad"}, {Code: control.Axis(0), Part: "Touchpad"},
+	} {
+		if !has[want] {
+			t.Errorf("the device does not list %+v; it lists %+v", want, d.Controls())
+		}
+	}
+	if len(has) != 5 {
+		t.Errorf("the device lists %d controls, want 5: %+v", len(has), d.Controls())
 	}
 
 	pad.emit(evAbs, 0, 255)

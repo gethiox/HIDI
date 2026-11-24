@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 
 	"github.com/gethiox/HIDI/internal/config"
@@ -35,6 +36,33 @@ type ProfileDoc struct {
 	// ReadOnly says that the profile is shown and not changed: it is one
 	// of those HIDI comes with, which HIDI keeps as they are.
 	ReadOnly bool
+	// controls is what the device has that the profile is shown for, and
+	// made what the profile's rule makes of it, control by control, for
+	// the profile madeFor.
+	controls []control.Input
+	made     map[control.Code][]config.Generated
+	madeFor  *config.Profile
+}
+
+// ShowFor says which device the profile is shown for, by the controls it
+// has: what the profile's rule makes of them is shown beside what the
+// profile names (see [config.Generate]). No controls is no device.
+func (d *ProfileDoc) ShowFor(controls []control.Input) {
+	if !slices.Equal(d.controls, controls) {
+		d.controls, d.madeFor = slices.Clone(controls), nil
+	}
+}
+
+// generated returns what the profile's rule makes of a control of the
+// device the profile is shown for, as long as no line names the control.
+func (d *ProfileDoc) generated(code control.Code) []config.Generated {
+	if d.madeFor != d.Profile {
+		d.madeFor, d.made = d.Profile, map[control.Code][]config.Generated{}
+		for _, g := range d.Profile.Generated(d.controls) {
+			d.made[g.Source.Code] = append(d.made[g.Source.Code], g)
+		}
+	}
+	return d.made[code]
 }
 
 // maxUndo bounds how many changes can be taken back.
@@ -181,7 +209,15 @@ type Role struct {
 	Down     bool
 	// Split says that the two halves of an axis are bound apart, as
 	// "ABS_X+" and "ABS_X-", which the window shows and does not change.
-	Split bool
+	// Lower and Upper say what the halves do, as Text does; empty for a
+	// half that does nothing.
+	Split        bool
+	Lower, Upper string
+	// Generated says that no line gives the control this part: the
+	// profile's rule does, by the number of the control.
+	Generated bool
+	// Silent says that a line tells the control to do nothing.
+	Silent bool
 	// Section is where the binding is, or where a new one would go.
 	Section config.Section
 }
@@ -216,15 +252,20 @@ func (s Shape) text() string {
 // layout's own binding, or else by one that applies in every layout.
 func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 	role := Role{Section: config.Bindings(layout)}
+	named := false // whether a line names the control at all
 	find := func(bindings []engine.Binding) (engine.Action, bool) {
 		var action engine.Action
 		found := false
 		for _, b := range bindings {
-			if b.Source.Code != code || b.Source.Part != "" || len(b.Source.Modifiers) != 0 {
+			if b.Source.Code != code || b.Source.Part != "" {
+				continue
+			}
+			named = true
+			if len(b.Source.Modifiers) != 0 {
 				continue
 			}
 			if b.Source.Range != engine.RangeWhole {
-				role.Split = true
+				role.half(b.Source.Range, b.Action)
 				continue
 			}
 			action, found = b.Action, true
@@ -244,24 +285,66 @@ func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 			role.Section = config.Global
 		}
 	}
+	if !named {
+		for _, g := range d.generated(code) {
+			role.Generated = true
+			if g.Source.Range != engine.RangeWhole {
+				role.half(g.Source.Range, g.Action)
+				continue
+			}
+			action = g.Action
+		}
+	}
+	role.take(action)
+	return role
+}
+
+// take fills in what an action does.
+func (r *Role) take(action engine.Action) {
 	switch a := action.(type) {
 	case engine.Note:
-		role.Kind, role.Note, role.Text = RoleNote, a.Note, a.Note.String()
-		role.Offset, role.Velocity, role.Touch = a.ChannelOffset, a.Velocity, a.Touch
+		r.Kind, r.Note, r.Text = RoleNote, a.Note, a.Note.String()
+		r.Offset, r.Velocity, r.Touch = a.ChannelOffset, a.Velocity, a.Touch
 	case engine.Command:
-		role.Kind, role.Command, role.Text = RoleCommand, a, a.String()
+		r.Kind, r.Command, r.Text = RoleCommand, a, a.String()
 	case engine.ControlChange:
-		role.Kind, role.Controller, role.Text = RoleController, a.Controller, fmt.Sprintf("cc %d", a.Controller)
-		role.Offset = a.ChannelOffset
+		r.Kind, r.Controller, r.Text = RoleController, a.Controller, fmt.Sprintf("cc %d", a.Controller)
+		r.Offset = a.ChannelOffset
 	case engine.ProgramChange:
-		role.Kind, role.Text = RoleOther, fmt.Sprintf("program %d", a.Program)
+		r.Kind, r.Text = RoleOther, fmt.Sprintf("program %d", a.Program)
 	case engine.PitchBend:
-		role.Kind, role.Text = RoleBend, "pitch bend"
-		role.Offset, role.Down = a.ChannelOffset, a.Down
+		r.Kind, r.Text = RoleBend, "pitch bend"
+		r.Offset, r.Down = a.ChannelOffset, a.Down
 	case engine.Passthrough:
-		role.Kind, role.Text = RolePass, "system"
+		r.Kind, r.Text = RolePass, "system"
+	case engine.Nothing:
+		r.Silent = true
 	}
-	return role
+}
+
+// half notes that one half of an axis is bound by itself, and to what.
+// The first binding seen for a half is the one that counts: a layout's
+// own comes before one that applies in every layout.
+func (r *Role) half(which engine.Range, action engine.Action) {
+	r.Split = true
+	var does Role
+	does.take(action)
+	switch {
+	case which == engine.RangeLower && r.Lower == "":
+		r.Lower = does.Text
+	case which == engine.RangeUpper && r.Upper == "":
+		r.Upper = does.Text
+	}
+}
+
+// silence takes the line of a control out of a section. Where the
+// profile's rule would give the control a part once no line names it, the
+// line stays and says that the control does nothing.
+func (d *ProfileDoc) silence(text []byte, section config.Section, code control.Code) ([]byte, error) {
+	if len(d.generated(code)) > 0 {
+		return config.Set(text, section, code.String(), strconv.Quote(engine.NothingName))
+	}
+	return config.Remove(text, section, code.String())
 }
 
 // SetPassthrough leaves a key to the system: it plays nothing and types
@@ -345,11 +428,14 @@ func (d *ProfileDoc) SetBend(layout string, code control.Code, shape Shape) erro
 }
 
 // Clear makes a control do nothing: it removes the binding the control
-// has in the layout, or the one that applies in every layout.
+// has in the layout, or the one that applies in every layout. A control
+// the profile's rule would then give a part is told to do nothing
+// instead.
 func (d *ProfileDoc) Clear(layout string, code control.Code) error {
 	return d.change(func(text []byte) ([]byte, error) {
-		out, err := config.Remove(text, d.Role(layout, code).Section, code.String())
-		if err == nil && bytes.Equal(out, text) {
+		role := d.Role(layout, code)
+		out, err := d.silence(text, role.Section, code)
+		if err == nil && bytes.Equal(out, text) && !role.Silent {
 			return nil, fmt.Errorf("the line of %s was not found; %w", code, config.ErrNotEditable)
 		}
 		return out, err
@@ -369,6 +455,10 @@ func (d *ProfileDoc) Carry(layout string, from, to control.Code, move bool) erro
 		if err != nil {
 			return nil, err
 		}
+		if !found && source.Generated && !source.Split {
+			// What the rule makes of the control, written out.
+			value, found = d.generated(from)[0].Value, true
+		}
 		if !found {
 			if source.Kind == RoleNone {
 				return nil, fmt.Errorf("%s does nothing; there is nothing to give to %s", from, to)
@@ -386,7 +476,7 @@ func (d *ProfileDoc) Carry(layout string, from, to control.Code, move bool) erro
 			return nil, err
 		}
 		if move {
-			return config.Remove(out, source.Section, from.String())
+			return d.silence(out, source.Section, from)
 		}
 		return out, nil
 	})

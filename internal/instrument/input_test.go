@@ -52,8 +52,8 @@ func TestInputTracker(t *testing.T) {
 func TestListedAxisHasNoPosition(t *testing.T) {
 	x, z := control.Axis(0), control.Axis(2)
 	var tr inputTracker
-	tr.seed([]control.Input{{Code: x}, {Code: z}, {Code: control.Axis(0x10)}})
-	if in := tr.snapshot(); len(in.Axes) != 3 || in.Axes[0].Said {
+	tr.seed([]control.Input{{Code: x}, {Code: z}, {Code: control.Axis(0x10), Hat: true}})
+	if in := tr.snapshot(); len(in.Axes) != 3 || !in.Axes[2].Hat || in.Axes[0].Said {
 		t.Fatalf("the listed axes: %+v", in.Axes)
 	}
 	if now := tr.axesNow(); len(now) != 0 {

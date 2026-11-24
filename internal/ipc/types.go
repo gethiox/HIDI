@@ -148,6 +148,9 @@ type Axis struct {
 	Part string `json:"part,omitempty"`
 	// Value is the position, from 0 to 1.
 	Value float64 `json:"value"`
+	// Hat says that the device calls the axis one of a hat: it rests in
+	// the middle or at an end.
+	Hat bool `json:"hat,omitempty"`
 }
 
 // LogLine is one line of the running HIDI's log.

@@ -37,6 +37,8 @@ type Axis struct {
 	Part string
 	// Value is the position, from 0 to 1.
 	Value float64
+	// Hat says that the device calls the axis one of a hat.
+	Hat bool
 	// Said says that the device has reported where the axis stands. An
 	// axis the device only listed has not, and its Value means nothing.
 	Said bool
@@ -81,7 +83,7 @@ func (t *inputTracker) seed(controls []control.Input) {
 			t.buttons = append(t.buttons, Button{Code: c.Code, Part: c.Part})
 			t.buttonAt = nil
 		case control.KindAxis:
-			t.axes = append(t.axes, Axis{Code: c.Code, Part: c.Part})
+			t.axes = append(t.axes, Axis{Code: c.Code, Part: c.Part, Hat: c.Hat})
 			t.axisAt = nil
 		}
 	}

@@ -26,7 +26,10 @@ func (e *Engine) Keys() (keys []KeyRole, layout, layouts int) {
 		// binding without modifiers is the one a lone press gets.
 		for _, b := range bindings {
 			if len(b.Source.Modifiers) == 0 && b.Source.Range == RangeWhole {
-				keys = append(keys, KeyRole{Code: key.code, Action: b.Action})
+				// A key that is to do nothing has no part to show.
+				if _, none := b.Action.(Nothing); !none {
+					keys = append(keys, KeyRole{Code: key.code, Action: b.Action})
+				}
 				break
 			}
 		}

@@ -74,7 +74,7 @@ func (s *Source) bipolar() bool { return s.Range == RangeWhole && s.Centered }
 
 // Action is what a binding does. The implementations are [Note],
 // [ControlChange], [PitchBend], [ProgramChange], [Command] and
-// [Passthrough].
+// [Passthrough] and [Nothing].
 type Action interface {
 	// momentary reports whether the action reads its source as pressed or
 	// released, as opposed to following its position.
@@ -142,6 +142,16 @@ type Passthrough struct{}
 
 // PassthroughName is how a passed key is written in a profile.
 const PassthroughName = "passthrough"
+
+// Nothing is the action of a control that is to do nothing. A control
+// without a binding does nothing either; Nothing says so where something
+// else would otherwise give it a part: a binding that applies in every
+// layout, or the rule by which a profile binds the controls it does not
+// name.
+type Nothing struct{}
+
+// NothingName is how a control that does nothing is written in a profile.
+const NothingName = "nothing"
 
 // Command changes the state of the instrument when the source is pressed.
 //
@@ -229,6 +239,7 @@ func (Note) momentary() bool          { return true }
 func (ProgramChange) momentary() bool { return true }
 func (Command) momentary() bool       { return true }
 func (Passthrough) momentary() bool   { return true }
+func (Nothing) momentary() bool       { return true }
 func (ControlChange) momentary() bool { return false }
 func (PitchBend) momentary() bool     { return false }
 
@@ -442,6 +453,7 @@ func (b *Binding) validate() error {
 		if s.Code.Kind != control.KindKey || s.Part != "" || len(s.Modifiers) != 0 {
 			return fmt.Errorf("%v: only a key of the main part, pressed alone, can be passed through", s.Code)
 		}
+	case Nothing:
 	default:
 		return fmt.Errorf("%v: unsupported action type %T", s.Code, a)
 	}

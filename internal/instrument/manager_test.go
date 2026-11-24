@@ -39,16 +39,16 @@ type fakeDevice struct {
 }
 
 // padControls is what a game controller of the tests says it has: the
-// buttons and axes of an ordinary pad, its hat among them.
+// buttons and axes of an ordinary pad, the last two axes those of its hat.
 func padControls() []control.Input {
 	var out []control.Input
 	for _, n := range []uint16{0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c, 0x13d, 0x13e} {
 		out = append(out, control.Input{Code: control.Key(n)})
 	}
-	for _, n := range []uint16{0, 1, 2, 3, 4, 5, 0x10, 0x11} {
+	for _, n := range []uint16{0, 1, 2, 3, 4, 5} {
 		out = append(out, control.Input{Code: control.Axis(n)})
 	}
-	return out
+	return append(out, control.Input{Code: control.Axis(0x10), Hat: true}, control.Input{Code: control.Axis(0x11), Hat: true})
 }
 
 func newFakeDevice(name string, typ control.DeviceType) *fakeDevice {

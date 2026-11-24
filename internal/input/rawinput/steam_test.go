@@ -162,3 +162,31 @@ func TestSteamConnectAndCommands(t *testing.T) {
 		t.Errorf("for a device that wants 65 bytes: % x (%d bytes)", got[:3], len(got))
 	}
 }
+
+// The reader lists what it can report: every button and axis once, and
+// no axis as a hat, since the pads say where the thumb is.
+func TestSteamControls(t *testing.T) {
+	r := newSteamReader()
+	got := r.controls()
+	if len(got) != len(steamButtons)+len(steamAxes) {
+		t.Fatalf("%d controls, want %d", len(got), len(steamButtons)+len(steamAxes))
+	}
+	seen := map[control.Code]bool{}
+	for _, c := range got {
+		if seen[c.Code] || c.Part != "" || c.Hat {
+			t.Errorf("control %+v: listed twice, on a part, or as a hat", c)
+		}
+		seen[c.Code] = true
+	}
+	// What a report brings is among them.
+	report := make([]byte, steamInputLen)
+	report[0] = steamReportInput
+	for i := 2; i < 6; i++ {
+		report[i] = 0xff
+	}
+	for _, ev := range r.read(report, time.Now()) {
+		if !seen[ev.Code] {
+			t.Errorf("the reader reports %v, which it does not list", ev.Code)
+		}
+	}
+}

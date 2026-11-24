@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/ipc"
 )
 
@@ -146,6 +147,27 @@ func ControlNumber(in *ipc.Instrument, name string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// DeviceControls returns the controls an instrument's device said it has,
+// as HIDI was given them; none for a device that did not say, and for no
+// device.
+func DeviceControls(in *ipc.Instrument) []control.Input {
+	if in == nil || !in.Complete {
+		return nil
+	}
+	out := make([]control.Input, 0, len(in.Buttons)+len(in.Axes))
+	for _, b := range in.Buttons {
+		if code, err := control.ParseCode(b.Name); err == nil {
+			out = append(out, control.Input{Code: code, Part: b.Part})
+		}
+	}
+	for _, a := range in.Axes {
+		if code, err := control.ParseCode(a.Name); err == nil {
+			out = append(out, control.Input{Code: code, Part: a.Part, Hat: a.Hat})
+		}
+	}
+	return out
 }
 
 // controlName is the name of a control, with the part of the device it is

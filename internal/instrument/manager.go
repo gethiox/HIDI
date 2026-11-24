@@ -288,7 +288,7 @@ func (m *Manager) SetProfiles(profiles []*config.Profile) {
 	defer m.mu.Unlock()
 	m.profiles = profiles
 	for r := range m.running {
-		a := m.choose(r.info, r.log)
+		a := m.choose(r.info, r.has, r.log)
 		if sameProfile(a.profile, r.assigned) {
 			continue
 		}
@@ -319,7 +319,7 @@ func (m *Manager) SetAllow(allow func(control.DeviceInfo) bool) {
 	defer m.mu.Unlock()
 	m.opts.Allow = allow
 	for r := range m.running {
-		a := m.choose(r.info, r.log)
+		a := m.choose(r.info, r.has, r.log)
 		if sameProfile(a.profile, r.assigned) {
 			continue
 		}
@@ -350,9 +350,9 @@ func (m *Manager) Devices() []Device {
 	return out
 }
 
-// choose decides what a device is to be with the current profiles. The
-// caller holds m.mu.
-func (m *Manager) choose(info control.DeviceInfo, log *slog.Logger) assignment {
+// choose decides what a device with these controls is to be with the
+// current profiles. The caller holds m.mu.
+func (m *Manager) choose(info control.DeviceInfo, has []control.Input, log *slog.Logger) assignment {
 	profile := config.Select(m.profiles, info)
 	if profile == nil || !usable(info, profile) {
 		return assignment{}
@@ -360,7 +360,10 @@ func (m *Manager) choose(info control.DeviceInfo, log *slog.Logger) assignment {
 	if m.opts.Allow != nil && !m.opts.Allow(info) {
 		return assignment{}
 	}
-	eng, err := engine.New(profile.Engine)
+	if profile.Generate.Any() && len(has) == 0 {
+		log.Debug("the device does not say what it has; only what the profile names plays", "profile", profile.Name)
+	}
+	eng, err := engine.New(profile.For(has))
 	if err != nil {
 		log.Error("profile cannot be used", "profile", profile.Name, "source", profile.Source, "error", err)
 		return assignment{}
@@ -392,7 +395,7 @@ func (m *Manager) add(dev input.Device) {
 		has = d.Controls()
 	}
 	r := &runner{
-		device: dev, info: info, log: m.log.With("device", info.Name),
+		device: dev, info: info, has: has, log: m.log.With("device", info.Name),
 		open:     m.opts.OpenEndpoint,
 		lights:   m.opts.Lights,
 		onToggle: m.toggle,
@@ -410,7 +413,7 @@ func (m *Manager) add(dev input.Device) {
 	r.wanted.Store(m.active)
 	r.learn.Store(&learnWish{m.learning, m.opts.LearnThreshold})
 	r.simulate = m.simulated[lightKey(info.Name, info.Type.String(), info.Location)]
-	r.assign(m.choose(info, r.log))
+	r.assign(m.choose(info, r.has, r.log))
 	m.mu.Unlock()
 
 	m.done.Add(1)
@@ -603,8 +606,10 @@ const parkedQuiet = 2 * time.Millisecond
 type runner struct {
 	device input.Device
 	info   control.DeviceInfo
-	log    *slog.Logger
-	open   func(name string) (output.Endpoint, error)
+	// has is what the device says it has, if it says.
+	has  []control.Input
+	log  *slog.Logger
+	open func(name string) (output.Endpoint, error)
 
 	// rules says whether the device is grabbed while the instrument is on,
 	// and which keys turn HIDI off and on. The manager replaces it when

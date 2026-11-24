@@ -145,6 +145,20 @@ func newSteamReader() *steamReader {
 	return r
 }
 
+// controls lists what the reader reports: every button and axis a Steam
+// Controller of any make can have. None of the axes is a hat; the pads
+// say where the thumb is.
+func (r *steamReader) controls() []control.Input {
+	out := make([]control.Input, 0, len(r.buttons)+len(r.axes))
+	for _, code := range r.buttons {
+		out = append(out, control.Input{Code: code})
+	}
+	for _, code := range r.axes {
+		out = append(out, control.Input{Code: code})
+	}
+	return out
+}
+
 // read returns the events of one report.
 func (r *steamReader) read(report []byte, at time.Time) []control.Event {
 	if len(report) >= 2 && report[0] == steamReportWireless {

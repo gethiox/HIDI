@@ -27,4 +27,7 @@ func (e Event) Pressed() bool { return e.Value >= 0.5 }
 type Input struct {
 	Code Code
 	Part string
+	// Hat says of an axis that it is one direction pair of a hat: it
+	// rests in the middle or at an end, and is never anywhere between.
+	Hat bool
 }

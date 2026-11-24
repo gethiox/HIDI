@@ -22,8 +22,12 @@ type Profile struct {
 	Name string
 	// Match selects the devices the profile applies to.
 	Match Match
-	// Engine is the instrument description, ready for [engine.New].
+	// Engine is the instrument as the file writes it out. A profile with
+	// a rule for the controls it does not name describes more than that,
+	// and what depends on the device: see [Profile.For].
 	Engine engine.Profile
+	// Generate is that rule; the zero value is none.
+	Generate Generate
 	// WrittenFor is the schema version the file declared. It is lower than
 	// [Schema] if the file was upgraded while reading.
 	WrittenFor int
@@ -151,13 +155,14 @@ func Parse(data []byte) (*Profile, error) {
 
 	r := &reader{}
 	p := &Profile{WrittenFor: from, Digest: sha256.Sum256(data)}
-	top := r.table("", doc, "schema", "name", "enabled", "match", "defaults", "global", "layout")
+	top := r.table("", doc, "schema", "name", "enabled", "match", "defaults", "generate", "global", "layout")
 	p.Name = top.str("name", "")
 	p.Enabled = top.boolean("enabled", true)
 	p.Match = r.match(top.sub("match"))
 	var s settings
 	p.Engine.Defaults, s = r.defaults(top.sub("defaults"))
 	p.Engine.Collision, p.Engine.RestAxes, p.AxisRate, p.AxisThreshold = s.collision, s.restAxes, s.axisRate, s.axisThreshold
+	p.Generate = r.generate(top.sub("generate"))
 	p.Engine.Global = r.bindings("global", top.sub("global").values)
 
 	layouts, _ := top.values["layout"].([]any)

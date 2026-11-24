@@ -10,6 +10,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/engine"
+	"github.com/gethiox/HIDI/internal/midi"
 )
 
 func TestProfileDoc(t *testing.T) {
@@ -105,15 +106,31 @@ func TestProfileDoc(t *testing.T) {
 	}
 }
 
+// padProfile is a profile that names the axes of a pad, the halves of the
+// right stick apart.
+const padProfile = `schema = 1
+name = "Pad"
+
+[match]
+type = "gamepad"
+
+[[layout]]
+name = "Default"
+
+[layout.bindings]
+BTN_A = 0
+ABS_X = { cc = 0, centered = true, deadzone = 0.1 }
+ABS_Y = { pitch_bend = true, centered = true, invert = true, deadzone = 0.1 }
+"ABS_RX+" = { cc = 1, deadzone = 0.1 }
+"ABS_RX-" = { cc = 2, deadzone = 0.1 }
+ABS_Z = { cc = 5 }
+`
+
 // The axes of a game controller: what they send is read, changed and
 // written as a person would write it.
 func TestProfileDocAxes(t *testing.T) {
-	files, err := config.BuiltinFiles()
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "gamepad.toml")
-	if err := os.WriteFile(path, files["gamepad.toml"], 0o600); err != nil {
+	path := filepath.Join(t.TempDir(), "pad.toml")
+	if err := os.WriteFile(path, []byte(padProfile), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := OpenProfile(path)
@@ -412,5 +429,120 @@ func TestProfileDocLayouts(t *testing.T) {
 	}
 	if string(doc.Text()) != optionsProfile {
 		t.Errorf("taking everything back does not give the file as it was:\n%s", doc.Text())
+	}
+}
+
+// A profile with a rule for what it does not name, shown for a device:
+// the controls of the device have the parts the rule gives them, and
+// changing one writes a line for it.
+func TestProfileDocGenerated(t *testing.T) {
+	files, err := config.BuiltinFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "gamepad.toml")
+	if err := os.WriteFile(path, files["gamepad.toml"], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := OpenProfile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := doc.DefaultLayout()
+	btnA, btnB, btnX, start := control.Key(0x130), control.Key(0x131), control.Key(0x133), control.Key(0x13b)
+	absX, absY, hatX, hatY := control.Axis(0), control.Axis(1), control.Axis(0x10), control.Axis(0x11)
+
+	// With no device to ask, only what the file names has a part.
+	if r := doc.Role(layout, btnA); r.Kind != RoleNone || r.Generated {
+		t.Errorf("BTN_A with no device: %+v", r)
+	}
+	doc.ShowFor([]control.Input{
+		{Code: btnA}, {Code: btnB}, {Code: btnX}, {Code: start},
+		{Code: absX}, {Code: absY}, {Code: hatX, Hat: true}, {Code: hatY, Hat: true},
+	})
+	if r := doc.Role(layout, btnA); r.Kind != RoleNote || r.Note != 36 || !r.Generated {
+		t.Errorf("BTN_A: %+v", r)
+	}
+	if r := doc.Role(layout, btnX); r.Kind != RoleNote || r.Note != 38 || !r.Generated {
+		t.Errorf("BTN_X: %+v", r)
+	}
+	if r := doc.Role(layout, absX); r.Kind != RoleController || r.Controller != 16 || !r.Generated {
+		t.Errorf("ABS_X: %+v", r)
+	}
+	// What the file names is as the file says.
+	if r := doc.Role(layout, start); r.Kind != RoleCommand || r.Generated {
+		t.Errorf("BTN_START: %+v", r)
+	}
+	if r := doc.Role(layout, absY); r.Kind != RoleBend || r.Generated {
+		t.Errorf("ABS_Y: %+v", r)
+	}
+	if r := doc.Role(layout, hatX); !r.Split || r.Generated {
+		t.Errorf("the hat, named by its halves: %+v", r)
+	}
+
+	// Emptied: the control is told to do nothing, or the rule would
+	// give it its part back.
+	if err := doc.Clear(layout, btnA); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, btnA); r.Kind != RoleNone || !r.Silent || r.Generated {
+		t.Errorf("BTN_A emptied: %+v", r)
+	}
+	if !strings.Contains(string(doc.Text()), `BTN_SOUTH = "nothing"`) && !strings.Contains(string(doc.Text()), `BTN_A = "nothing"`) {
+		t.Errorf("no line says that the button does nothing:\n%s", doc.Text())
+	}
+	// Emptied again is nothing new, and no mistake.
+	before := string(doc.Text())
+	if err := doc.Clear(layout, btnA); err != nil || string(doc.Text()) != before {
+		t.Errorf("emptying an emptied control: %v", err)
+	}
+	// A named control that the rule covers is silenced the same way,
+	// where its line is.
+	if err := doc.Clear(layout, absY); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, absY); r.Kind != RoleNone || !r.Silent {
+		t.Errorf("ABS_Y emptied: %+v", r)
+	}
+
+	// Carried: what the rule gives X goes to A as a line, and X is
+	// silent after a move.
+	if err := doc.Carry(layout, btnX, btnA, true); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, btnA); r.Kind != RoleNote || r.Note != 38 || r.Generated {
+		t.Errorf("BTN_A after X was carried to it: %+v", r)
+	}
+	if r := doc.Role(layout, btnX); r.Kind != RoleNone || !r.Silent {
+		t.Errorf("BTN_X after it was carried away: %+v", r)
+	}
+	// A new part for a generated control is a line of the layout.
+	if err := doc.SetNote(layout, btnB, midi.Note(72)); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, btnB); r.Kind != RoleNote || r.Note != 72 || r.Generated || r.Section.Layout != layout {
+		t.Errorf("BTN_B with a note of its own: %+v", r)
+	}
+
+	// What is written is a profile, and HIDI makes of it what is shown.
+	p, err := config.Parse(doc.Text())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Save(); err != nil || doc.Dirty() {
+		t.Fatalf("Save: %v, dirty %v", err, doc.Dirty())
+	}
+	made := p.For(doc.controls)
+	if err := made.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	notes := map[control.Code]midi.Note{}
+	for _, b := range made.Layouts[0].Bindings {
+		if n, ok := b.Action.(engine.Note); ok && b.Source.Range == engine.RangeWhole {
+			notes[b.Source.Code] = n.Note
+		}
+	}
+	if len(notes) != 2 || notes[btnA] != 38 || notes[btnB] != 72 {
+		t.Errorf("the notes of the buttons as HIDI plays them: %v", notes)
 	}
 }

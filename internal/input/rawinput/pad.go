@@ -363,7 +363,7 @@ func (p *pad) has(first, last uint16) []control.Input {
 	for _, a := range p.axes {
 		switch a.kind {
 		case axisHat:
-			out = append(out, control.Input{Code: control.Axis(a.code)}, control.Input{Code: control.Axis(a.code + 1)})
+			out = append(out, control.Input{Code: control.Axis(a.code), Hat: true}, control.Input{Code: control.Axis(a.code + 1), Hat: true})
 		case axisTriggers:
 			out = append(out, control.Input{Code: control.Axis(absZ)}, control.Input{Code: control.Axis(absRZ)})
 		default:

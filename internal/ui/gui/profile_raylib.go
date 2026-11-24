@@ -268,6 +268,8 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			}
 		}
 	}
+	// What the profile's rule makes of that device shows with the rest.
+	doc.ShowFor(DeviceControls(device))
 	if device != nil {
 		now := map[string]bool{}
 		for _, b := range device.Buttons {
@@ -558,6 +560,13 @@ func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32
 		w.text(w.sans, "No controls yet. Press a button or move an axis on the device.", x, y, sizeText, col(colFaint))
 		return y + 24
 	}
+	if e.doc.Profile.Generate.Any() && (device == nil || !device.Complete) {
+		// What the rule makes depends on the device, and none is here
+		// to ask.
+		line := "A controller's other buttons and axes play by their numbers. Connect one to see them here."
+		w.text(w.sans, fit(w.sans, line, sizeText, inner), x, y, sizeText, col(colFaint))
+		y += 24
+	}
 	row := newFlow(x, x+inner, y, chipH+6, 6)
 	for _, code := range codes {
 		role := e.doc.Role(e.layout, code)
@@ -571,7 +580,12 @@ func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32
 		case role.Kind != RoleNone:
 			label += "  " + role.Text
 		case role.Split:
-			label += "  +/−"
+			// The two halves of an axis, each with what it does.
+			for _, half := range []struct{ sign, does string }{{"−", role.Lower}, {"+", role.Upper}} {
+				if half.does != "" {
+					label += "  " + half.sign + " " + half.does
+				}
+			}
 		}
 		cw := w.chipWidth(label)
 		cx, cy := row.put(cw)
@@ -617,7 +631,10 @@ func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
 		does = "is left to the system: it types, also while HIDI is on"
 	}
 	where := ""
-	if role.Kind != RoleNone && role.Section.Layout == "" {
+	switch {
+	case role.Generated:
+		where = ", by its number"
+	case role.Kind != RoleNone && role.Section.Layout == "":
 		where = ", in every layout"
 	}
 	w.text(w.bold, e.code.String(), x, y, sizeName, col(colText))

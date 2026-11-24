@@ -101,7 +101,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 		}
 		axes := make([]ipc.Axis, len(st.Input.Axes))
 		for i, a := range st.Input.Axes {
-			axes[i] = ipc.Axis{Name: a.Code.String(), Part: a.Part, Value: a.Value}
+			axes[i] = ipc.Axis{Name: a.Code.String(), Part: a.Part, Value: a.Value, Hat: a.Hat}
 		}
 		keys := make([]ipc.Key, len(st.Keys))
 		for i, k := range st.Keys {

@@ -95,7 +95,7 @@ func controls() []control.Input {
 		out = append(out, control.Input{Code: control.Key(b.code)})
 	}
 	for _, a := range (state{}).axes() {
-		out = append(out, control.Input{Code: control.Axis(a.code)})
+		out = append(out, control.Input{Code: control.Axis(a.code), Hat: a.code == absHat0X || a.code == absHat0Y})
 	}
 	return out
 }
