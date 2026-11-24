@@ -87,9 +87,9 @@ type window struct {
 	// was drawn.
 	dt    time.Duration
 	drawn time.Time
-	// trails says, for every instrument, when its trail last gained a
-	// step.
-	trails map[entryID]*trailSeen
+	// arrived is when HIDI's state, as of the frame being drawn, came
+	// in.
+	arrived time.Time
 	// docs are the profiles that were opened for changing, by their
 	// files: what was changed in one and not saved is still there when
 	// its page is opened again.
@@ -287,6 +287,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 			// library's own waits by spinning for part of the time. It is
 			// short whatever the frame limit, since a click that begins
 			// and ends between two looks is not seen.
+			pace.idle()
 			rl.PollInputEvents()
 			w.applyCursor()
 			time.Sleep(min(time.Second/time.Duration(pace.target), idlePoll))
@@ -296,6 +297,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		wide, high := w.begin()
 		w.draw(wide, high)
 		w.end()
+		pace.shown(time.Now())
 		if shoot {
 			rl.TakeScreenshot(opts.Screenshot)
 			break
@@ -332,44 +334,78 @@ type pacer struct {
 	target     int32
 	checked    time.Time
 	refresh    int32
+
+	// unsynced says that frames were seen not to wait for the monitor;
+	// see FrameRate. last is when the frame before was shown, zero after
+	// a pause, and fast counts frames in a row that came sooner than a
+	// waiting frame could.
+	unsynced bool
+	last     time.Time
+	fast     int
 }
 
 func newPacer(limit, background int) *pacer { return &pacer{limit: limit, background: background} }
+
+// want returns the limit in force: the one for a window that is not in
+// use where that is lower.
+func (p *pacer) want() int {
+	limit := p.limit
+	if p.background > 0 && !rl.IsWindowFocused() && (limit == 0 || p.background < limit) {
+		limit = p.background
+	}
+	return limit
+}
 
 func (p *pacer) frame() {
 	// The window may have been moved to another monitor.
 	if now := time.Now(); now.Sub(p.checked) > time.Second {
 		p.checked = now
-		p.refresh = int32(rl.GetMonitorRefreshRate(rl.GetCurrentMonitor()))
-		if p.refresh <= 0 {
-			p.refresh = 60
+		refresh := int32(rl.GetMonitorRefreshRate(rl.GetCurrentMonitor()))
+		if refresh <= 0 {
+			refresh = 60
+		}
+		if refresh != p.refresh {
+			p.refresh, p.unsynced, p.fast = refresh, false, 0
 		}
 	}
-	// A little above the monitor's rate, so that the sleeping never
-	// makes a frame miss the monitor it would have caught.
-	want := p.refresh + p.refresh/20 + 1
-	if p.limit > 0 && int32(p.limit) < want {
-		want = int32(p.limit)
-	}
-	if p.background > 0 && !rl.IsWindowFocused() && int32(p.background) < want {
-		want = int32(p.background)
-	}
-	if want != p.target {
+	if want := int32(FrameRate(int(p.refresh), p.want(), !p.unsynced)); want != p.target {
 		p.target = want
 		rl.SetTargetFPS(want)
 	}
 }
 
+// shown is told of every frame that was shown, and idle of every pause.
+// From the time between two frames it learns whether frames wait for the
+// monitor: a limited frame that does comes no sooner than the monitor's
+// pictures allow.
+func (p *pacer) shown(now time.Time) {
+	limit := p.want()
+	if !p.last.IsZero() && !p.unsynced && limit > 0 && int32(limit) < p.refresh {
+		every := time.Second / time.Duration(limit)
+		if now.Sub(p.last) < every*8/10 {
+			if p.fast++; p.fast >= 20 {
+				p.unsynced = true
+			}
+		} else {
+			p.fast = 0
+		}
+	}
+	p.last = now
+}
+
+func (p *pacer) idle() { p.last = time.Time{} }
+
 // draw draws the window, which is sw wide and sh high.
 func (w *window) draw(sw, sh float32) {
 	rl.ClearBackground(col(colBackground))
-	state := w.model.Snapshot()
+	state, arrived := w.model.SnapshotAt()
+	w.arrived = arrived
 	// What moves by itself moves by the time since the last frame. After
 	// a pause in which nothing was drawn that is one frame's worth.
 	now := time.Now()
-	w.dt = min(now.Sub(w.drawn), 50*time.Millisecond)
+	w.dt = min(now.Sub(w.drawn), 250*time.Millisecond)
 	w.drawn = now
-	w.follow(state, now)
+	w.follow(state)
 
 	// The log takes its height from the bottom; the rest is for the
 	// header and the instruments.
@@ -499,44 +535,16 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	}
 }
 
-// trailSeen is when the window saw a trail gain its newest step.
-type trailSeen struct {
-	seq uint64
-	at  time.Time
-}
-
-// follow notes when the trail of every instrument gained a step, so that
-// the trails can be drawn where they are between two steps.
-func (w *window) follow(state *ipc.Snapshot, now time.Time) {
+// follow keeps the window drawing while a curve has something in it:
+// the curves run on between two steps.
+func (w *window) follow(state *ipc.Snapshot) {
 	if state == nil {
 		return
 	}
-	if w.trails == nil {
-		w.trails = map[entryID]*trailSeen{}
-	}
-	there := map[entryID]bool{}
 	for _, in := range state.Instruments {
-		if in.Trail == nil {
-			continue
-		}
-		key := idOf(in)
-		there[key] = true
-		seen := w.trails[key]
-		if seen == nil {
-			seen = &trailSeen{}
-			w.trails[key] = seen
-		}
-		if seen.seq != in.Trail.Seq {
-			seen.seq, seen.at = in.Trail.Seq, now
-		}
-		// A curve with something in it runs on between the steps.
-		if slices.Max(in.Trail.Input) > 0 || slices.Max(in.Trail.MIDI) > 0 {
+		if in.Trail != nil && (slices.Max(in.Trail.Input) > 0 || slices.Max(in.Trail.MIDI) > 0) {
 			w.moving = true
-		}
-	}
-	for key := range w.trails {
-		if !there[key] {
-			delete(w.trails, key)
+			return
 		}
 	}
 }
@@ -551,12 +559,16 @@ func (w *window) follow(state *ipc.Snapshot, now time.Time) {
 // one, and one value at each end is kept out of view: the oldest leaves,
 // and the newest comes in, over a whole step.
 func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
-	seen := w.trails[idOf(in)]
-	if seen == nil || in.Trail == nil || len(in.Trail.Input) < 4 || len(in.Trail.MIDI) != len(in.Trail.Input) {
+	if in.Trail == nil || len(in.Trail.Input) < 4 || len(in.Trail.MIDI) != len(in.Trail.Input) {
 		return
 	}
 	count := len(in.Trail.Input)
-	phase := TrailPhase(w.drawn.Sub(seen.at), time.Duration(in.Trail.StepMS)*time.Millisecond)
+	// How far the time is between two steps: by the age HIDI gave the
+	// newest step, and the time since HIDI said so. When a step was
+	// first seen here would not do: that is a frame late at the most,
+	// and at fifteen frames a second most of a step.
+	age := time.Duration(in.Trail.AgeMS*float64(time.Millisecond)) + w.drawn.Sub(w.arrived)
+	phase := TrailPhase(age, time.Duration(in.Trail.StepMS)*time.Millisecond)
 	// Both curves on one scale, so that they can be compared.
 	most := float32(max(slices.Max(in.Trail.Input), slices.Max(in.Trail.MIDI), 20))
 	w.clip(area)

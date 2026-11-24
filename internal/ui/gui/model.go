@@ -3,6 +3,7 @@ package gui
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gethiox/HIDI/internal/ipc"
 )
@@ -30,6 +31,7 @@ const maxLogLines = 2000
 type Model struct {
 	mu       sync.Mutex
 	state    *ipc.Snapshot // nil while HIDI is not running
+	arrived  time.Time     // when state arrived
 	lines    []ipc.LogLine
 	minLevel int
 	// shown is what Log last made of lines, nil when it has to be made
@@ -45,8 +47,15 @@ type Model struct {
 func (m *Model) SetSnapshot(s *ipc.Snapshot) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.state = s
+	m.state, m.arrived = s, time.Now()
 	m.version++
+}
+
+// SnapshotAt returns the state of HIDI and when it arrived.
+func (m *Model) SnapshotAt() (*ipc.Snapshot, time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.state, m.arrived
 }
 
 // Snapshot returns the state of HIDI, or nil while it is not running.

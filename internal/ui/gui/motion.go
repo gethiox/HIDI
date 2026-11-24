@@ -49,6 +49,38 @@ func TrailPhase(since, step time.Duration) float32 {
 	return float32(min(max(float64(since)/float64(step), 0), 1))
 }
 
+// FrameRate is the rate to pace frames at, for a monitor that shows
+// refresh pictures a second and a limit of limit frames a second, 0 for
+// none.
+//
+// Frames wait for the monitor. A limit that is the monitor's rate divided
+// by a whole number, 30 on a monitor of 60, can only be kept evenly by
+// drawing for every second picture of the monitor, every time. Pacing at
+// exactly 30 does not do that: a frame that is ready a hair late waits
+// for the picture after, and frames come 33 and 50 milliseconds apart in
+// turn, which shows as a stutter. So such a limit is paced a little
+// faster than itself, at the middle between two of the monitor's
+// pictures, and the wait for the monitor makes it exact. synced says that
+// frames do wait for the monitor; where they do not, and for a limit the
+// monitor's rate is no multiple of, the limit is paced as it is.
+//
+// Without a limit the rate is a little above the monitor's, so that the
+// pacing never makes a frame miss the picture it would have caught.
+func FrameRate(refresh, limit int, synced bool) int {
+	if refresh <= 0 {
+		refresh = 60
+	}
+	if limit <= 0 || limit >= refresh {
+		return refresh + refresh/20 + 1
+	}
+	every := float64(refresh) / float64(limit)
+	n := math.Round(every)
+	if !synced || n < 2 || math.Abs(every-n) > 0.03*n {
+		return limit
+	}
+	return int(float64(refresh)/(n-0.5) + 0.5)
+}
+
 // TrailX is where value n of a trail of count values is drawn, in an
 // area that begins at x and is width wide. One value at each end lies
 // outside the area: the oldest on its way out, and the newest on its way

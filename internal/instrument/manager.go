@@ -252,8 +252,11 @@ type Trail struct {
 	// Seq counts the steps since the instrument's device was connected:
 	// it tells whoever draws the trail when a step was added.
 	Seq uint64
-	// Step is the time one value covers.
-	Step time.Duration
+	// Step is the time one value covers, and Age how long ago the newest
+	// was added: whoever draws the trail moving evenly from step to step
+	// needs to know where between two steps the time is, and that is
+	// better told than guessed from when a step was noticed.
+	Step, Age time.Duration
 	// Input and MIDI are what came in from the device and what went out.
 	Input, MIDI []int
 }
@@ -649,6 +652,7 @@ type runner struct {
 	// value in it is not zero.
 	trail     [2][TrailLen]int
 	trailSeq  uint64
+	trailAt   time.Time // when the newest step was added
 	trailBusy bool
 
 	mu         sync.Mutex
@@ -696,6 +700,7 @@ func (r *runner) measure() bool {
 		}
 	}
 	r.trailSeq++
+	r.trailAt = time.Now()
 	if !r.instrument {
 		return false
 	}
@@ -714,7 +719,7 @@ func (r *runner) snapshot() (Status, bool) {
 	if r.instrument {
 		status.Input = r.input.snapshot()
 		status.Trail = Trail{
-			Seq: r.trailSeq, Step: ratePeriod / rateSteps,
+			Seq: r.trailSeq, Step: ratePeriod / rateSteps, Age: time.Since(r.trailAt),
 			Input: slices.Clone(r.trail[0][:]), MIDI: slices.Clone(r.trail[1][:]),
 		}
 		if r.lamp != nil {

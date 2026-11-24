@@ -38,8 +38,10 @@ type Device struct {
 type Trail struct {
 	// Seq counts the steps; it grows by one with each that is added.
 	Seq uint64 `json:"seq"`
-	// StepMS is the time one value covers, in milliseconds.
-	StepMS int `json:"step_ms"`
+	// StepMS is the time one value covers, in milliseconds, and AgeMS
+	// how long before this snapshot the newest value was added.
+	StepMS int     `json:"step_ms"`
+	AgeMS  float64 `json:"age_ms"`
 	// Input is what came in from the device, and MIDI what went out.
 	Input []int `json:"input"`
 	MIDI  []int `json:"midi"`

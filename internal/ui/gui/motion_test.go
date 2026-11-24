@@ -79,3 +79,33 @@ func TestMix(t *testing.T) {
 		t.Errorf("Mix: %v %v %v", Mix(a, b, 0), Mix(a, b, 1), Mix(a, b, 0.5))
 	}
 }
+
+func TestFrameRate(t *testing.T) {
+	for _, tt := range []struct {
+		refresh, limit int
+		synced         bool
+		want           int
+	}{
+		// No limit, or one the monitor does not reach: a little above
+		// the monitor.
+		{60, 0, true, 64}, {60, 60, true, 64}, {60, 120, true, 64}, {144, 0, true, 152},
+		// The monitor's rate divided by a whole number: paced at the
+		// middle between two of the monitor's pictures, so that every
+		// frame waits for the same one.
+		{60, 30, true, 40}, {60, 15, true, 17}, {120, 60, true, 80}, {144, 72, true, 96}, {240, 60, true, 69},
+		// Anything else, and where frames do not wait: as it is.
+		{60, 30, false, 30}, {144, 60, true, 60}, {144, 120, true, 120}, {60, 50, true, 50},
+		// A monitor that does not say how fast it is counts as sixty.
+		{0, 30, true, 40},
+	} {
+		if got := FrameRate(tt.refresh, tt.limit, tt.synced); got != tt.want {
+			t.Errorf("FrameRate(%d, %d, %v) = %d, want %d", tt.refresh, tt.limit, tt.synced, got, tt.want)
+		}
+	}
+	// What the pacing aims at: a frame paced at 40 on a monitor of 60 is
+	// ready 25 ms after the one before, between the pictures at 16.7 and
+	// 33.3, and so always shown with the second.
+	if rate := FrameRate(60, 30, true); 1000.0/float64(rate) <= 1000.0/60 || 1000.0/float64(rate) >= 2000.0/60 {
+		t.Errorf("paced at %d, a frame is not ready between the monitor's first and second picture", rate)
+	}
+}
