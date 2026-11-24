@@ -51,7 +51,7 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (23 November 2026)
+## Where things stand (24 November 2026)
 
 `dev` holds everything up to the review of the whole code (pull requests
 50 and 51). One pull request is open on top of it:
@@ -63,6 +63,9 @@ completes or changes an item.
   saving, learning mode, the Steam Controller, and then factory and user
   profiles, settings that are saved on purpose, HIDI's icon, the check for
   updates, and a Windows program without a console that carries its icon.
+  Since then, the rounds below: the newest is the ninth, with new
+  defaults, settings that the running HIDI holds, and one factory profile
+  for every game controller.
 
 Apart from HIDI itself: a change to raylib's Win32 backend is on the
 maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
@@ -80,6 +83,69 @@ move.
 is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
+
+### Ninth round (24 November 2026): what was reported, and what was done
+
+| Reported or asked for | Done |
+|---|---|
+| OpenRGB turned on and not saved worked for a while and stopped. Saving must do nothing but write the file | The window writes the settings file for its own sake too (which instruments show their input), and HIDI took the whole file over each time, undoing what was being tried. The running HIDI now holds the settings in use and tells them on request; the file is taken over only in what changed in it; saving writes and nothing else; closing the window takes nothing back. |
+| Colours did not follow their sliders | They do, on the keyboard and in the window, while a slider is dragged. The MIDI ports to send to are followed at once as well (the router can be given other ports and lets go of the old ones). |
+| Stutter at a limit of 30 frames a second, uneven motion at 15 | A limit that divides the monitor's rate is paced between two of the monitor's pictures, so frames land evenly; the curves move by the age HIDI reports for the newest step and the time since it arrived. **Not seen on a real monitor.** |
+| "Revert" in the profile editor; "not saved" only when the profile really differs | Revert puts the page back to the file and forgets the undo steps. Whether there is something to save is asked of the two profiles as parsed (`config.Same`), so a key dragged away and back leaves nothing to save. |
+| New defaults | Caps Lock, tapped, HIDI's alone; HIDI starts off, with its window open; learning lets an axis through at half its range. A file that names a toggle of several keys and says no more is read as it was meant. |
+| Notes that appear when the pointer rests on a widget, not used anywhere yet | `kit.hint`: any widget can be given a text, shown beside it after 0.6 s. No widget has one yet, as asked. |
+| Settings of the other system greyed out | `always_grab` on Windows, for one: shown, greyed, not to be changed. |
+| Removing a profile of one's own, after a question | "Delete" beside each of the user's profiles; an overlay asks first and everything behind it waits. |
+| Why are there still profiles for the Steam Controller, the Saitek and the PS4 controller | They are gone from the factory profiles. See the next section. |
+| A change for one device only, by vendor and product | "Only for" with the device's name, on the page of the profile it plays with. See the next section. |
+
+Found on the way: an axis that a controller had only listed, and not yet
+reported, was sent as standing at its lower end whenever HIDI was turned
+on: a pitch bent all the way down, on Windows at every start. Fixed, with
+the tests that showed it.
+
+Asked, and answered in the conversation rather than built:
+
+- "The toggle is one key, tapped" and "the toggle key is HIDI's alone"
+  differ only when the key is held: a tap is hidden from the system either
+  way (on Linux only with keyboards kept grabbed), and a key held longer
+  than half a second reaches the system unless it is HIDI's alone.
+- The colour "other" lights a key that sends something that is neither a
+  note nor a command: a controller, a program change, a pitch bend.
+- The toggle as a command in a profile (`hidi_toggle`), per device, with
+  the setting as an override: a proposal, see "To be decided".
+
+### One generated mapping for every game controller (24 November 2026)
+
+Proposed in the eighth round, built in the ninth, after the maintainer
+asked why the profiles for single products were still there.
+
+- HIDI comes with two profiles: keyboards, and game controllers. The
+  second names a handful of controls and has a rule, `[generate]`, for all
+  the others: button n plays the n-th note from C1, axis n sends the n-th
+  controller from 16, the directions of a hat are buttons after the last
+  button. The numbers are those the window shows, from the device's own
+  list of controls in the order of their codes.
+- The rule is the lowest layer, applied in every layout to what neither
+  the layout nor `[global]` names. `"nothing"` silences a control.
+- Whether an axis is a hat's is asked of the device, not read off its
+  code: the pads of a Steam Controller use the hat codes and are no hats.
+- The four profiles for single products are examples now, in
+  `docs/examples/profiles`.
+- "Only for <device>" on a profile's page makes a profile of the user's
+  for that vendor and product, out of what the page shows.
+
+Decided on the way, and the maintainer's to overturn:
+
+- Notes from C1 (36) instead of note 0, and controllers from 16 instead of
+  0 to 6. Both were what HIDI 1 did; note 0 is below what instruments
+  play, and controllers 0 and 6 choose a bank and enter data.
+- Pitch bend stays on the Y axis for every controller, and the first hat
+  keeps octave and layout. On a throttle the Y axis is a lever, and the
+  pitch stays bent until the device has a profile of its own.
+- Binding by number in a profile (`button.3 = ...`) was not built: names
+  are what profiles and the window write, and the numbers stand beside
+  them.
 
 ### Eighth round (23 November 2026): what was reported, and what was done
 
@@ -136,73 +202,10 @@ maintainer's HyperX). That interface is now read like a game controller
 and its keys given to the keyboard it belongs to. **Written blind**: to
 be tried.
 
-### Proposed, not built: one generated mapping for every game controller
+### Smaller things about profiles, none of them built
 
-The maintainer wants the factory profiles to be two, a keyboard and a
-game controller, with no profile written for one product; a game
-controller of any make should play by a mapping worked out from what it
-has, the same at every start. This is how it could be done. Nothing of
-it is built: it changes what a profile can say, and which factory
-profiles exist, and both are the maintainer's to decide.
-
-What is there already, since this round: a device lists its controls,
-and they have numbers that are the same for every device of a kind
-(button 0 to n, axis 0 to m, in the order of their codes).
-
-1. **Controls can be bound by number.** Beside `BTN_SOUTH = "C3"` a
-   profile could say `button.0 = "C3"` and `axis.2 = { controller = 7 }`,
-   resolved against the controls of the device when its engine is made.
-   Names stay, for a profile written for one product. A number the
-   device does not have is skipped without complaint, so one profile
-   fits a pad with ten buttons and a stick with forty.
-2. **A profile can ask for the rest to be generated.** For instance
-
-   ```toml
-   [generate]
-   buttons = { from = "C2", step = 1 }   # button n plays C2 + n
-   axes    = { from = 1 }                # axis n sends controller 1 + n
-   ```
-
-   Every button and axis that has no line of its own gets one by this
-   rule. The rule depends on nothing but the list of controls, so every
-   start gives the same mapping. Controllers that mean something special
-   to synthesisers (0, 6, 32, 38, 64 to 69, 96 to 101, 120 to 127)
-   would be stepped over.
-3. **The factory game-controller profile is then a dozen lines**: a
-   match on the type, the starting values, and `[generate]`. The four
-   profiles for single products go (PS4, the two halves of the X56, the
-   Steam Controller), or stay in the documentation as examples.
-4. **Making it one's own writes the generated lines out.** "Customise"
-   on a connected controller would make a user profile that matches that
-   product and holds every generated binding as a line, to be changed
-   like any other. Nothing is generated behind the user's back after
-   that.
-
-Open, and needing the maintainer's word:
-
-- Which notes and which controllers the rule gives. A chromatic row
-  from C2 is the simplest; a scale would play better and skip more.
-- Hats. They are axes that rest in the middle and only ever sit at the
-  ends: as two axes they are poor controllers. Each direction as a note
-  is likely what is wanted.
-- Where an axis rests. A stick rests in the middle and a trigger at one
-  end, and the device does not say which is which. Linux reports where
-  an axis stands when the device is opened, which is a good guess for
-  one that is not being held; Windows says nothing until the axis
-  moves. Without it a resting stick sends 64 and a resting trigger 0,
-  which is what a controller should do in both cases, so this may not
-  matter.
-- Commands. Octave, layout and the like cannot be given to buttons by a
-  rule that suits every controller; the generated mapping would have
-  none, and the instrument's octave would be changed from the window or
-  a keyboard.
-
-Smaller things about profiles that would make them easier to live with,
-none of them built:
-
-- Removing a profile of one's own from the window, and renaming it.
-- "New profile for this device" on an instrument's card, which today
-  needs a file copied and its `[match]` written by hand.
+- Renaming a profile from the window.
+- The same "Only for" from an instrument's card on the main page.
 - Saying on the card why this profile was chosen for this device, where
   two fit.
 
@@ -225,9 +228,9 @@ To be tried on Windows, none of which has run there:
   once a frame and repeated after every look at the pointer, because
   raylib's Win32 code gives the arrow back whenever the mouse moves.
 - "Show in folder" beside a profile: Explorer with the file selected.
-- A grabbed keyboard: playing, the three-key toggle,
-  `hidi.exe --toggle=KEY_CAPSLOCK --toggle-tap`, and the same with
-  `toggle_exclusive`.
+- A grabbed keyboard with the new defaults: playing, Caps Lock tapped to
+  turn HIDI off and on, that Caps Lock does nothing else while held, and
+  a toggle of three keys set in the settings.
 - A key bound to `"passthrough"`: does it type while the others play.
 - The four hats of the Gladiator, and whether its buttons play.
 - `taskkill /F /IM midisrv.exe` while HIDI runs: do the instruments come
@@ -247,6 +250,19 @@ To be tried on Windows, none of which has run there:
   that the pointer and what it points at still agree.
 - Typing the OpenRGB address in the settings while the keyboard is not
   HIDI's alone.
+- Game controllers with the generated mapping: that every button of the
+  Gladiator plays a note of its own from C1 up, every axis sends a
+  controller from 16 up, its other hats play notes, and that the numbers
+  in the window are the ones the notes go by. The same for the Steam
+  Controller, which now lists its controls, and an Xbox controller.
+- That nothing is sent for an axis when HIDI is turned on before the axis
+  was touched: no pitch bent down at the start.
+- "Only for <device>" on the page of the game-controller profile: the
+  file it makes, and that the device plays with it within a few seconds.
+- Settings in use at once and not saved: OpenRGB on and off, a colour
+  following its slider, and that saving changes nothing that is heard or
+  seen.
+- A frame limit of 30 and of 15: is motion even on a real monitor.
 
 To be tried with a keyboard OpenRGB lights, which was not at hand: that a
 released key goes dark at once, how fast the lights follow while playing,
@@ -271,17 +287,29 @@ To be decided:
 - Whether the raylib change goes to raylib, and when HIDI moves to
   raylib-go 0.63.
 - Whether the rest of the profile editor belongs in 2.0.
+- The toggle as a command of a profile. The maintainer's idea: a profile
+  binds `hidi_toggle` to a key, or to a combination, like any other
+  command, and the setting stays as a way to name one key for everything.
+  What it needs: the toggle is handled outside the engine, which is not
+  run while HIDI is off, so an instrument would have to watch its
+  profile's toggle bindings itself in both states; tapping and keeping the
+  key from the system would become options of that binding, or stay
+  settings; and a keyboard that is grabbed with a profile that has no
+  toggle needs a way out, by refusing to grab it or by a combination that
+  always works. Not started.
+- What the generated mapping gives; see "One generated mapping" above.
 
 ### Left to do
 
 - The rest of configuring in the window: the two halves of an axis bound
   apart, program changes, keys with modifiers, the options of a note,
-  renaming a layout, a new profile for a device, removing a profile of
-  the user's.
+  renaming a layout or a profile, a new profile from nothing.
 - A profile that is tried and not saved stays in use if the window ends
   without a word, by a crash for one, until its file changes or HIDI
   starts again. A window that is closed takes it back.
-- A running HIDI follows changed `connect` ports only at its next start.
+- Notes under the pointer: the means are there, the texts are not.
+- The window shows an axis that has not reported yet at its lower end.
+- The window does not remember its size and place.
 - Two keyboards with lights are written one after the other, so each
   follows at half the pace it could.
 - No start at login yet.

@@ -382,10 +382,37 @@ The window follows the decisions on the roadmap:
 
 To show what is played, the state HIDI reports for an instrument names the
 notes that are on. To show what the device itself does, it also lists the
-buttons and axes the device has reported so far and where each stands;
-`instrument` keeps that list from the events it passes to the engine. A
-control appears once the device has reported it, since not every input
-backend can say beforehand which controls a device has.
+buttons and axes of the device and where each stands; `instrument` keeps
+that list. A game controller says what it has when it is opened
+(`input.Describer`): the kernel's lists on Linux, the HID capabilities and
+the fixed set of XInput on Windows. The list is seeded with that, so the
+window shows and numbers every control from the start, and it says which
+axes are those of a hat. An axis that was only listed has no position yet,
+and is not among those sent again when an instrument starts playing.
+
+The same list is what a profile's `[generate]` rule works on. The engine
+knows nothing of rules: `config.Profile.For` takes the controls of a device
+and returns an engine profile in which every layout has, beside the
+bindings the file names, one for each control that neither the layout nor
+`[global]` names. The manager builds a device's engine from that. Since the
+rule sees nothing but the device's own list, in the order of its codes, the
+same device gets the same instrument on every start, and the window can
+work out for itself what the running HIDI plays.
+
+The settings in use are the running HIDI's (`liveSettings` in `cmd/hidi`),
+not the file's and not the window's. They start as the file's. The window
+hands over what its sheet shows, change by change, and asks for them when
+it opens; a file changed by hand is taken over in what it changed, compared
+with how it was last read. Saving in the window writes the file and nothing
+more, so that a write is never a reason for anything to be applied.
+
+What moves in the window moves by time, not by frames. The curves are
+placed by how old the newest step was when HIDI reported it plus the time
+since that report arrived, so a frame that comes late draws them where
+they are by then. A frame limit that is the monitor's rate divided by a
+whole number is paced at the middle between two of the monitor's pictures,
+so that the wait for the monitor lands every frame on the same picture and
+they come at even distances (`FrameRate`).
 
 A profile is changed from the window in its text. `config.Set` and
 `config.Remove` find the line of one key in one section and change that
@@ -395,6 +422,18 @@ text written in a way they do not follow is left alone and the window says
 so. The result is parsed as a profile before it is written, so the window
 cannot write a file HIDI would refuse. The running HIDI learns of the
 change like of any other, by watching the directory.
+
+Whether a page has something to save is asked of the profiles, not of the
+text: `config.Same` compares what is shown with what the file says as
+parsed profiles, setting aside the order of lines. A change that is taken
+back by hand leaves nothing to save.
+
+The window's own widgets are a small kit over raylib (`kit` in `ui/gui`):
+buttons, switches, fields and steppers that take the pointer and the scale
+of the interface from one place, a layout helper that wraps rows, an
+overlay for a question that has to be answered before anything else is
+touched, and a hint that appears beside a widget the pointer rests on. The
+hint is there for any widget to use; no text has been given to one yet.
 
 The socket also makes HIDI a single instance. A second HIDI finds the first
 one answering and stops before it opens any device, or opens the first

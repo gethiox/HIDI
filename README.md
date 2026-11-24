@@ -105,7 +105,10 @@ Start `hidi` from the desktop's menu, by a double click, or from a terminal:
 hidi
 ```
 
-The instruments run, and an icon appears in the tray. No window opens.
+The window opens, and an icon appears in the tray. HIDI starts turned off:
+the keyboard types as always until you turn HIDI on, with a tap on Caps
+Lock or the switch at the top of the window. Closing the window leaves HIDI
+running as the icon.
 
 - A click on the icon opens the window.
 - A click with the middle button turns HIDI off and on.
@@ -115,9 +118,10 @@ The instruments run, and an icon appears in the tray. No window opens.
 - The icon tells whether HIDI is on or off: its keys are green while HIDI
   is on and grey while it is off.
 
-To have the window open on every start, turn on "The window opens when HIDI
-starts" in the settings; `hidi --window` does it once. Starting `hidi` while
-it runs already opens the window of the one that runs.
+To start as the icon alone, turn off "The window opens when HIDI starts" in
+the settings; `hidi --window` then opens it once. "HIDI is on when it
+starts" is there too. Starting `hidi` while it runs already opens the
+window of the one that runs.
 
 On Linux the icon needs a desktop that shows such icons the modern way
 (StatusNotifierItem): KDE, Xfce, the bars of Wayland compositors such as
@@ -141,27 +145,33 @@ rows, laid out like a piano.
 | F11, F12 | Previous, next layout |
 | Escape | Silence everything |
 
-A game controller plays notes on its buttons, bends the pitch with the left
-stick, sends control changes from the other axes, and changes octave and
-layout with the direction pad. What exactly, and everything else, is in the
-[profiles](#settings-and-profiles).
+A game controller of any kind, a pad, a stick, a throttle or a wheel,
+plays notes on its buttons, from C1 up in the order of their numbers, and
+sends a controller from each axis, from controller 16 up. The stick, or the
+left one of two, bends the pitch; the first hat or the direction pad changes
+octave and layout; select and start change the channel. HIDI has no
+profiles for single products: it asks each controller what it has and gives
+everything a part by its number, the same every time. What exactly, and
+everything else, is in the [profiles](#settings-and-profiles).
 
 ### Turning HIDI off and on
 
 While HIDI is on, keyboards are taken away from the rest of the system, so
 that playing does not type. That includes the keyboard you started HIDI
-with. To get it back, press the toggle combination:
+with. To get it back, tap the toggle key:
 
-**Left Ctrl + Left Shift + Left Alt**, together.
+**Caps Lock**, pressed and let go within half a second.
 
-Pressing it again turns HIDI back on. While HIDI is off the instruments are
+Another tap turns HIDI back on. While HIDI is off the instruments are
 silent and their MIDI devices stay in place. Game controllers are not taken
 away, so they keep working in other programs.
 
-One key can do the same with a tap, Caps Lock for instance. Held for longer
-than half a second, the key does what it normally does. What the rest of the
-system sees of the tap differs between Windows and Linux; see "One key that
-turns HIDI off and on" in the
+Caps Lock is HIDI's alone from then on: it no longer switches capitals,
+whether HIDI is on or off. The settings can give the key back to the system
+when it is held, choose another key, or a combination of several keys
+pressed together instead, such as left Ctrl, Shift and Alt. What the rest
+of the system sees of a tapped key differs between Windows and Linux; see
+"One key that turns HIDI off and on" in the
 [configuration reference](docs/configuration.md).
 
 ## The window
@@ -196,7 +206,7 @@ meanwhile, and another click ends it. Nothing is sent to the keyboard.
 
 The small switch beside it is learning mode, for teaching a program which
 controller to listen to: every axis stands still until it is moved by more
-than a fifth of its range, so that the program hears only the one you mean.
+than half of its range, so that the program hears only the one you mean.
 The icon in the tray blinks green and yellow meanwhile, and its menu has the
 switch too.
 
@@ -223,11 +233,15 @@ instruments. A click beside the sheet closes it.
 What is in `settings.toml` can be changed there, in sections: turning HIDI
 on and off, the devices, MIDI, the lights, the window, and the profiles.
 A change is in use at once: the running HIDI follows it as you make it, so
-turning on the lights lights them. It is not written, though, until you
-save, with the disk in the corner of the sheet or Ctrl+S. The disk is yellow
-while something is in use that is not saved, and "Revert" beside it takes
-it back. What is not saved when the window closes is taken back too. A few
-settings matter only when HIDI starts, and say so.
+turning on the lights lights them, and a colour changes on the keyboard
+while its slider moves. It is not written, though, until you save, with the
+disk in the corner of the sheet or Ctrl+S. Saving writes the file and does
+nothing else. The disk is yellow while something is in use that is not
+saved, and "Revert" beside it takes it back. Closing the window changes
+nothing: HIDI keeps going by what is in use, and the window shows that, and
+that it is not saved, when it opens again. A few settings matter only when
+HIDI starts, and say so. A setting that only the other system has is shown
+greyed out.
 
 - "Change" beside the toggle combination takes a new one from the keyboard:
   press the keys together and let go. One key alone works too, and can then
@@ -257,7 +271,8 @@ settings matter only when HIDI starts, and say so.
 Below them is HIDI's directory, with a button that opens it in the file
 manager, and every profile, also those of devices that are not connected,
 in two groups. "Yours" are your own: each has a switch that turns it off
-without removing it, "Edit", and "Show in folder". "Factory" are the ones
+without removing it, "Edit", "Show in folder", and "Delete", which asks
+before it removes the file. "Factory" are the ones
 HIDI comes with, which it keeps as they are: "View" shows one, and
 "Customise" makes a copy of your own, used in its place, and opens it.
 
@@ -282,13 +297,27 @@ controller, run a command, or do nothing. An axis sends a controller or
 bends the pitch, and has switches for resting in the middle and for being
 reversed, and a dead zone.
 
+With a game controller connected, the page lists everything the controller
+has, with its number. Most of it has no line in the profile and plays "by
+its number"; changing such a control writes a line for it, and emptying it
+writes that it does nothing.
+
+![The profile of one game controller, with what each control does](docs/images/gui-controller.png)
+
+A change to the profile for game controllers applies to all of them. "Only
+for" with the name of a device, at the top of the page, makes a profile of
+your own for that product alone, out of what the page shows, and opens it.
+The device plays with it from then on; the others stay as they were.
+
 ![Changing a keyboard's profile](docs/images/gui-profile.png)
 
 Nothing is written until you save, with the disk in the corner or Ctrl+S.
-The disk is yellow while there is something to save. A running HIDI plays
-with the profile as it is shown, saved or not, so a change can be tried at
-once; the file counts again when you take the changes back. "Undo" and
-"Redo", or Ctrl+Z and Ctrl+Y, go back and forth through the changes. If you
+The disk is yellow while what is shown differs from the file: a key dragged
+away and back leaves nothing to save. A running HIDI plays with the profile
+as it is shown, saved or not, so a change can be tried at once; the file
+counts again when you take the changes back. "Undo" and "Redo", or Ctrl+Z
+and Ctrl+Y, go back and forth through the changes, and "Revert" puts the
+page back to what the file says in one step. If you
 leave the page with changes on it they stay there, and a yellow dot on the
 way back to it says so.
 
@@ -334,8 +363,8 @@ same for `hidi` and `hidi --headless`, and each overrides its setting in
 |---|---|
 | `--headless` | Run the instruments only, without the icon and the window. |
 | `--window` | Open the window at once. |
-| `--toggle KEYS` | Use another combination, such as `--toggle KEY_SCROLLLOCK` or `--toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. |
-| `--toggle-tap` | The toggle is one key and works by a tap. |
+| `--toggle KEYS` | Use another toggle, such as `--toggle KEY_SCROLLLOCK` or `--toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. Several keys are pressed together and not tapped. |
+| `--toggle-tap` | The toggle is one key and works by a tap, as it does unless the settings say otherwise. |
 | `--always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
 | `--no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `--grab-gamepads` | Also take game controllers away from other programs. |
@@ -564,9 +593,10 @@ alone, and `--log-midi` every MIDI message it sends.
 ### Valve's Steam Controller
 
 On Linux the kernel's `hid-steam` driver presents Valve's controllers as
-game controllers, and HIDI plays them with a profile of its own, "Steam
-Controller": the stick bends the pitch, the trackpads and triggers send
-controllers, the buttons and paddles play notes.
+game controllers, and HIDI plays them like any other: the stick bends the
+pitch, the trackpads and triggers send controllers, the buttons and paddles
+play notes. A profile written for them, which names each control, is among
+the [examples](docs/examples/profiles).
 
 - Steam must not be running. While it is, it takes the controller for
   itself and the kernel takes the game controller away.
@@ -577,8 +607,8 @@ controllers, the buttons and paddles play notes.
   start as a mouse and keyboard, and send nothing to HIDI until you hold
   the button with the three lines (Start) for half a second, which
   switches them to being a game controller. The same again switches back.
-- The motion sensors show up as a part called "Motion Sensors"; the
-  profile does not use them.
+- The motion sensors show up as a part called "Motion Sensors", which
+  plays nothing unless a profile names its axes.
 
 On Windows HIDI reads the controller of 2026 itself, by cable, by Bluetooth
 and through its wireless receiver. Windows only sees a mouse and a keyboard

@@ -26,10 +26,11 @@ settings with their defaults, and the profiles HIDI comes with in
 - `profiles/factory` is HIDI's: every start makes it exactly what this HIDI
   comes with, so a newer HIDI brings its improved profiles along. The files
   are marked read-only. What you change there does not last.
-- `profiles/user` is yours: HIDI never changes or removes a file there. A
-  profile of yours is used before a factory profile that fits a device as
-  well, so the way to change how a device plays is a copy of its factory
-  profile in `profiles/user`. "Customise" in the window makes that copy.
+- `profiles/user` is yours: HIDI never changes or removes a file there by
+  itself. A profile of yours is used before a factory profile that fits a
+  device as well, so the way to change how a device plays is a copy of its
+  factory profile in `profiles/user`. "Customise" in the window makes that
+  copy, and "Only for ..." makes one for a single product.
 - A directory from an earlier HIDI 2, with the profiles in `profiles`
   itself, is brought into this shape on the first start: files HIDI wrote
   and you did not change are dropped, since `factory` has them, and the
@@ -45,31 +46,35 @@ its default, and an option given on the command line comes before the file.
 A file with a mistake is not used: HIDI says what is wrong and runs with the
 defaults.
 
-A running HIDI notices within about two seconds when the file changes, and
-takes over the toggle combination, what is grabbed, which devices play, and
-the lights: whether the keys are lit, the address of the OpenRGB server and
-the colours. A keyboard that should type again does so at once. `start_on`,
-`connect` and `show_at_start` matter when HIDI starts. A changed file with a
-mistake is reported and changes nothing.
+The running HIDI holds the settings it goes by. They are the file's until
+something else is handed to it:
 
-Everything here can also be changed in the window, on the sheet the gear
-opens. What is changed there is in use at once, without being written:
-the window hands the running HIDI the settings as they are shown. The sheet
-writes the file
-when you save there, not with every change.
+- Everything here can also be changed in the window, on the sheet the gear
+  opens. What is changed there is in use at once, without being written:
+  the toggle, what is grabbed, which devices play, the MIDI ports, and the
+  lights, down to a colour following its slider. The window says that it
+  is not saved for as long as it differs from the file. Closing the window
+  changes nothing; opened again, it shows what is in use.
+- Saving on that sheet writes the file and does nothing else. Nothing is
+  read back or applied again because of it.
+- A file changed by hand is noticed within about two seconds, and what
+  changed in it is taken over. A changed file with a mistake is reported
+  and changes nothing.
+
+`start_on` and `show_at_start` matter when HIDI starts, by their nature.
 
 ```toml
 schema = 1
 
 [input]
-toggle = ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT"]
+toggle = ["KEY_CAPSLOCK"]
 grab_keyboards = true
 grab_gamepads = false
-start_on = true
-toggle_tap = false
+start_on = false
+toggle_tap = true
 always_grab = false
-toggle_exclusive = false
-learn_threshold = 20
+toggle_exclusive = true
+learn_threshold = 50
 
 [devices]
 mode = "blacklist"
@@ -97,7 +102,7 @@ idle = "#181818"
 pressed = "#ffffff"
 
 [window]
-show_at_start = false
+show_at_start = true
 fps = 0
 background_fps = 0
 scale = 100
@@ -131,6 +136,18 @@ control_names = false
 | `window.scale` | The size of everything the window draws, in hundredths of its ordinary size, 50 to 300. | |
 | `window.show_input`, `window.show_output` | The instruments whose input and whose notes are drawn in the window, each as `"name \| kind \| where it is plugged in"`, so that two devices of one name are apart. The window keeps these lists itself. | |
 
+What a fresh HIDI does, then: Caps Lock turns it off and on with a tap and
+does nothing else any more, HIDI starts turned off with its window open, so
+that the keyboard types until it is asked to play.
+
+Three of the defaults go with a toggle of one key. A file that names a
+toggle of its own and says nothing more gets what fits it: a combination of
+several keys is not tapped and not kept from the system, and with no toggle
+at all HIDI starts on. `--toggle` on the command line does the same.
+
+A setting that only one system has, `always_grab` for one, is shown on the
+sheet of the other system too, greyed out and not to be changed there.
+
 `window.log_height` was a setting of earlier HIDI 2 builds. A file that
 still has it is read without complaint, and the line is gone the next time
 HIDI writes the file: the window always opens with the log folded away.
@@ -156,15 +173,19 @@ those sixteen colours are fixed.
 
 #### One key that turns HIDI off and on
 
-Three keys pressed together are safe, and a handful. One key is nicer:
+This is how HIDI comes:
 
 ```toml
 toggle = ["KEY_CAPSLOCK"]
 toggle_tap = true
+toggle_exclusive = true
 ```
 
 Tap the key, pressed and let go within half a second, and HIDI turns off or
 on. The key plays nothing any more. Hold it longer and it does not toggle.
+
+Several keys pressed together work too, and need neither of the other two
+settings: `toggle = ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT"]`.
 
 What the rest of the system sees of that key differs:
 
@@ -189,10 +210,11 @@ the system and is not held.
 
 Without `toggle_tap`, `always_grab` does nothing.
 
-If the key should do nothing but toggle, also when held, add
-`toggle_exclusive = true`: the key is then kept from the system altogether.
-With Caps Lock that means no more switching of capitals by accident, whether
-HIDI is on or off.
+With `toggle_exclusive = true`, as it is by default, the key does nothing
+but toggle, also when held: it is kept from the system altogether. With Caps
+Lock that means no more switching of capitals by accident, whether HIDI is
+on or off. Set it to `false` and the table above applies: a tap is still
+hidden, and the key held longer does what it normally does.
 
 # Profile files
 
@@ -200,9 +222,19 @@ A profile describes one instrument: which devices it applies to, the state it
 starts in, and what each control does. Profiles are [TOML](https://toml.io)
 files.
 
-HIDI comes with profiles for keyboards and game controllers, so a device
-works without any configuration. They are the files in `profiles/factory`,
-and the best starting point for your own.
+HIDI comes with two profiles, one for keyboards and one for game
+controllers of every kind, so a device works without any configuration.
+They are the files in `profiles/factory`, and the best starting point for
+your own. Neither is written for one product: what the profile for game
+controllers does not name plays by a rule (see `[generate]` below), so a
+pad of ten buttons and a stick of forty are both instruments from the
+start.
+
+Profiles written for single products, which earlier HIDI 2 builds came
+with, are kept as examples in
+[`docs/examples/profiles`](examples/profiles): a PS4 controller with its
+touchpad, the two halves of a Saitek X-56, the Steam Controller. Copy one
+into `profiles/user` to use it.
 
 HIDI checks a profile completely when it loads it and reports every problem it
 finds at once.
@@ -218,14 +250,39 @@ hidi profiles            list the profiles, with their kind, and check the files
 
 To change what a device plays, copy its factory profile into `profiles/user`
 and change the copy; "Customise" beside a factory profile in the window does
-the copying and opens the copy. A profile of yours can be switched off
-without removing it, with the switch beside it in the window or by writing
+the copying and opens the copy. That copy is for every device of the kind,
+as the factory profile is.
+
+For one device to play differently from the others of its kind, it needs a
+profile that names it. On the page of a profile in the window, each device
+that is playing with that profile has a button "Only for" with its name. It
+makes a profile of yours that is the one shown, named after the device, for
+that product alone:
+
+```toml
+[match]
+type = "gamepad"
+vendor = 0x231d
+product = 0x0200
+```
+
+The device plays with it from then on, and every other device stays with
+what it had. Two devices of the same product share the profile.
+
+A profile of yours can be switched off without removing it, with the switch
+beside it in the window or by writing
 
 ```toml
 enabled = false
 ```
 
 at the top of the file. The device then plays by its factory profile again.
+"Delete" beside it removes the file, after asking.
+
+On the page of a profile, "not saved" means that what is shown differs from
+the file: a change that is taken back by hand, a key dragged away and back
+for one, leaves nothing to save. "Revert" puts the page back to what the
+file says and forgets the steps that could be undone.
 
 The `--profiles DIR` option reads profiles from another directory instead of
 HIDI's own. Those are used beside the profiles inside HIDI, not in place of
@@ -354,6 +411,46 @@ Collision modes:
 | `retrigger` | starts it again without ending it first | the last control holding it is released |
 | `off` | starts it again without ending it first | any control holding it is released |
 
+## `[generate]`: the controls the profile does not name
+
+A game controller can have a dozen controls or a hundred, under names that
+differ from one to the next. A profile does not have to list them:
+
+```toml
+[generate]
+notes = "C1"        # button n plays the n-th note from C1
+controllers = 16    # axis n sends the n-th controller from 16
+```
+
+Either setting can be left out. With them, every button and axis of a
+device that has no line gets a part by its number:
+
+- The numbers are the ones the window shows controls by: the buttons of the
+  device in the order of their codes, counted from 0, and the axes
+  likewise. They depend on nothing but what the device has, so the same
+  device is the same instrument every time.
+- The directions of a hat are buttons, after the last button: two for each
+  of its axes.
+- Controllers that mean something of their own are stepped over: 0 and 6,
+  32 to 69, 96 to 101, and 120 to 127. From 16 that is room for sixty axes.
+- In each layout, a control is filled in if it has no line in that layout
+  and none in `[global]`. A line for one half of an axis, or for a
+  combination that ends in the control, counts as a line.
+- Only the main part of a device is filled in, not a touchpad or motion
+  sensors, which would send all the time. Name those to use them.
+- A device that cannot say what it has gets what the profile names and
+  nothing more. Every controller on Linux and on Windows can.
+
+A control that should stay silent says so:
+
+```toml
+BTN_TL = "nothing"
+```
+
+The factory profile for game controllers is little more than this rule: it
+names the commands on select, start and the middle button, pitch bend on
+the stick, and octave and layout on the first hat.
+
 ## Layouts and global bindings
 
 A profile has one or more `[[layout]]` sections. Each has a `name` and a
@@ -394,7 +491,13 @@ KEY_Z = "C1"            # play a note, by name
 KEY_X = 38              # play a note, by number
 KEY_F2 = "octave_up"    # run a command
 KEY_SPACE = "passthrough"   # leave the key to the system
+KEY_F7 = "nothing"      # do nothing
 ```
+
+**`"nothing"`** makes a control do nothing where something else would give
+it a part: in a layout, for a control that `[global]` binds, and in a
+profile with a `[generate]` rule. A control without any line needs no such
+line.
 
 **`"passthrough"`** leaves a key to the rest of the system. It plays nothing,
 and it types what it always types, also while HIDI is on and the other keys
@@ -483,7 +586,7 @@ enough to be taken.
 
 Learning mode is one for all instruments. When it begins, every axis is
 taken to stand where it stands, and what it sends stays exactly there until
-the axis has moved by more than a fifth of its range (`learn_threshold` in
+the axis has moved by more than half of its range (`learn_threshold` in
 the settings). Beyond that it sends where it is, so the program hears just
 the one you mean. Back within that distance it sends the place it stood at
 again. When the mode ends, every axis that is somewhere else by then sends
