@@ -1,6 +1,10 @@
 package control
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // DeviceType is the broad class of an input device, used to choose a default
 // configuration.
@@ -47,6 +51,34 @@ type HardwareID struct {
 // example "0003:054c:09cc:8111".
 func (id HardwareID) String() string {
 	return fmt.Sprintf("%04x:%04x:%04x:%04x", id.Bus, id.Vendor, id.Product, id.Version)
+}
+
+// ParseHardwareID reads an ID as [HardwareID.String] writes it.
+func ParseHardwareID(s string) (HardwareID, error) {
+	var id HardwareID
+	parts := strings.Split(s, ":")
+	if len(parts) != 4 {
+		return id, fmt.Errorf("hardware ID %q is not bus:vendor:product:version", s)
+	}
+	for i, to := range []*uint16{&id.Bus, &id.Vendor, &id.Product, &id.Version} {
+		n, err := strconv.ParseUint(parts[i], 16, 16)
+		if err != nil {
+			return HardwareID{}, fmt.Errorf("hardware ID %q: %q is not a number of up to four hexadecimal digits", s, parts[i])
+		}
+		*to = uint16(n)
+	}
+	return id, nil
+}
+
+// ParseDeviceType reads a kind of device as [DeviceType.String] writes
+// it; anything else is [DeviceUnknown].
+func ParseDeviceType(s string) DeviceType {
+	for _, t := range []DeviceType{DeviceKeyboard, DeviceGamepad, DeviceMouse} {
+		if t.String() == s {
+			return t
+		}
+	}
+	return DeviceUnknown
 }
 
 // DeviceInfo describes a connected input device.

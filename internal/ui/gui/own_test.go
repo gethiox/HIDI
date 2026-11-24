@@ -9,6 +9,7 @@ import (
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/midi"
 	"github.com/gethiox/HIDI/internal/settings"
 )
@@ -285,5 +286,50 @@ func TestCarriedAndPutBackIsNotAChange(t *testing.T) {
 	doc.Carry(layout, f24, keyZ, true)
 	if !doc.Dirty() {
 		t.Error("back to what was saved before the last saving counts as saved")
+	}
+}
+
+func TestCustomiseFor(t *testing.T) {
+	files, err := config.BuiltinFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userDir := filepath.Join(t.TempDir(), "profiles", "user")
+	stick := ipc.Instrument{Name: "Thrustmaster T.16000M", Type: "gamepad", Hardware: "0003:044f:b10a:0111"}
+	own, made, err := CustomiseFor(files["gamepad.toml"], userDir, stick)
+	if err != nil || !made || own != filepath.Join(userDir, "thrustmaster-t-16000m-044f-b10a.toml") {
+		t.Fatalf("CustomiseFor: %q, %v, %v", own, made, err)
+	}
+	doc, err := OpenProfile(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Profile.Name != stick.Name || !OwnProfile(doc.Profile) || !doc.Profile.Generate.Any() {
+		t.Errorf("the profile for the device: %q, for %s, rule %+v", doc.Profile.Name, doc.Profile.Match, doc.Profile.Generate)
+	}
+	// It can be changed, and asking again gives the same file as it is.
+	if err := doc.SetNote(doc.DefaultLayout(), control.Key(0x130), midi.Note(60)); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	changed, _ := os.ReadFile(own)
+	if again, made, err := CustomiseFor(files["gamepad.toml"], userDir, stick); err != nil || made || again != own {
+		t.Errorf("CustomiseFor again: %q, %v, %v", again, made, err)
+	}
+	if now, _ := os.ReadFile(own); string(now) != string(changed) {
+		t.Error("asking again wrote over the profile")
+	}
+	// A device that does not say what it is gets none.
+	if _, _, err := CustomiseFor(files["gamepad.toml"], userDir, ipc.Instrument{Name: "Pad", Type: "gamepad", Hardware: "0000:0000:0000:0000"}); err == nil {
+		t.Error("a profile was made for a device without vendor and product")
+	}
+	if _, _, err := CustomiseFor(files["gamepad.toml"], userDir, ipc.Instrument{Name: "Pad", Type: "gamepad"}); err == nil {
+		t.Error("a profile was made for a device without a hardware ID")
+	}
+	general, _ := config.Parse(files["gamepad.toml"])
+	if OwnProfile(general) {
+		t.Error("the general profile counts as one for a product")
 	}
 }

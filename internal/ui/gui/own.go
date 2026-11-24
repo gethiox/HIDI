@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/gethiox/HIDI/internal/config"
+	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/settings"
 )
 
@@ -42,6 +44,43 @@ func Customise(factoryFile, userDir string) (file string, made bool, err error) 
 		return "", false, err
 	}
 	return file, true, nil
+}
+
+// CustomiseFor gives the user a profile for one product: the profile
+// text given, which is the one the device plays with now, named for the
+// device and made to be for devices of its vendor and product alone (see
+// [config.ForDevice]). It is kept among the user's profiles under a name
+// made of the device's, and returned. A file of that name that is there
+// already is that profile, made earlier, and is left as it is; made says
+// whether it was made now.
+func CustomiseFor(text []byte, userDir string, device ipc.Instrument) (file string, made bool, err error) {
+	hardware, err := control.ParseHardwareID(device.Hardware)
+	if err != nil {
+		return "", false, err
+	}
+	own, err := config.ForDevice(text, device.Name, control.ParseDeviceType(device.Type), hardware)
+	if err != nil {
+		return "", false, err
+	}
+	file = filepath.Join(userDir, config.DeviceFile(device.Name, hardware))
+	if _, err := os.Stat(file); err == nil {
+		return file, false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", false, err
+	}
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		return "", false, err
+	}
+	if err := writeWhole(file, own); err != nil {
+		return "", false, err
+	}
+	return file, true, nil
+}
+
+// OwnProfile reports whether a profile is for one product: it names a
+// vendor and a product, or one single device by its serial number.
+func OwnProfile(p *config.Profile) bool {
+	return p.Match.Vendor != nil && p.Match.Product != nil || p.Match.Serial != ""
 }
 
 // SetProfileEnabled writes into a profile file of the user's whether the

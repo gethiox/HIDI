@@ -168,31 +168,5 @@ func MoveLayout(text []byte, name string, by int) ([]byte, error) {
 // SetEnabled writes whether a profile is to be used: "enabled = false"
 // beside its name, or true. A profile that does not say is enabled.
 func SetEnabled(text []byte, on bool) ([]byte, error) {
-	lines := strings.SplitAfter(string(text), "\n")
-	value := strconv.FormatBool(on)
-	nameAt := -1
-	for i, line := range lines {
-		if _, _, header := parseHeader(line); header {
-			break // the settings of the profile itself end where the first table begins
-		}
-		entry, ok, err := parseEntry(line)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", i+1, err)
-		}
-		switch {
-		case ok && entry.key == "enabled":
-			lines[i] = entry.before + value + entry.after
-			return checked(lines)
-		case ok && entry.key == "name":
-			nameAt = i
-		}
-	}
-	// Behind the name, or at the very start.
-	at := nameAt + 1
-	ending := lineEnding(text)
-	if at > 0 && !strings.HasSuffix(lines[at-1], "\n") {
-		lines[at-1] += ending
-	}
-	lines = append(lines[:at], append([]string{"enabled = " + value + ending}, lines[at:]...)...)
-	return checked(lines)
+	return setTop(text, "enabled", strconv.FormatBool(on), "name")
 }

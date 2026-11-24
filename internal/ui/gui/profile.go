@@ -621,9 +621,13 @@ func writeWhole(path string, data []byte) error {
 		tmp.Close()
 		return err
 	}
+	// A file that is there keeps who may read it; a new one is a file
+	// like any other of the user's.
+	mode := os.FileMode(0o644)
 	if info, err := os.Stat(path); err == nil {
-		tmp.Chmod(info.Mode().Perm())
+		mode = info.Mode().Perm()
 	}
+	tmp.Chmod(mode)
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err

@@ -154,6 +154,50 @@ func (w *window) editProfile(path string) {
 	w.docs[path] = w.edit
 }
 
+// offerOwn draws, for each device that plays with the profile shown, the
+// button that gives the device a profile for itself alone: what is shown,
+// kept under the device's name for devices of its vendor and product. It
+// returns where the buttons end, and whether the page was left for the
+// new profile.
+func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y float32) (end float32, left bool) {
+	end = x
+	offered := map[string]bool{}
+	for _, device := range devices {
+		id := device.Name + "\x00" + device.Hardware
+		hardware, err := control.ParseHardwareID(device.Hardware)
+		if offered[id] || err != nil || hardware.Vendor == 0 && hardware.Product == 0 {
+			continue // a device that does not say what it is cannot be told apart
+		}
+		offered[id] = true
+		hit, after := w.button("Only for "+fit(w.sans, device.Name, sizeText, 220), end, y)
+		end = after + 8
+		if !hit {
+			continue
+		}
+		own, made, err := CustomiseFor(e.doc.Text(), w.opts.Paths.User, *device)
+		if err != nil {
+			e.message = strings.ReplaceAll(err.Error(), "\n", " ")
+			continue
+		}
+		// What was shown and not saved is the new profile's now.
+		if made && e.doc.Dirty() {
+			e.doc.Revert()
+			e.touched = true
+		}
+		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+		w.edit = nil
+		w.editProfile(own)
+		if w.edit != nil && made {
+			w.edit.message = fmt.Sprintf("A profile for %s alone, made of %q.", device.Name, e.doc.Profile.Name)
+		}
+		return end, true
+	}
+	if len(offered) == 0 {
+		return x - 12, false // nothing drawn: what follows begins at x
+	}
+	return end - 8, false
+}
+
 // try takes the outcome of a change: what went wrong goes to the message
 // line, and what is shown now is to be played with.
 func (e *editor) try(err error) {
@@ -261,10 +305,12 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	// The device that plays with this profile now, if any: its presses
 	// choose a control.
 	var device *ipc.Instrument
+	var devices []*ipc.Instrument // all that play with it
 	if state != nil {
 		for i := range state.Instruments {
 			if state.Instruments[i].ProfileFile == doc.Path {
 				device = &state.Instruments[i]
+				devices = append(devices, device)
 			}
 		}
 	}
@@ -334,11 +380,32 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			w.customise(doc.Path)
 			return
 		}
+		end, left := w.offerOwn(e, devices, end+8, y-4)
+		if left {
+			return
+		}
 		status := e.message
 		if status == "" {
 			status = "A factory profile: HIDI keeps it as it is. A copy of your own is used in its place, and can be changed."
 		}
-		w.text(w.sans, status, end+12, y, sizeText, col(colUnsaved))
+		w.text(w.sans, fit(w.sans, status, sizeText, right-end-12), end+12, y, sizeText, col(colUnsaved))
+		y += 30
+	case !OwnProfile(doc.Profile) && len(devices) > 0:
+		// A profile for a kind of device, with a device of that kind
+		// playing: the device can have one for itself alone.
+		end, left := w.offerOwn(e, devices, x, y-4)
+		if left {
+			return
+		}
+		status := e.message
+		switch {
+		case status != "":
+		case doc.Elsewhere:
+			status = "Not saved, and the file was changed elsewhere meanwhile: saving writes over that."
+		case doc.Dirty():
+			status = "Not saved. A running HIDI plays with it as it is shown here; the file is as it was."
+		}
+		w.text(w.sans, fit(w.sans, status, sizeText, right-end-12), end+12, y, sizeText, col(colUnsaved))
 		y += 30
 	default:
 		status := e.message
