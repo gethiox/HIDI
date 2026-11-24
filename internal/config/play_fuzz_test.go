@@ -8,6 +8,23 @@ import (
 	"github.com/gethiox/HIDI/internal/midi"
 )
 
+// fuzzControls is what the device of FuzzPlay says it has: the buttons of
+// a pad and of a stick, axes, and two hats, so that what a profile's rule
+// makes is played like what the profile names.
+func fuzzControls() []control.Input {
+	var out []control.Input
+	for n := range uint16(15) {
+		out = append(out, control.Input{Code: control.Key(0x120 + n)}, control.Input{Code: control.Key(0x130 + n)})
+	}
+	for n := range uint16(8) {
+		out = append(out, control.Input{Code: control.Axis(n)})
+	}
+	for n := range uint16(4) {
+		out = append(out, control.Input{Code: control.Axis(0x10 + n), Hat: true})
+	}
+	return out
+}
+
 // FuzzPlay plays the profiles HIDI comes with by whatever the fuzzer
 // makes of a device: keys and axes going up and down in any order, the
 // commands among them. Whatever is played, every message is a message,
@@ -24,7 +41,8 @@ func FuzzPlay(f *testing.F) {
 	f.Add(uint8(4), []byte{7, 128, 7, 255, 7, 0, 2, 255})
 	f.Fuzz(func(t *testing.T, which uint8, play []byte) {
 		p := profiles[int(which)%len(profiles)]
-		eng, err := engine.New(p.Engine)
+		made := p.For(fuzzControls())
+		eng, err := engine.New(made)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,8 +62,8 @@ func FuzzPlay(f *testing.F) {
 				}
 			}
 		}
-		add(p.Engine.Global)
-		for _, l := range p.Engine.Layouts {
+		add(made.Global)
+		for _, l := range made.Layouts {
 			add(l.Bindings)
 		}
 		if len(sources) == 0 {

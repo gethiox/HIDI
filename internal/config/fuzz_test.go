@@ -25,11 +25,20 @@ func seeds(f *testing.F) {
 // FuzzParse: whatever a profile file holds, reading it reports a profile
 // or an error and nothing else.
 func FuzzParse(f *testing.F) {
+	f.Add([]byte("schema = 1\nname = \"G\"\n[generate]\nnotes = \"C1\"\ncontrollers = 16\n[[layout]]\nname = \"L\"\n[layout.bindings]\nBTN_A = \"nothing\"\n"))
 	seeds(f)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		p, err := Parse(data)
 		if err == nil && p == nil {
 			t.Fatal("neither a profile nor an error")
+		}
+		if err != nil {
+			return
+		}
+		// Whatever rule a profile has, what it makes for a device is an
+		// instrument.
+		if made := p.For(fuzzControls()); made.Validate() != nil {
+			t.Fatalf("what the profile makes for a device is no instrument: %v", made.Validate())
 		}
 	})
 }
