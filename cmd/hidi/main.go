@@ -310,11 +310,19 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	grab := grabPolicy(o.grabKeyboards, o.grabGamepads)
 
 	log.Info("HIDI started; press Ctrl+C to stop", "version", buildinfo.Get().String())
-	if len(o.toggle) > 0 {
-		log.Info("press the o.toggle combination to turn HIDI off and on", "keys", formatToggle(o.toggle))
+	switch {
+	case o.toggleTap:
+		log.Info("tap the toggle key to turn HIDI off and on", "key", formatToggle(o.toggle))
+	case len(o.toggle) > 0:
+		log.Info("press the toggle combination to turn HIDI off and on", "keys", formatToggle(o.toggle))
 	}
 	if o.grabKeyboards {
 		log.Info("keyboards do not type while HIDI is on; turn it off to get them back")
+	}
+	if o.startOff {
+		// Said, because a HIDI that plays nothing looks broken: without
+		// a window nothing else tells.
+		log.Info("HIDI starts turned off; turn it on with the toggle, with \"hidi on\", or start it with --on")
 	}
 	openEndpoint := backend.OpenEndpoint
 	// Lighting the keys: a hub that talks to OpenRGB, and MIDI devices

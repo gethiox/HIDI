@@ -117,7 +117,7 @@ control_names = false
 | `input.toggle` | The keys that, pressed together on one device, turn HIDI off and on. An empty list means no combination. | `--toggle` |
 | `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. Needs a toggle combination. | `--no-grab` |
 | `input.grab_gamepads` | Also keep game controllers from other programs. | `--grab-gamepads` |
-| `input.start_on` | Whether HIDI is on when it starts. | `--off` |
+| `input.start_on` | Whether HIDI is on when it starts. | `--on`, `--off` |
 | `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `--toggle-tap` |
 | `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
 | `input.toggle_exclusive` | A toggle of one key is HIDI's alone: the key never reaches the rest of the system, held or tapped, while HIDI is on or off. For a key such as Caps Lock that should only toggle. On Linux keyboards are then kept grabbed as with `always_grab`. | |

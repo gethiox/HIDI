@@ -72,7 +72,8 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 	var connect listFlag
 	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
 	lights := fs.String("openrgb", "", "light the keys through the OpenRGB server at this `address`, such as "+settings.DefaultOpenRGBAddress)
-	fs.BoolVar(&o.startOff, "off", false, "start turned off; the toggle combination turns HIDI on")
+	fs.BoolVar(&o.startOff, "off", false, "start turned off; the toggle turns HIDI on")
+	startOn := fs.Bool("on", false, "start turned on, whatever the settings say")
 	socket := socketFlag(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return o, code, false
@@ -120,6 +121,12 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 		if !o.given[from.option] {
 			*from.value = from.is
 		}
+	}
+	switch {
+	case *startOn && o.given["off"] && o.startOff:
+		return fail("--on and --off contradict each other")
+	case *startOn:
+		o.startOff = false
 	}
 	o.connect = connect
 	if !o.given["connect"] {

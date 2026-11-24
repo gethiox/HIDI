@@ -104,6 +104,13 @@ reported, was sent as standing at its lower end whenever HIDI was turned
 on: a pitch bent all the way down, on Windows at every start. Fixed, with
 the tests that showed it.
 
+A HIDI that starts turned off needs a way to be started turned on without
+a settings file, on a machine without a screen for one: `--on`. The
+end-to-end test in the virtual machine, which had failed since the new
+defaults because it expected a HIDI that plays at once, now tests what
+HIDI does as it comes: off at the start, turned on from outside, and
+turned on again by a tap on Caps Lock.
+
 Asked, and answered in the conversation rather than built:
 
 - "The toggle is one key, tapped" and "the toggle key is HIDI's alone"

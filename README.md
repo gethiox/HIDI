@@ -351,8 +351,13 @@ them.
 
 ![The log with the state of HIDI below it](docs/images/run-status.png)
 
-Remember that the keyboard you type on stops typing: turn HIDI off with the
-toggle combination before pressing Ctrl+C, or start with `--no-grab`.
+HIDI starts turned off here too, and says so in its log. Tap Caps Lock, or
+run `hidi on` from elsewhere, to turn it on; `hidi --headless --on` starts
+it turned on, which is what a machine without a screen wants, and
+`start_on = true` in the settings does the same for good.
+
+Remember that the keyboard you type on stops typing while HIDI is on: turn
+it off with the toggle before pressing Ctrl+C, or start with `--no-grab`.
 
 Options are written with two dashes, `--no-grab` or
 `--toggle=KEY_CAPSLOCK`; those of one letter take one, `-v`. They are the
@@ -368,7 +373,8 @@ same for `hidi` and `hidi --headless`, and each overrides its setting in
 | `--always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
 | `--no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `--grab-gamepads` | Also take game controllers away from other programs. |
-| `--off` | Start turned off. |
+| `--on` | Start turned on, whatever the settings say. |
+| `--off` | Start turned off, which HIDI does unless the settings say otherwise. |
 | `--connect PORT` | Also send to an existing MIDI port; see below. |
 | `--openrgb ADDRESS` | Light the keys through OpenRGB; see below. |
 | `--config DIR` | Use another directory for HIDI's settings and profiles. |

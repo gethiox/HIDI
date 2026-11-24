@@ -43,6 +43,7 @@ func TestRun(t *testing.T) {
 		{"toggle with an axis", []string{"run", "--toggle", "ABS_X"}, 2, "", "not a key"},
 		{"grab without toggle", []string{"run", "--toggle", ""}, 2, "", "needs a toggle combination"},
 		{"off without toggle", []string{"run", "--toggle", "", "--no-grab", "--off"}, 2, "", "-off needs a toggle"},
+		{"on and off", []string{"run", "--on", "--off"}, 2, "", "contradict each other"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -247,6 +248,30 @@ func TestStartsHIDI(t *testing.T) {
 	} {
 		if got := startsHIDI(c.args); got != c.want {
 			t.Errorf("startsHIDI(%q) = %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+// HIDI starts turned off unless the settings say otherwise; --on starts
+// it turned on for once, and --off says what the default says.
+func TestStartOnAndOff(t *testing.T) {
+	for _, tt := range []struct {
+		args    []string
+		wantOff bool
+	}{
+		{[]string{"--config", ""}, true},
+		{[]string{"--config", "", "--on"}, false},
+		{[]string{"--config", "", "--off"}, true},
+		{[]string{"--config", "", "--on", "--off=false"}, false},
+	} {
+		var stderr bytes.Buffer
+		o, code, ok := parseRunOptions(tt.args, &stderr, false)
+		if !ok || code != 0 {
+			t.Errorf("%v: code %d, %s", tt.args, code, stderr.String())
+			continue
+		}
+		if o.startOff != tt.wantOff {
+			t.Errorf("%v: starts off = %v, want %v", tt.args, o.startOff, tt.wantOff)
 		}
 	}
 }
