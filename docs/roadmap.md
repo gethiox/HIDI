@@ -51,7 +51,7 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (25 November 2026)
+## Where things stand (26 November 2026)
 
 `dev` holds everything up to the review of the whole code (pull requests
 50 and 51). One pull request is open on top of it:
@@ -85,6 +85,25 @@ move.
 is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
+
+### Eleventh round (26 November 2026): what was reported, and what was done
+
+| Reported or asked for | Done |
+|---|---|
+| "Edit profile" shows some basic mapping, and nothing moves on it | The page took the last device it found with the profile, not the one whose card was clicked. It is opened for an instrument now and shows that one. |
+| Show which device is being customised | "for <device>" beside the name of the profile. |
+| Hint the device in "Customise for specific device" | The device the page was opened for is tinted green in the list. |
+| Say that a mapping is generated | "(generated)" and "(partly generated)" on the groups of controls. |
+| No channel down, channel up and panic in the default gamepad profile | Gone. The profile is the rule and the pitch bend on ABS_Y. |
+| Controllers kept over off and on; two settings | `reset_pitch_bend`, on, and `reset_controllers`, off, in `[output]`, as switches in "State control". |
+| Generating is slow, a second after a click | Nothing was generated slowly: HIDI looked at its profile directory once a second and waited for two looks to agree. The window now says when it wrote a profile and HIDI looks at once. The page also stays with its device while the device changes profile. |
+| Dead zone 0 everywhere; one for the profile, overridden per axis | `deadzone` in `[defaults]`, 0 unless set; "own dead zone" on an axis. The factory pitch bend has none. |
+| Hysteresis for axes that act as buttons, 2 % by default | `input.hysteresis`: half of it past the trigger point to press, half behind it to let go, kept within the travel. |
+| The axis bar chooses the first mapping, also for hats and split axes; a chosen mapping marks its bar | Done. |
+| The rp2350 gamepad shows as "gamepad", Windows shows "Extender Ultimate" | Not HIDI's to fix, as far as can be told from here: HIDI shows the name the device gives itself now, which the firmware has as "gamepad" unless set, for the device and for its HID interface alike. The name in Windows' list of game controllers is one Windows keeps in the registry for a vendor and product from when it first saw them. Setting "Device name" in the gamepad's configurator makes both agree. |
+
+Also: an axis a device lists and has said nothing of is shown without a
+bar and with a dash, in place of standing at its lower end.
 
 ### Tenth round (25 November 2026): what was reported, and what was done
 
@@ -340,7 +359,6 @@ To be decided:
   without a word, by a crash for one, until its file changes or HIDI
   starts again. A window that is closed takes it back.
 - Notes under the pointer: the means are there, the texts are not.
-- The window shows an axis that has not reported yet at its lower end.
 - The window does not remember its size and place.
 - Two keyboards with lights are written one after the other, so each
   follows at half the pace it could.

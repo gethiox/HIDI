@@ -148,9 +148,9 @@ rows, laid out like a piano.
 A game controller of any kind, a pad, a stick, a throttle or a wheel,
 plays notes on its buttons, from C1 up in the order of their numbers, and
 sends a controller from each axis, from controller 16 up. The stick, or the
-left one of two, bends the pitch; the directions of a hat or a direction pad
-are buttons like the others; select and start change the channel. HIDI has no
-profiles for single products: it asks each controller what it has and gives
+left one of two, bends the pitch, and that is the one thing the profile
+names: every button, the directions of a hat or a direction pad among them,
+plays a note. HIDI has no profiles for single products: it asks each controller what it has and gives
 everything a part by its number, the same every time. What exactly, and
 everything else, is in the [profiles](#settings-and-profiles).
 
@@ -163,7 +163,9 @@ with. To get it back, tap the toggle key:
 **Caps Lock**, pressed and let go within half a second.
 
 Another tap turns HIDI back on. While HIDI is off the instruments are
-silent and their MIDI devices stay in place. Game controllers are not taken
+silent and their MIDI devices stay in place. Turning off ends every note
+and puts the pitch bend back to no bend; controllers stay as they were last
+sent, a volume for one, and both can be set otherwise. Game controllers are not taken
 away, so they keep working in other programs.
 
 Caps Lock is HIDI's alone from then on: it no longer switches capitals,
@@ -258,6 +260,13 @@ greyed out.
   all devices; "Use the profiles'" goes back.
 - "Pass the toggle key through to the system when held": a toggle of one
   key works by a tap, and held longer the key does what it normally does.
+- "Reset the pitch bend when HIDI is turned off", on as HIDI comes, and
+  "Reset controllers when HIDI is turned off", off as HIDI comes: what
+  turning off puts back to rest beside ending the notes.
+- "Hysteresis of axes that act as buttons": how far past its trigger point
+  an axis has to go to count as pressed, and behind it to count as let go,
+  half of the value each way. 2 % as HIDI comes; 100 % means pressed at
+  the far end and let go at rest.
 - "Devices that play" chooses which devices become instruments: with
   "blacklist" every one except those you tick, with "whitelist" only those
   you tick. The list has the devices that are connected and, after them and
@@ -303,6 +312,12 @@ page shows the numbers an instrument starts with, the layouts, and what
 every control does, with what the device is doing at this moment laid over
 it.
 
+Opened from an instrument's card, the page is for that device, and says so
+beside the name of the profile: "for" and the name of the device. It shows
+what that device has and what the profile's rule makes of it, also where
+several controllers play with the same profile. A group of controls is
+marked "(generated)" where the profile names none of them.
+
 A keyboard's profile is drawn as a keyboard, coloured by what the keys do,
 and the keys that are down are marked. Keys the drawing has no place for,
 media keys for one, show up in a row "Other keys" once they have been
@@ -333,10 +348,14 @@ An axis can be anything a button can, and more:
 
 - a controller or the pitch bend, with "rests in the middle" for a stick
   (a dead zone is then around the middle, the pitch bends both ways from
-  there, and a controller counts 64 as its rest), "reversed", and a dead
-  zone;
+  there, and a controller counts 64 as its rest) and "reversed". The dead
+  zone is the profile's, which is among the starting values at the top of
+  the page and 0 unless set; "own dead zone" gives the axis one of its
+  own;
 - a note or a command, triggered when the axis passes a point you set
-  ("triggers at", half of its way unless changed);
+  ("triggers at", half of its way unless changed). How far past the point
+  it has to go, and how far back to let go, is the hysteresis in the
+  settings;
 - two halves bound apart. "Split into two halves" turns a controller into
   two, one for each direction from the middle, so that a stick at rest
   sends 0 on both instead of 64 on one; each half is then chosen by its
@@ -351,9 +370,10 @@ it does nothing.
 
 A change to the profile for game controllers applies to all of them.
 "Customise for specific device", at the top of the page, unfolds the
-devices that play with the profile; a click on one makes a profile of your
-own for that product alone, out of what the page shows, and opens it. The
-device plays with it from then on; the others stay as they were.
+devices that play with the profile, the one the page was opened for tinted
+green; a click on one makes a profile of your own for that product alone,
+out of what the page shows, and opens it. The device plays with it from
+then on; the others stay as they were.
 
 ![Changing a keyboard's profile](docs/images/gui-profile.png)
 

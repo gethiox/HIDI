@@ -89,6 +89,7 @@ toggle_tap = true
 always_grab = false
 toggle_exclusive = true
 learn_threshold = 50
+hysteresis = 2
 
 [devices]
 mode = "blacklist"
@@ -96,6 +97,8 @@ list = []
 
 [output]
 connect = []
+reset_pitch_bend = true
+reset_controllers = false
 
 [lights]
 openrgb = false
@@ -136,7 +139,10 @@ control_names = false
 | `input.learn_threshold` | How far an axis has to move to get through in learning mode, in hundredths of its range, 1 to 100. See the `learn` command. | |
 | `devices.mode` | How `devices.list` is read: with `"blacklist"` every keyboard and game controller plays except the listed ones, with `"whitelist"` only the listed ones do. | |
 | `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
+| `input.hysteresis` | The hysteresis of an axis that acts as a button, in hundredths of its travel, 0 to 100. An axis that plays a note or runs a command has to pass its trigger point by half of this to count as pressed, and to come back behind the point by half of this to count as let go, so that an axis resting near the point does not trigger over and over. Neither goes past the ends of the travel: with the point at 50 % and a hysteresis of 100, the axis is pressed at its far end and let go at rest. 0 turns it off. | |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `--connect` |
+| `output.reset_pitch_bend` | Turning HIDI off puts the pitch bend back to no bend. `true` as HIDI comes. | |
+| `output.reset_controllers` | Turning HIDI off puts every controller back to its rest. `false` as HIDI comes: a controller stays as it was last sent, and is not sent again on turning on while its axis is where it was. | |
 | `lights.openrgb` | Light the keys of keyboards through an OpenRGB server. | `--openrgb` |
 | `lights.address` | Where that server listens, as `"host:port"`. Empty, which is the default, means `127.0.0.1:6742`. | `--openrgb ADDRESS` |
 | `lights.colours` | The colours of the keys, each as `"#rrggbb"`. See below. | |
@@ -399,6 +405,7 @@ These are also the values the reset combinations return to.
 | `axis_on_change` | `"keep"` | What happens to a controller when a change of channel or layout takes its axis away. See below. |
 | `axis_rate` | `120` | How many positions a second an axis passes on, from 1 to 1000; `0` passes every one. |
 | `axis_threshold` | `0.01` | How far a resting axis has to move before it counts as moved, as a fraction of its travel, from 0 to 0.5; `0` passes everything. See below. |
+| `deadzone` | `0` | The dead zone of every axis in the profile that names none of its own, bound by a line or by the `[generate]` rule: the fraction of travel next to the rest position that is ignored, from 0 to below 1. |
 
 Axes when the channel or layout changes: pitch bend, and a controller driven
 by an axis marked `centered`, always return to rest, so that nothing stays
@@ -470,10 +477,9 @@ A control that should stay silent says so:
 BTN_TL = "nothing"
 ```
 
-The factory profile for game controllers is little more than this rule: it
-names the commands on select, start and the middle button, and pitch bend
-on the stick. The hats are left to the rule, their directions buttons like
-the others.
+The factory profile for game controllers is this rule and one line, the
+pitch bend on the stick. Every button and every direction of a hat plays a
+note, and every other axis sends a controller.
 
 ## Layouts and global bindings
 
@@ -573,8 +579,8 @@ and any of these options:
 | `channel_offset` | Added to the current channel, 0 to 15, wrapping around after channel 16. It lets one layout play several channels that move together with the channel commands. |
 | `centered` | Set to `true` for an axis that rests in the middle of its travel, such as a stick. The dead zone is then placed around the middle, pitch bend treats the middle as no bend and bends both ways from there, and a controller counts 64 as its rest, to which it returns when a change of channel or layout takes the axis away. Without a dead zone a controller sends the same values either way. Not needed with the `+` and `-` forms. |
 | `invert` | Set to `true` to reverse the direction of the control. |
-| `deadzone` | The fraction of travel next to the rest position to ignore, from 0 up to 1. |
-| `threshold` | For a note, a program change or a command on an axis: how far the axis has to move for it to trigger, from above 0 to below 1; half of the way unless set. Of the half, for the `+` and `-` forms, and of what is left after the dead zone. |
+| `deadzone` | The fraction of travel next to the rest position to ignore, from 0 up to 1, for this binding alone. Left out, the axis has the dead zone of the profile (`deadzone` in `[defaults]`). |
+| `threshold` | For a note, a program change or a command on an axis: how far the axis has to move for it to trigger, from above 0 to below 1; half of the way unless set. Of the half, for the `+` and `-` forms, and of what is left after the dead zone. The hysteresis of the settings is laid around this point. |
 
 Notes and commands work on axes too: they trigger when the axis passes half of
 its travel, or the point `threshold` names:
@@ -647,5 +653,8 @@ with HIDI has the command on F10.
   keys and centered axes return to rest on the old channel, so nothing is left
   bent or modulated. An axis that is not centered, such as a throttle lever,
   keeps the value it had.
-- When an instrument is disabled or its device is unplugged, every note is
-  released and every controller and pitch bend returns to rest.
+- When HIDI is turned off, every note is released and the pitch bend
+  returns to rest; controllers stay as they were last sent. The settings
+  `reset_pitch_bend` and `reset_controllers` say otherwise.
+- When a device is unplugged, its profile changes or HIDI ends, every note
+  is released and every controller and pitch bend returns to rest.
