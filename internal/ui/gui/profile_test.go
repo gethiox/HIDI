@@ -892,7 +892,7 @@ func TestProfileDocDeadzone(t *testing.T) {
 	if r := doc.Role(layout, x); r.Shape.Deadzone != 0.2 || r.Shape.OwnDeadzone || !r.Generated {
 		t.Errorf("an axis without: %+v", r)
 	}
-	if !strings.Contains(string(doc.Text()), "deadzone = 0 }") || !strings.Contains(string(doc.Text()), "deadzone = 0.2\n") {
+	if !strings.Contains(string(doc.Text()), "deadzone = 0 }") || !strings.Contains(string(doc.Text()), "\ndeadzone = 0.2") {
 		t.Errorf("the file:\n%s", doc.Text())
 	}
 	// And gives it up again.
