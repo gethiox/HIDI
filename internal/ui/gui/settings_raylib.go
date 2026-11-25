@@ -563,7 +563,7 @@ func (sh *sheet) windowSettings() {
 	sh.switches(
 		toggleItem{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &sh.s.Window.ShowAtStart, ""},
 		toggleItem{"Look for a newer HIDI", "asks GitHub once a day; installs nothing", &sh.s.Window.CheckUpdates, ""},
-		toggleItem{"Name the controls of game controllers", "BTN_SOUTH and ABS_X, as profiles call them; otherwise numbers", &sh.s.Window.ControlNames, ""},
+		toggleItem{"Name the controls of game controllers", "BTN_SOUTH and ABS_X, as profiles call them, beside their numbers", &sh.s.Window.ControlNames, ""},
 	)
 	// The window itself follows these at once.
 	vx := sh.row("Size of the interface", "of everything this window draws")

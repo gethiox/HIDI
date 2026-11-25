@@ -7,23 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 
 	"github.com/gethiox/HIDI/internal/control"
-	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/ipc"
-	"github.com/gethiox/HIDI/internal/midi"
 )
 
 // editor is the page on which a profile is changed.
 type editor struct {
-	doc     *ProfileDoc
-	layout  string
-	code    control.Code
+	doc    *ProfileDoc
+	layout string
+	// at is the control, or the half of an axis, that is chosen, if
+	// chosen says that one is.
+	at      Spot
 	chosen  bool
 	message string
 	scroll  glide
@@ -46,88 +45,13 @@ type editor struct {
 	// pointer has moved far enough since to mean it. over is the control
 	// under the pointer in the frame being drawn, if overAny.
 	pressing, carrying bool
-	press              control.Code
+	press              Spot
 	pressAt            rl.Vector2
-	over               control.Code
+	over               Spot
 	overAny            bool
-}
-
-// pointAt handles the pointer on one control of the page: a click chooses
-// it, a press begins carrying it, and the right button empties it, or
-// with Ctrl leaves it to the system. It lays a light over the control the
-// pointer is on, and marks the one a carried control would land on.
-func (w *window) pointAt(e *editor, code control.Code, r rl.Rectangle, roundness float32) {
-	if !w.hovered(r) {
-		return
-	}
-	e.over, e.overAny = code, true
-	w.setCursor(rl.MouseCursorPointingHand)
-	rl.DrawRectangleRounded(r, roundness, 6, rl.NewColor(255, 255, 255, 30))
-	if e.carrying && code != e.press {
-		rl.DrawRectangleRoundedLinesEx(r, roundness, 6, 2, col(colAccent))
-	}
-	control := ctrlHeld()
-	switch {
-	case rl.IsMouseButtonPressed(rl.MouseButtonLeft):
-		e.code, e.chosen = code, true
-		e.pressing, e.carrying, e.press, e.pressAt = true, false, code, w.mouse()
-	case rl.IsMouseButtonPressed(rl.MouseButtonRight) && control:
-		e.code, e.chosen = code, true
-		e.try(e.doc.SetPassthrough(e.layout, code))
-	case rl.IsMouseButtonPressed(rl.MouseButtonRight):
-		e.code, e.chosen = code, true
-		if e.doc.Role(e.layout, code).Kind != RoleNone {
-			e.try(e.doc.Clear(e.layout, code))
-		}
-	}
-}
-
-// carry follows a control that is being carried, once all controls of
-// the frame are drawn: it draws what is carried at the pointer, and when
-// the button is let go over another control, that one gets what the
-// carried one does. Without Ctrl the carried one does nothing afterwards;
-// with Ctrl both do the same.
-func (w *window) carry(e *editor) {
-	if !e.pressing {
-		return
-	}
-	at := w.mouse()
-	if !e.carrying && (abs32(at.X-e.pressAt.X) > 6 || abs32(at.Y-e.pressAt.Y) > 6) {
-		// Only a control that does something can be carried.
-		e.carrying = e.doc.Role(e.layout, e.press).Kind != RoleNone
-		if !e.carrying {
-			e.pressing = false
-			return
-		}
-	}
-	copying := ctrlHeld()
-	if e.carrying {
-		w.moving = true
-		role := e.doc.Role(e.layout, e.press)
-		label := strings.TrimPrefix(e.press.String(), "KEY_") + "  " + role.Text
-		if copying {
-			label += "  (copy)"
-		}
-		tag := rl.NewRectangle(at.X+12, at.Y+10, w.chipWidth(label), chipH)
-		rl.DrawRectangleRounded(tag, 0.4, 6, col(roleColour(role)))
-		rl.DrawRectangleRoundedLinesEx(tag, 0.4, 6, 1.5, col(colText))
-		w.text(w.mono, label, tag.X+7, tag.Y+3, sizeMono, col(colText))
-		w.setCursor(rl.MouseCursorPointingHand)
-	}
-	if rl.IsMouseButtonReleased(rl.MouseButtonLeft) || !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
-		if e.carrying && e.overAny && e.over != e.press {
-			e.try(e.doc.Carry(e.layout, e.press, e.over, !copying))
-			e.code, e.chosen = e.over, true
-		}
-		e.pressing, e.carrying = false, false
-	}
-}
-
-func abs32(v float32) float32 {
-	if v < 0 {
-		return -v
-	}
-	return v
+	// offering says that the list of devices that can have a profile
+	// of their own is unfolded.
+	offering bool
 }
 
 // editProfile opens the page for a profile file.
@@ -154,13 +78,15 @@ func (w *window) editProfile(path string) {
 	w.docs[path] = w.edit
 }
 
-// offerOwn draws, for each device that plays with the profile shown, the
-// button that gives the device a profile for itself alone: what is shown,
-// kept under the device's name for devices of its vendor and product. It
-// returns where the buttons end, and whether the page was left for the
-// new profile.
-func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y float32) (end float32, left bool) {
-	end = x
+// offerOwn draws the button that gives a device a profile for itself
+// alone, where a device plays with the profile shown that can have one.
+// The button unfolds a line with those devices; a click on one makes a
+// profile of the user's out of what is shown, for devices of its vendor
+// and product, and opens it. It returns where the button ends, how much
+// room the unfolded line takes below it, and whether the page was left
+// for the new profile.
+func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y, left, right float32) (end, below float32, gone bool) {
+	var can []*ipc.Instrument
 	offered := map[string]bool{}
 	for _, device := range devices {
 		id := device.Name + "\x00" + device.Hardware
@@ -169,9 +95,28 @@ func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y float32) (e
 			continue // a device that does not say what it is cannot be told apart
 		}
 		offered[id] = true
-		hit, after := w.button("Only for "+fit(w.sans, device.Name, sizeText, 220), end, y)
-		end = after + 8
-		if !hit {
+		can = append(can, device)
+	}
+	if len(can) == 0 {
+		e.offering = false
+		return x - 12, 0, false // nothing drawn: what follows begins at x
+	}
+	mark := " ▼"
+	if e.offering {
+		mark = " ▲"
+	}
+	hit, end := w.button("Customise for specific device"+mark, x, y)
+	if hit {
+		e.offering = !e.offering
+	}
+	if !e.offering {
+		return end, 0, false
+	}
+	row := newFlow(left, right, y+32, 30, 8)
+	for _, device := range can {
+		label := fit(w.sans, device.Name, sizeText, 260)
+		bx, by := row.put(width(w.sans, label, sizeText) + 20)
+		if hit, _ := w.button(label, bx, by); !hit {
 			continue
 		}
 		own, made, err := CustomiseFor(e.doc.Text(), w.opts.Paths.User, *device)
@@ -184,18 +129,16 @@ func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y float32) (e
 			e.doc.Revert()
 			e.touched = true
 		}
+		e.offering = false
 		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
 		w.edit = nil
 		w.editProfile(own)
 		if w.edit != nil && made {
 			w.edit.message = fmt.Sprintf("A profile for %s alone, made of %q.", device.Name, e.doc.Profile.Name)
 		}
-		return end, true
+		return end, 0, true
 	}
-	if len(offered) == 0 {
-		return x - 12, false // nothing drawn: what follows begins at x
-	}
-	return end - 8, false
+	return end, row.y + 30 - (y + 32) + 4, false
 }
 
 // try takes the outcome of a change: what went wrong goes to the message
@@ -252,6 +195,7 @@ func roleColour(r Role) RGB {
 func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	e := w.edit
 	doc := e.doc
+	w.active = state != nil && state.Active
 	// The file may be changed in an editor meanwhile; the page follows.
 	if now := time.Now(); now.Sub(e.looked) > settingsRefresh {
 		e.looked = now
@@ -323,7 +267,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 				now[b.Name] = true
 				if !e.held[b.Name] {
 					if code, err := control.ParseCode(b.Name); err == nil {
-						e.code, e.chosen = code, true
+						e.at, e.chosen = Whole(code), true
 					}
 				}
 			}
@@ -370,7 +314,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	case doc.ReadOnly:
 		// A factory profile is looked at; a copy of the user's own is
 		// what gets changed.
-		label := "Customise"
+		label := "Customise Default"
 		if _, err := os.Stat(filepath.Join(w.opts.Paths.User, filepath.Base(doc.Path))); err == nil {
 			label = "Edit yours"
 		}
@@ -380,8 +324,8 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			w.customise(doc.Path)
 			return
 		}
-		end, left := w.offerOwn(e, devices, end+8, y-4)
-		if left {
+		end, below, gone := w.offerOwn(e, devices, end+8, y-4, x, right)
+		if gone {
 			return
 		}
 		status := e.message
@@ -389,12 +333,12 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			status = "A factory profile: HIDI keeps it as it is. A copy of your own is used in its place, and can be changed."
 		}
 		w.text(w.sans, fit(w.sans, status, sizeText, right-end-12), end+12, y, sizeText, col(colUnsaved))
-		y += 30
+		y += 30 + below
 	case !OwnProfile(doc.Profile) && len(devices) > 0:
 		// A profile for a kind of device, with a device of that kind
 		// playing: the device can have one for itself alone.
-		end, left := w.offerOwn(e, devices, x, y-4)
-		if left {
+		end, below, gone := w.offerOwn(e, devices, x, y-4, x, right)
+		if gone {
 			return
 		}
 		status := e.message
@@ -406,7 +350,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			status = "Not saved. A running HIDI plays with it as it is shown here; the file is as it was."
 		}
 		w.text(w.sans, fit(w.sans, status, sizeText, right-end-12), end+12, y, sizeText, col(colUnsaved))
-		y += 30
+		y += 30 + below
 	default:
 		status := e.message
 		switch {
@@ -450,15 +394,16 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 
 	// The controls: a keyboard as a keyboard, anything else as a list.
 	e.overAny = false
+	now := liveOf(device)
 	if doc.Profile.Match.Type == control.DeviceKeyboard {
-		y = w.editKeyboard(e, x, y, right-x)
+		y = w.editKeyboard(e, now, x, y, right-x)
 	} else {
-		y = w.editList(e, device, x, y, right-x)
+		y = w.editControls(e, device, now, x, y, right-x)
 	}
 	// Above everything else on the page, also what is drawn below.
-	defer w.carry(e)
+	defer w.carry(e, device)
 	y += 14
-	y = w.editChosen(e, x, y, right-x)
+	y = w.editChosen(e, device, x, y, right-x)
 
 	e.content = y + scrolled - area.Y + 12
 }
@@ -549,331 +494,4 @@ func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
 		e.adding = false
 	}
 	return y + 38
-}
-
-// editKeyboard draws the keyboard with what every key does, and chooses
-// the key that is clicked.
-func (w *window) editKeyboard(e *editor, x, y, inner float32) float32 {
-	unit := min(inner/KeyboardUnitsW, 38)
-	small := min(float32(10), unit*0.3)
-	for _, key := range Keyboard() {
-		code, err := control.ParseCode(key.Name)
-		if err != nil {
-			continue
-		}
-		role := e.doc.Role(e.layout, code)
-		rect := rl.NewRectangle(x+key.X*unit+1, y+key.Y*unit+1, key.W*unit-2, key.H*unit-2)
-		rl.DrawRectangleRounded(rect, 0.2, 4, col(roleColour(role)))
-		if e.chosen && e.code == code {
-			rl.DrawRectangleRoundedLinesEx(rect, 0.2, 4, 2, col(colText))
-		}
-		w.pointAt(e, code, rect, 0.2)
-		// The key's own name small at the top, what it does below.
-		w.text(w.mono, key.Label, rect.X+3, rect.Y+2, small, col(colFaint))
-		if role.Kind != RoleNone {
-			label := role.Text
-			for len(label) > 1 && width(w.mono, label, small+1) > rect.Width-4 {
-				label = label[:len(label)-1]
-			}
-			w.text(w.mono, label, rect.X+3, rect.Y+rect.Height-small-4, small+1, col(colText))
-		}
-	}
-	return y + unit*KeyboardUnitsH
-}
-
-// editList lists the buttons and axes the profile binds and those the
-// device has reported, and chooses the one that is clicked.
-func (w *window) editList(e *editor, device *ipc.Instrument, x, y, inner float32) float32 {
-	seen := map[control.Code]bool{}
-	var codes []control.Code
-	add := func(code control.Code) {
-		if !seen[code] {
-			seen[code] = true
-			codes = append(codes, code)
-		}
-	}
-	for _, l := range e.doc.Profile.Engine.Layouts {
-		for _, b := range l.Bindings {
-			if b.Source.Part == "" {
-				add(b.Source.Code)
-			}
-		}
-	}
-	for _, b := range e.doc.Profile.Engine.Global {
-		if b.Source.Part == "" {
-			add(b.Source.Code)
-		}
-	}
-	if device != nil {
-		for _, b := range device.Buttons {
-			if code, err := control.ParseCode(b.Name); err == nil && b.Part == "" {
-				add(code)
-			}
-		}
-		for _, a := range device.Axes {
-			if code, err := control.ParseCode(a.Name); err == nil && a.Part == "" {
-				add(code)
-			}
-		}
-	}
-	// The buttons first, then the axes.
-	slices.SortFunc(codes, func(a, b control.Code) int {
-		if a.Kind != b.Kind {
-			return int(a.Kind) - int(b.Kind)
-		}
-		return int(a.Num) - int(b.Num)
-	})
-	if len(codes) == 0 {
-		w.text(w.sans, "No controls yet. Press a button or move an axis on the device.", x, y, sizeText, col(colFaint))
-		return y + 24
-	}
-	if e.doc.Profile.Generate.Any() && (device == nil || !device.Complete) {
-		// What the rule makes depends on the device, and none is here
-		// to ask.
-		line := "A controller's other buttons and axes play by their numbers. Connect one to see them here."
-		w.text(w.sans, fit(w.sans, line, sizeText, inner), x, y, sizeText, col(colFaint))
-		y += 24
-	}
-	row := newFlow(x, x+inner, y, chipH+6, 6)
-	for _, code := range codes {
-		role := e.doc.Role(e.layout, code)
-		// The number the window shows the control by, where the device
-		// is there to give it one, and the name the profile knows it by.
-		label := code.String()
-		if n, ok := ControlNumber(device, label); ok && !w.names {
-			label = strconv.Itoa(n) + " · " + label
-		}
-		switch {
-		case role.Kind != RoleNone:
-			label += "  " + role.Text
-		case role.Split:
-			// The two halves of an axis, each with what it does.
-			for _, half := range []struct{ sign, does string }{{"−", role.Lower}, {"+", role.Upper}} {
-				if half.does != "" {
-					label += "  " + half.sign + " " + half.does
-				}
-			}
-		}
-		cw := w.chipWidth(label)
-		cx, cy := row.put(cw)
-		chip := rl.NewRectangle(cx, cy, cw, chipH)
-		rl.DrawRectangleRounded(chip, 0.4, 6, col(roleColour(role)))
-		if e.chosen && e.code == code {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 2, col(colText))
-		}
-		w.pointAt(e, code, chip, 0.4)
-		w.text(w.mono, label, cx+7, cy+3, sizeMono, col(colText))
-	}
-	return row.y + chipH + 6
-}
-
-// editChosen draws what the chosen control does and the ways to change
-// it.
-func (w *window) editChosen(e *editor, x, y, inner float32) float32 {
-	if !e.chosen {
-		for _, line := range []string{
-			"Click a control, or press it on the device, to change what it does.",
-			"Drag one onto another to move what it does there; hold Ctrl to copy it instead.",
-			"The right button empties a control; with Ctrl it leaves a key to the system.",
-		} {
-			w.text(w.sans, fit(w.sans, line, sizeText, inner), x, y, sizeText, col(colFaint))
-			y += 20
-		}
-		return y + 4
-	}
-	role := e.doc.Role(e.layout, e.code)
-	does := "does nothing"
-	switch role.Kind {
-	case RoleNote:
-		does = "plays " + role.Text
-	case RoleCommand:
-		does = "runs " + role.Text
-	case RoleController:
-		does = fmt.Sprintf("sends controller %d", role.Controller)
-	case RoleBend:
-		does = "bends the pitch"
-	case RoleOther:
-		does = "sends " + role.Text + " (change that in the file)"
-	case RolePass:
-		does = "is left to the system: it types, also while HIDI is on"
-	}
-	where := ""
-	switch {
-	case role.Generated:
-		where = ", by its number"
-	case role.Kind != RoleNone && role.Section.Layout == "":
-		where = ", in every layout"
-	}
-	w.text(w.bold, e.code.String(), x, y, sizeName, col(colText))
-	w.text(w.sans, does+where, x+width(w.bold, e.code.String(), sizeName)+12, y+3, sizeText, col(colFaint))
-	y += 32
-	if e.code.Kind != control.KindKey {
-		return w.editAxis(e, role, x, y)
-	}
-
-	// A note, moved by semitones and octaves.
-	w.text(w.sans, "note", x, y+5, sizeText, col(colFaint))
-	bx := x + 70
-	note := int(role.Note)
-	if role.Kind != RoleNote {
-		note = 60
-	}
-	for _, step := range []struct {
-		label string
-		delta int
-	}{{"−12", -12}, {"−1", -1}, {"+1", 1}, {"+12", 12}} {
-		if step.delta == 1 {
-			shown := "—"
-			if role.Kind == RoleNote {
-				shown = role.Text
-			}
-			w.text(w.mono, shown, bx+6, y+6, sizeMono, col(colText))
-			bx += width(w.mono, "C#-2", sizeMono) + 18
-		}
-		hit, end := w.button(step.label, bx, y)
-		if hit {
-			next := note + step.delta
-			if role.Kind != RoleNote {
-				next = 60 // the first click makes it a note at all
-			}
-			if next >= 0 && next <= 127 {
-				e.try(e.doc.SetNote(e.layout, e.code, midi.Note(next)))
-			}
-		}
-		bx = end + 6
-	}
-	y += 36
-
-	// A controller, which a key sends as 127 while held and 0 after.
-	y = w.editController(e, role, Shape{}, x, y)
-
-	// A command.
-	w.text(w.sans, "command", x, y+3, sizeText, col(colFaint))
-	row := newFlow(x+70, x+inner, y, chipH+6, 6)
-	for _, command := range engine.Commands() {
-		label := command.String()
-		cx, cy := row.put(w.chipWidth(label))
-		if w.chip(label, role.Kind == RoleCommand && role.Command == command, cx, cy) {
-			e.try(e.doc.SetCommand(e.layout, e.code, command))
-		}
-	}
-	y = row.y + chipH + 14
-
-	bx = x
-	if role.Kind != RolePass {
-		hit, end := w.button("Leave it to the system", bx, y)
-		if hit {
-			e.try(e.doc.SetPassthrough(e.layout, e.code))
-		}
-		bx = end + 8
-	}
-	if role.Kind != RoleNone {
-		if hit, _ := w.button("Make it do nothing", bx, y); hit {
-			e.try(e.doc.Clear(e.layout, e.code))
-		}
-	}
-	return y + 32
-}
-
-// firstController is the controller a control is given by the first click:
-// the modulation wheel.
-const firstController = 1
-
-// editController draws the row that makes the chosen control send a
-// controller and moves its number.
-func (w *window) editController(e *editor, role Role, shape Shape, x, y float32) float32 {
-	w.text(w.sans, "controller", x, y+5, sizeText, col(colFaint))
-	bx := x + 70
-	number := int(role.Controller)
-	for _, step := range []struct {
-		label string
-		delta int
-	}{{"−10", -10}, {"−1", -1}, {"+1", 1}, {"+10", 10}} {
-		if step.delta == 1 {
-			shown := "—"
-			if role.Kind == RoleController {
-				shown = fmt.Sprintf("%d", number)
-			}
-			w.text(w.mono, shown, bx+6, y+6, sizeMono, col(colText))
-			bx += width(w.mono, "000", sizeMono) + 18
-		}
-		hit, end := w.button(step.label, bx, y)
-		if hit {
-			next := number + step.delta
-			if role.Kind != RoleController {
-				next = firstController // the first click makes it a controller at all
-			}
-			e.try(e.doc.SetController(e.layout, e.code, uint8(min(max(next, 0), 127)), shape))
-		}
-		bx = end + 6
-	}
-	return y + 36
-}
-
-// editAxis draws the ways to change what the chosen axis sends: a
-// controller or the pitch bend, and how its position is read.
-func (w *window) editAxis(e *editor, role Role, x, y float32) float32 {
-	name := e.code.String()
-	if role.Split {
-		w.text(w.sans, "Its two directions are bound apart, as "+name+"+ and "+name+"−. Change those in the file.", x, y, sizeText, col(colFaint))
-		return y + 24
-	}
-	if role.Kind == RoleNote || role.Kind == RoleCommand || role.Kind == RoleOther {
-		w.text(w.sans, "Change that in the file, or make it do nothing and start anew.", x, y, sizeText, col(colFaint))
-		y += 26
-	}
-	shape := role.Shape
-	// again writes the binding with a changed shape.
-	again := func() {
-		switch role.Kind {
-		case RoleController:
-			e.try(e.doc.SetController(e.layout, e.code, role.Controller, shape))
-		case RoleBend:
-			e.try(e.doc.SetBend(e.layout, e.code, shape))
-		}
-	}
-
-	y = w.editController(e, role, shape, x, y)
-
-	w.text(w.sans, "pitch", x, y+5, sizeText, col(colFaint))
-	if role.Kind == RoleBend {
-		w.text(w.mono, "bends the pitch", x+76, y+6, sizeMono, col(colText))
-	} else if hit, _ := w.button("Bend the pitch", x+70, y); hit {
-		e.try(e.doc.SetBend(e.layout, e.code, shape))
-	}
-	y += 36
-
-	if role.Kind == RoleController || role.Kind == RoleBend {
-		// How the position is read.
-		w.text(w.sans, "rests in the middle", x, y+2, sizeText, col(colFaint))
-		px := x + width(w.sans, "rests in the middle", sizeText) + 10
-		if w.pill(shape.Centered, px, y) {
-			shape.Centered = !shape.Centered
-			again()
-		}
-		px += 64
-		w.text(w.sans, "reversed", px, y+2, sizeText, col(colFaint))
-		px += width(w.sans, "reversed", sizeText) + 10
-		if w.pill(shape.Invert, px, y) {
-			shape.Invert = !shape.Invert
-			again()
-		}
-		px += 64
-		delta, _ := w.stepper("dead zone", fmt.Sprintf("%.2f", shape.Deadzone), px, y-2)
-		if delta != 0 {
-			// Whole hundredths, so that the file reads 0.05 and not
-			// 0.05000000000000001.
-			hundredths := int(shape.Deadzone*100+0.5) + delta*5
-			shape.Deadzone = float64(min(max(hundredths, 0), 95)) / 100
-			again()
-		}
-		y += 36
-	}
-	if role.Kind != RoleNone {
-		if hit, _ := w.button("Make it do nothing", x, y); hit {
-			e.try(e.doc.Clear(e.layout, e.code))
-		}
-		y += 32
-	}
-	return y
 }

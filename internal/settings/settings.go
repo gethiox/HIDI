@@ -495,8 +495,8 @@ check_updates = %t
 
 # The buttons and axes of a game controller are numbered in the window,
 # from 0, in an order that is the same whenever a controller of that kind
-# is plugged in. With this they are shown by the names profiles use for
-# them instead, such as BTN_SOUTH and ABS_X.
+# is plugged in. With this the names profiles use for them, such as
+# BTN_SOUTH and ABS_X, stand beside the numbers.
 control_names = %t
 `, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold,
 		tomlString(s.Devices.Mode), list(s.Devices.List),

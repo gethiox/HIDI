@@ -113,10 +113,10 @@ func TestControlLabels(t *testing.T) {
 	if got := AxisLabel(pad, 1, false); got != "1" {
 		t.Errorf("axis 1: %q", got)
 	}
-	if got := ButtonLabel(pad, 2, true); got != "Touchpad:BTN_TOUCH" {
+	if got := ButtonLabel(pad, 2, true); got != "2 · Touchpad:BTN_TOUCH" {
 		t.Errorf("a named button on a part: %q", got)
 	}
-	if got := AxisLabel(pad, 0, true); got != "X" {
+	if got := AxisLabel(pad, 0, true); got != "0 · X" {
 		t.Errorf("a named axis: %q", got)
 	}
 	if n, ok := ControlNumber(&pad, "ABS_Y"); !ok || n != 1 {

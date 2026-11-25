@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +11,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/engine"
+	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/midi"
 )
 
@@ -546,5 +548,258 @@ func TestProfileDocGenerated(t *testing.T) {
 	}
 	if len(notes) != 2 || notes[btnA] != 38 || notes[btnB] != 72 {
 		t.Errorf("the notes of the buttons as HIDI plays them: %v", notes)
+	}
+}
+
+// openPad opens a copy of the game-controller profile HIDI comes with,
+// shown for a stick with four buttons, two axes and a hat.
+func openPad(t *testing.T) (doc *ProfileDoc, layout string) {
+	t.Helper()
+	files, err := config.BuiltinFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "gamepad.toml")
+	if err := os.WriteFile(path, files["gamepad.toml"], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err = OpenProfile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.ShowFor([]control.Input{
+		{Code: control.Key(0x120)}, {Code: control.Key(0x121)}, {Code: control.Key(0x122)}, {Code: control.Key(0x123)},
+		{Code: control.Axis(0)}, {Code: control.Axis(1)},
+		{Code: control.Axis(0x10), Hat: true}, {Code: control.Axis(0x11), Hat: true},
+	})
+	return doc, doc.DefaultLayout()
+}
+
+// played returns what HIDI makes of the document for the device it is
+// shown for: every binding of the first layout by its key, as its role's
+// short word.
+func played(t *testing.T, doc *ProfileDoc) map[string]string {
+	t.Helper()
+	p, err := config.Parse(doc.Text())
+	if err != nil {
+		t.Fatalf("what is shown is no profile: %v\n%s", err, doc.Text())
+	}
+	made := p.For(doc.controls)
+	if err := made.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, b := range made.Layouts[0].Bindings {
+		var r Role
+		r.take(b.Action)
+		out[Spot{b.Source.Code, b.Source.Range}.Key()] = r.Short()
+	}
+	return out
+}
+
+// The two directions of a hat are buttons: each is read and changed by
+// itself, and changing one leaves the other with what the rule gave it.
+func TestProfileDocHalves(t *testing.T) {
+	doc, layout := openPad(t)
+	hat := control.Axis(0x10)
+	down, up := Spot{hat, engine.RangeLower}, Spot{hat, engine.RangeUpper}
+	if down.Key() != "ABS_HAT0X-" || up.Key() != "ABS_HAT0X+" || Whole(hat).Key() != "ABS_HAT0X" {
+		t.Fatalf("keys: %q %q %q", down.Key(), up.Key(), Whole(hat).Key())
+	}
+	// Four buttons: the hat's notes are the four after theirs.
+	if r := doc.RoleAt(layout, down); r.Kind != RoleNote || r.Note != 40 || !r.Generated {
+		t.Errorf("the lower half: %+v", r)
+	}
+	if r := doc.RoleAt(layout, up); r.Kind != RoleNote || r.Note != 41 || !r.Generated {
+		t.Errorf("the upper half: %+v", r)
+	}
+	if r := doc.Role(layout, hat); r.Kind != RoleNone || !r.Split || !doc.Bound(layout, hat) {
+		t.Errorf("the hat as a whole: %+v", r)
+	}
+
+	// One direction runs a command. The other keeps its note, which a
+	// line now says, since the rule no longer covers a control that is
+	// named.
+	if err := doc.SetCommandAt(layout, up, engine.CommandOctaveUp); err != nil {
+		t.Fatal(err)
+	}
+	got := played(t, doc)
+	if got["ABS_HAT0X+"] != "octave_up" || got["ABS_HAT0X-"] != "E1" {
+		t.Errorf("after one half was changed: + %q, - %q", got["ABS_HAT0X+"], got["ABS_HAT0X-"])
+	}
+	if r := doc.RoleAt(layout, down); r.Generated || r.Note != 40 {
+		t.Errorf("the half nobody touched: %+v", r)
+	}
+	// Emptied, a half says that it does nothing; the other still plays.
+	if err := doc.ClearAt(layout, down); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.RoleAt(layout, down); r.Kind != RoleNone || !r.Silent || r.Short() != "nothing" {
+		t.Errorf("the emptied half: %+v", r)
+	}
+	if got := played(t, doc); got["ABS_HAT0X+"] != "octave_up" || got["ABS_HAT0X-"] != "nothing" {
+		t.Errorf("after one half was emptied: %v", got)
+	}
+	// Carried: a button's note onto a direction of the other hat axis,
+	// whose other direction keeps its own.
+	other := control.Axis(0x11)
+	if err := doc.CarryAt(layout, Whole(control.Key(0x120)), Spot{other, engine.RangeUpper}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := played(t, doc); got["ABS_HAT0Y+"] != "C1" || got["ABS_HAT0Y-"] != "F#1" || got["BTN_TRIGGER"] != "C1" {
+		t.Errorf("after a note was copied onto a direction: %v", got)
+	}
+	// An axis triggers a note where it is told to, and reversed.
+	if err := doc.SetShapeAt(layout, up, Shape{Threshold: 0.3, Invert: true}); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.RoleAt(layout, up); r.Shape.Threshold != 0.3 || !r.Shape.Invert || r.Kind != RoleCommand {
+		t.Errorf("after its threshold was set: %+v", r)
+	}
+	if !strings.Contains(string(doc.Text()), `"ABS_HAT0X+" = { command = "octave_up", invert = true, threshold = 0.3 }`) {
+		t.Errorf("the line of the half:\n%s", doc.Text())
+	}
+	// Everything can be taken back, to the letter.
+	for doc.Undo() {
+	}
+	if doc.Dirty() {
+		t.Error("taking everything back left a change")
+	}
+}
+
+// An axis is split into its two halves and joined again.
+func TestProfileDocSplitAndJoin(t *testing.T) {
+	doc, layout := openPad(t)
+	x, y := control.Axis(0), control.Axis(1)
+	lower := Spot{x, engine.RangeLower}
+
+	// The rule's controller becomes two, the upper half keeping the
+	// number.
+	if r := doc.Role(layout, x); r.Kind != RoleController || r.Controller != 16 || !r.Generated {
+		t.Fatalf("ABS_X: %+v", r)
+	}
+	if err := doc.Split(layout, x); err != nil {
+		t.Fatal(err)
+	}
+	if got := played(t, doc); got["ABS_X+"] != "cc16" || got["ABS_X-"] != "cc17" || got["ABS_X"] != "" {
+		t.Errorf("after the split: + %q, - %q, whole %q", got["ABS_X+"], got["ABS_X-"], got["ABS_X"])
+	}
+	if r := doc.Role(layout, x); !r.Split || r.Kind != RoleNone {
+		t.Errorf("the axis as a whole after the split: %+v", r)
+	}
+	// Splitting what is split changes nothing.
+	before := string(doc.Text())
+	if err := doc.Split(layout, x); err != nil || string(doc.Text()) != before {
+		t.Errorf("a second split: %v", err)
+	}
+	// A half is changed like any control.
+	if err := doc.SetControllerAt(layout, lower, 74, Shape{Deadzone: 0.1, Centered: true}); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.RoleAt(layout, lower); r.Controller != 74 || r.Shape.Deadzone != 0.1 || r.Shape.Centered {
+		t.Errorf("the lower half: %+v", r)
+	}
+	// Joined: the axis as a whole does what its upper half did, with its
+	// rest in the middle.
+	if err := doc.Join(layout, x); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, x); r.Kind != RoleController || r.Controller != 16 || !r.Shape.Centered || r.Split || r.Generated {
+		t.Errorf("after joining: %+v", r)
+	}
+	if got := played(t, doc); got["ABS_X+"] != "" || got["ABS_X-"] != "" || got["ABS_X"] != "cc16" {
+		t.Errorf("after joining: %v", got)
+	}
+
+	// The pitch bend of the stick splits into up and down, the way the
+	// stick is reversed.
+	if err := doc.Split(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	up, down := doc.RoleAt(layout, Spot{y, engine.RangeUpper}), doc.RoleAt(layout, Spot{y, engine.RangeLower})
+	if up.Kind != RoleBend || down.Kind != RoleBend || !up.Down || down.Down || up.Shape.Invert || down.Shape.Deadzone != 0.1 {
+		t.Errorf("the halves of the pitch bend: + %+v, - %+v", up, down)
+	}
+	if _, err := config.Parse(doc.Text()); err != nil {
+		t.Fatal(err)
+	}
+	// An axis that does nothing splits into two halves that say so,
+	// where the rule would otherwise give it back its part.
+	if err := doc.Join(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Clear(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Split(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	if got := played(t, doc); got["ABS_Y+"] != "nothing" || got["ABS_Y-"] != "nothing" || got["ABS_Y"] != "" {
+		t.Errorf("a silent axis split: %v", got)
+	}
+}
+
+func TestRoleSendsAndLabels(t *testing.T) {
+	x := control.Axis(0)
+	near := func(a, b float64) bool { return math.Abs(a-b) < 0.001 }
+	for _, tt := range []struct {
+		name     string
+		role     Role
+		at       Spot
+		v        float64
+		from, to float64
+		held     bool
+	}{
+		{"a controller", Role{Kind: RoleController}, Whole(x), 0.25, 0, 0.25, false},
+		{"reversed", Role{Kind: RoleController, Shape: Shape{Invert: true}}, Whole(x), 0.25, 0, 0.75, false},
+		{"resting in the middle", Role{Kind: RoleController, Shape: Shape{Centered: true}}, Whole(x), 0.5, 0, 0.5, false},
+		{"the upper half at rest", Role{Kind: RoleController}, Spot{x, engine.RangeUpper}, 0.5, 0, 0, false},
+		{"the upper half pushed", Role{Kind: RoleController}, Spot{x, engine.RangeUpper}, 0.75, 0, 0.5, false},
+		{"the lower half pushed", Role{Kind: RoleController}, Spot{x, engine.RangeLower}, 0, 0, 1, false},
+		{"the pitch at rest", Role{Kind: RoleBend, Shape: Shape{Centered: true}}, Whole(x), 0.5, 0.5, 0.5, false},
+		{"the pitch bent up", Role{Kind: RoleBend, Shape: Shape{Centered: true}}, Whole(x), 1, 0.5, 1, false},
+		{"the pitch bent down by a half", Role{Kind: RoleBend, Down: true}, Spot{x, engine.RangeLower}, 0, 0, 0.5, false},
+		{"a note below its point", Role{Kind: RoleNote, Shape: Shape{Threshold: 0.3}}, Whole(x), 0.2, 0, 0, false},
+		{"a note past its point", Role{Kind: RoleNote, Shape: Shape{Threshold: 0.3}}, Whole(x), 0.4, 0, 0, true},
+		{"a note at the usual half", Role{Kind: RoleNote}, Whole(x), 0.4, 0, 0, false},
+		{"a key that is down", Role{Kind: RoleNote}, Whole(control.Key(30)), 1, 0, 0, true},
+		{"nothing", Role{}, Whole(x), 1, 0, 0, false},
+	} {
+		from, to, held := tt.role.Sends(tt.at, tt.v)
+		if !near(from, tt.from) || !near(to, tt.to) || held != tt.held {
+			t.Errorf("%s: from %v to %v, held %v; want %v to %v, %v", tt.name, from, to, held, tt.from, tt.to, tt.held)
+		}
+	}
+	for role, want := range map[Role]string{
+		{Kind: RoleController, Controller: 16}: "cc16", {Kind: RoleBend}: "PB", {Kind: RoleBend, Down: true}: "PB↓",
+		{Kind: RoleNote, Text: "C3"}: "C3", {Silent: true}: "nothing", {}: "",
+	} {
+		if got := role.Short(); got != want {
+			t.Errorf("%+v in short: %q, want %q", role, got, want)
+		}
+	}
+
+	// A control is shown by its number where the device gives it one;
+	// the name is added where names are wanted, and stands alone where
+	// there is no number.
+	pad := &ipc.Instrument{Complete: true, Buttons: []ipc.Button{{Name: "BTN_TRIGGER"}, {Name: "BTN_THUMB"}}, Axes: []ipc.Axis{{Name: "ABS_X"}, {Name: "ABS_HAT0X", Hat: true}}}
+	thumb, hat := control.Key(0x121), control.Axis(0x10)
+	for _, tt := range []struct {
+		device *ipc.Instrument
+		at     Spot
+		names  bool
+		want   string
+	}{
+		{pad, Whole(thumb), false, "1"},
+		{pad, Whole(thumb), true, "1 · BTN_THUMB"},
+		{pad, Whole(control.Key(0x13b)), false, "BTN_START"},
+		{nil, Whole(thumb), false, "BTN_THUMB"},
+		{pad, Spot{hat, engine.RangeLower}, false, "1 −"},
+		{pad, Spot{hat, engine.RangeUpper}, true, "1 · ABS_HAT0X +"},
+		{&ipc.Instrument{}, Whole(control.Key(30)), false, "KEY_A"},
+	} {
+		if got := SpotLabel(tt.device, tt.at, tt.names); got != tt.want {
+			t.Errorf("SpotLabel(%v, names %v) = %q, want %q", tt.at, tt.names, got, tt.want)
+		}
 	}
 }

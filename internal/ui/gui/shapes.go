@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/ipc"
 )
 
@@ -110,23 +111,28 @@ func idOf(in ipc.Instrument) entryID { return entryID{in.Name, in.Type, in.Locat
 // ButtonLabel is what stands on button i of an instrument, and AxisLabel
 // what stands before axis i. Where the device has said what it has, its
 // controls are numbered from 0, in an order that is the same whenever a
-// device of that kind is plugged in; names shows them by the names
-// profiles use instead. A device that says nothing has only names: its
-// lists grow as it is used, and a number would not stay with its button.
+// device of that kind is plugged in; names adds the names profiles use
+// to the numbers. A device that says nothing has only names: its lists
+// grow as it is used, and a number would not stay with its button.
 func ButtonLabel(in ipc.Instrument, i int, names bool) string {
 	b := in.Buttons[i]
-	if in.Complete && !names {
-		return strconv.Itoa(i)
-	}
-	return controlName(b.Part, b.Name)
+	return numbered(in, i, names, controlName(b.Part, b.Name))
 }
 
 func AxisLabel(in ipc.Instrument, i int, names bool) string {
 	a := in.Axes[i]
-	if in.Complete && !names {
-		return strconv.Itoa(i)
+	return numbered(in, i, names, controlName(a.Part, strings.TrimPrefix(a.Name, "ABS_")))
+}
+
+// numbered is the label of the control at place i of its list.
+func numbered(in ipc.Instrument, i int, names bool, name string) string {
+	switch {
+	case !in.Complete:
+		return name
+	case names:
+		return strconv.Itoa(i) + " · " + name
 	}
-	return controlName(a.Part, strings.TrimPrefix(a.Name, "ABS_"))
+	return strconv.Itoa(i)
 }
 
 // ControlNumber returns the number a control of an instrument is shown
@@ -215,6 +221,30 @@ func DeviceControls(in *ipc.Instrument) []control.Input {
 		}
 	}
 	return out
+}
+
+// SpotLabel names a control on the page of a profile, or one half of an
+// axis. A control the device numbers is shown by its number, which is
+// what the rule of a profile goes by; the name profiles write is added
+// where names are wanted, and stands alone where there is no number to be
+// had: for a key of a keyboard, a control the device does not have, and
+// with no device there. A half says which, by a sign behind.
+func SpotLabel(device *ipc.Instrument, at Spot, names bool) string {
+	name := at.Code.String()
+	label := name
+	if n, ok := ControlNumber(device, name); ok {
+		label = strconv.Itoa(n)
+		if names {
+			label += " · " + name
+		}
+	}
+	switch at.Half {
+	case engine.RangeUpper:
+		label += " +"
+	case engine.RangeLower:
+		label += " −"
+	}
+	return label
 }
 
 // controlName is the name of a control, with the part of the device it is

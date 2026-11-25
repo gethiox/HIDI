@@ -3,6 +3,7 @@ package gui
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -188,8 +189,30 @@ const (
 	RolePass
 )
 
-// Role is what a control does when it is used alone, and where in the
-// file that is written.
+// Spot is what a binding names: a control of the main part of a device,
+// or one half of an axis, from its middle to one end.
+type Spot struct {
+	Code control.Code
+	// Half is engine.RangeWhole for the control itself.
+	Half engine.Range
+}
+
+// Whole is the spot of a control itself.
+func Whole(code control.Code) Spot { return Spot{Code: code} }
+
+// Key writes the spot as a profile does: "ABS_X", "ABS_X+", "ABS_X-".
+func (s Spot) Key() string {
+	switch s.Half {
+	case engine.RangeUpper:
+		return s.Code.String() + "+"
+	case engine.RangeLower:
+		return s.Code.String() + "-"
+	}
+	return s.Code.String()
+}
+
+// Role is what a control, or one half of an axis, does when it is used
+// alone, and where in the file that is written.
 type Role struct {
 	Kind RoleKind
 	// Text says it in a few characters, for a key cap: "C3", "octave_up".
@@ -207,10 +230,10 @@ type Role struct {
 	Velocity uint8
 	Touch    bool
 	Down     bool
-	// Split says that the two halves of an axis are bound apart, as
-	// "ABS_X+" and "ABS_X-", which the window shows and does not change.
-	// Lower and Upper say what the halves do, as Text does; empty for a
-	// half that does nothing.
+	// Split says, of a control itself, that the two halves of the axis
+	// are bound apart, as "ABS_X+" and "ABS_X-". Lower and Upper say
+	// what the halves do, as Text does; empty for a half that does
+	// nothing.
 	Split        bool
 	Lower, Upper string
 	// Generated says that no line gives the control this part: the
@@ -224,79 +247,42 @@ type Role struct {
 
 // Shape is how the position of an axis is read before it is sent.
 type Shape struct {
-	// Centered is for an axis that rests in the middle, such as a stick.
+	// Centered is for an axis that rests in the middle, such as a stick:
+	// a dead zone is then around the middle, the pitch bends both ways
+	// from there, and a controller rests at 64.
 	Centered bool
 	// Invert reverses the direction.
 	Invert bool
 	// Deadzone is the fraction of travel next to the rest position that
 	// is ignored, from 0 to below 1.
 	Deadzone float64
+	// Threshold is how far an axis has to move for a note or a command
+	// to trigger, as a fraction of its travel; 0 is the usual half.
+	Threshold float64
 }
 
-// text writes the options as they stand in a binding, each led by a comma.
-func (s Shape) text() string {
+// number writes a fraction as a file should read: 0.05, not
+// 0.05000000000000001.
+func number(v float64) string { return strconv.FormatFloat(math.Round(v*1000)/1000, 'f', -1, 64) }
+
+// text writes the options as they stand in a binding, each led by a
+// comma: those of something that follows the position, or with held
+// those of something that is held like a key.
+func (s Shape) text(held bool) string {
 	out := ""
-	if s.Centered {
+	if s.Centered && !held {
 		out += ", centered = true"
 	}
 	if s.Invert {
 		out += ", invert = true"
 	}
 	if s.Deadzone > 0 {
-		out += ", deadzone = " + strconv.FormatFloat(s.Deadzone, 'f', -1, 64)
+		out += ", deadzone = " + number(s.Deadzone)
+	}
+	if s.Threshold > 0 && held {
+		out += ", threshold = " + number(s.Threshold)
 	}
 	return out
-}
-
-// Role returns what a control of the main part does in a layout: by the
-// layout's own binding, or else by one that applies in every layout.
-func (d *ProfileDoc) Role(layout string, code control.Code) Role {
-	role := Role{Section: config.Bindings(layout)}
-	named := false // whether a line names the control at all
-	find := func(bindings []engine.Binding) (engine.Action, bool) {
-		var action engine.Action
-		found := false
-		for _, b := range bindings {
-			if b.Source.Code != code || b.Source.Part != "" {
-				continue
-			}
-			named = true
-			if len(b.Source.Modifiers) != 0 {
-				continue
-			}
-			if b.Source.Range != engine.RangeWhole {
-				role.half(b.Source.Range, b.Action)
-				continue
-			}
-			action, found = b.Action, true
-			role.Shape = Shape{Centered: b.Source.Centered, Invert: b.Source.Invert, Deadzone: b.Source.Deadzone}
-		}
-		return action, found
-	}
-	var action engine.Action
-	found := false
-	for _, l := range d.Profile.Engine.Layouts {
-		if l.Name == layout {
-			action, found = find(l.Bindings)
-		}
-	}
-	if !found {
-		if action, found = find(d.Profile.Engine.Global); found {
-			role.Section = config.Global
-		}
-	}
-	if !named {
-		for _, g := range d.generated(code) {
-			role.Generated = true
-			if g.Source.Range != engine.RangeWhole {
-				role.half(g.Source.Range, g.Action)
-				continue
-			}
-			action = g.Action
-		}
-	}
-	role.take(action)
-	return role
 }
 
 // take fills in what an action does.
@@ -322,29 +308,274 @@ func (r *Role) take(action engine.Action) {
 	}
 }
 
-// half notes that one half of an axis is bound by itself, and to what.
-// The first binding seen for a half is the one that counts: a layout's
-// own comes before one that applies in every layout.
-func (r *Role) half(which engine.Range, action engine.Action) {
-	r.Split = true
-	var does Role
-	does.take(action)
-	switch {
-	case which == engine.RangeLower && r.Lower == "":
-		r.Lower = does.Text
-	case which == engine.RangeUpper && r.Upper == "":
-		r.Upper = does.Text
+// Short says what the role is in as few characters as a label on the
+// page has room for: "C3", "cc16", "PB", "octave_up", and "nothing" for a
+// control that is told to do nothing. A control that simply does nothing
+// has no word.
+func (r Role) Short() string {
+	switch r.Kind {
+	case RoleController:
+		return "cc" + strconv.Itoa(int(r.Controller))
+	case RoleBend:
+		if r.Down {
+			return "PB↓"
+		}
+		return "PB"
+	case RoleNone:
+		if r.Silent {
+			return engine.NothingName
+		}
+		return ""
+	}
+	return r.Text
+}
+
+// Sends says what a spot with this role does at a position of its
+// control, from 0 to 1 (a key that is down is at 1): for a controller or
+// the pitch bend the part of a bar that its value fills, as fractions of
+// the bar's width, and for what is held like a key whether it is held.
+// It is the engine's own reckoning, so the page shows what would be
+// sent, with HIDI on or off.
+func (r Role) Sends(at Spot, v float64) (from, to float64, held bool) {
+	src := engine.Source{
+		Code: at.Code, Range: at.Half,
+		Centered: r.Shape.Centered && at.Half == engine.RangeWhole,
+		Invert:   r.Shape.Invert, Deadzone: r.Shape.Deadzone, Threshold: r.Shape.Threshold,
+	}
+	if at.Code.Kind != control.KindAxis {
+		src = engine.Source{Code: at.Code}
+	}
+	x := src.Shape(v)
+	switch r.Kind {
+	case RoleController:
+		if src.Bipolar() {
+			x = (x + 1) / 2
+		}
+		return 0, x, false
+	case RoleBend:
+		if !src.Bipolar() && r.Down {
+			x = -x
+		}
+		at := (x + 1) / 2
+		return min(at, 0.5), max(at, 0.5), false
+	case RoleNote, RoleCommand, RoleOther:
+		return 0, 0, src.Triggers(x)
+	}
+	return 0, 0, false
+}
+
+// become makes the role one of another kind: what only the old kind had
+// is dropped, how the position is read stays.
+func (r *Role) become(kind RoleKind) {
+	if r.Kind != kind {
+		*r = Role{Kind: kind, Shape: r.Shape, Section: r.Section}
 	}
 }
 
-// silence takes the line of a control out of a section. Where the
-// profile's rule would give the control a part once no line names it, the
-// line stays and says that the control does nothing.
-func (d *ProfileDoc) silence(text []byte, section config.Section, code control.Code) ([]byte, error) {
-	if len(d.generated(code)) > 0 {
-		return config.Set(text, section, code.String(), strconv.Quote(engine.NothingName))
+// value writes the role as the right side of a binding of a spot. A
+// control that is no axis has no position to read, a half of an axis
+// rests in the middle by what it is, and a role the window only shows
+// cannot be written.
+func (r Role) value(at Spot) (string, error) {
+	shape := r.Shape
+	if at.Code.Kind != control.KindAxis {
+		shape = Shape{}
 	}
-	return config.Remove(text, section, code.String())
+	if at.Half != engine.RangeWhole {
+		shape.Centered = false
+	}
+	moved := ""
+	if r.Offset != 0 {
+		moved = fmt.Sprintf(", channel_offset = %d", r.Offset)
+	}
+	// short writes what can be said in a word that way, and as a table
+	// what has more to say.
+	short := func(key, word, more string) string {
+		if more == "" {
+			return word
+		}
+		return "{ " + key + " = " + word + more + " }"
+	}
+	switch r.Kind {
+	case RoleNote:
+		more := ""
+		if r.Velocity != 0 {
+			more += fmt.Sprintf(", velocity = %d", r.Velocity)
+		}
+		if r.Touch {
+			more += ", touch = true"
+		}
+		return short("note", strconv.Quote(r.Note.String()), more+moved+shape.text(true)), nil
+	case RoleCommand:
+		return short("command", strconv.Quote(r.Command.String()), shape.text(true)), nil
+	case RoleController:
+		return fmt.Sprintf("{ cc = %d%s%s }", r.Controller, moved, shape.text(false)), nil
+	case RoleBend:
+		way := "true"
+		if r.Down {
+			way = `"down"`
+		}
+		return fmt.Sprintf("{ pitch_bend = %s%s%s }", way, moved, shape.text(false)), nil
+	case RolePass:
+		return strconv.Quote(engine.PassthroughName), nil
+	case RoleNone:
+		return strconv.Quote(engine.NothingName), nil
+	}
+	return "", fmt.Errorf("what %s does is changed in the file; %w", at.Key(), config.ErrNotEditable)
+}
+
+// find looks for the binding of a spot: the layout's own, or else one
+// that applies in every layout, or else what the profile's rule makes of
+// the control, which it does as long as no line of the layout or for
+// every layout names the control in any way.
+func (d *ProfileDoc) find(layout string, at Spot) (b engine.Binding, section config.Section, generated, found bool) {
+	named := false
+	in := func(bindings []engine.Binding) bool {
+		for _, c := range bindings {
+			if c.Source.Code != at.Code || c.Source.Part != "" {
+				continue
+			}
+			named = true
+			if len(c.Source.Modifiers) == 0 && c.Source.Range == at.Half && !found {
+				b, found = c, true
+			}
+		}
+		return found
+	}
+	section = config.Bindings(layout)
+	for _, l := range d.Profile.Engine.Layouts {
+		if l.Name == layout && in(l.Bindings) {
+			// What applies in every layout still says whether the
+			// control is named, which nothing asks once it is found.
+			return b, section, false, true
+		}
+	}
+	if in(d.Profile.Engine.Global) {
+		return b, config.Global, false, true
+	}
+	if !named {
+		for _, g := range d.generated(at.Code) {
+			if g.Source.Range == at.Half {
+				return g.Binding, section, true, true
+			}
+		}
+	}
+	return engine.Binding{}, section, false, false
+}
+
+// RoleAt returns what a spot does in a layout.
+func (d *ProfileDoc) RoleAt(layout string, at Spot) Role {
+	b, section, generated, found := d.find(layout, at)
+	role := Role{Section: section, Generated: generated}
+	if found {
+		role.take(b.Action)
+		role.Shape = Shape{Centered: b.Source.Centered, Invert: b.Source.Invert, Deadzone: b.Source.Deadzone, Threshold: b.Source.Threshold}
+	}
+	if at.Half != engine.RangeWhole {
+		return role
+	}
+	// The halves of the control, where they are bound apart.
+	for _, half := range []struct {
+		which engine.Range
+		text  *string
+	}{{engine.RangeLower, &role.Lower}, {engine.RangeUpper, &role.Upper}} {
+		if hb, _, hg, ok := d.find(layout, Spot{at.Code, half.which}); ok {
+			var does Role
+			does.take(hb.Action)
+			role.Split, *half.text = true, does.Text
+			role.Generated = role.Generated || hg
+		}
+	}
+	return role
+}
+
+// Role returns what a control of the main part does in a layout: by the
+// layout's own binding, or else by one that applies in every layout.
+func (d *ProfileDoc) Role(layout string, code control.Code) Role {
+	return d.RoleAt(layout, Whole(code))
+}
+
+// Bound reports whether a control does anything in a layout, itself or
+// by one of its halves.
+func (d *ProfileDoc) Bound(layout string, code control.Code) bool {
+	r := d.Role(layout, code)
+	return r.Kind != RoleNone || r.Lower != "" || r.Upper != ""
+}
+
+// keepOther writes out what the profile's rule makes of the other half of
+// an axis, before a line names one half: a control that a line names is
+// the rule's no longer, and the half nobody touched would fall silent.
+func (d *ProfileDoc) keepOther(text []byte, layout string, at Spot) ([]byte, error) {
+	if at.Half == engine.RangeWhole {
+		return text, nil
+	}
+	for _, half := range []engine.Range{engine.RangeLower, engine.RangeUpper} {
+		other := Spot{at.Code, half}
+		b, _, generated, found := d.find(layout, other)
+		if half == at.Half || !found || !generated {
+			continue
+		}
+		var role Role
+		role.take(b.Action)
+		value, err := role.value(other)
+		if err != nil {
+			return nil, err
+		}
+		if text, err = config.Set(text, config.Bindings(layout), other.Key(), value); err != nil {
+			return nil, err
+		}
+	}
+	return text, nil
+}
+
+// PutAt changes what a spot does in a layout: change is given what it does
+// now and makes of it what it is to do. The binding is written where it
+// is, or into the layout if the spot has none of its own.
+func (d *ProfileDoc) PutAt(layout string, at Spot, change func(*Role)) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		role := d.RoleAt(layout, at)
+		change(&role)
+		value, err := role.value(at)
+		if err != nil {
+			return nil, err
+		}
+		if text, err = d.keepOther(text, layout, at); err != nil {
+			return nil, err
+		}
+		return config.Set(text, role.Section, at.Key(), value)
+	})
+}
+
+// SetNoteAt makes a spot play a note. One that plays a note already
+// keeps what else its line says about the note.
+func (d *ProfileDoc) SetNoteAt(layout string, at Spot, note midi.Note) error {
+	return d.PutAt(layout, at, func(r *Role) { r.become(RoleNote); r.Note = note })
+}
+
+// SetCommandAt makes a spot run a command.
+func (d *ProfileDoc) SetCommandAt(layout string, at Spot, command engine.Command) error {
+	return d.PutAt(layout, at, func(r *Role) { r.become(RoleCommand); r.Command = command })
+}
+
+// SetControllerAt makes a spot send a controller: an axis its position,
+// read as shape says, and a key 127 while it is held.
+func (d *ProfileDoc) SetControllerAt(layout string, at Spot, controller uint8, shape Shape) error {
+	if controller > 127 {
+		return fmt.Errorf("there is no controller %d; they go from 0 to 127", controller)
+	}
+	return d.PutAt(layout, at, func(r *Role) { r.become(RoleController); r.Controller, r.Shape = controller, shape })
+}
+
+// SetBendAt makes a spot bend the pitch: both ways for a centered axis,
+// upwards otherwise.
+func (d *ProfileDoc) SetBendAt(layout string, at Spot, shape Shape) error {
+	return d.PutAt(layout, at, func(r *Role) { r.become(RoleBend); r.Shape = shape })
+}
+
+// SetShapeAt changes how the position of an axis is read for what it
+// does already.
+func (d *ProfileDoc) SetShapeAt(layout string, at Spot, shape Shape) error {
+	return d.PutAt(layout, at, func(r *Role) { r.Shape = shape })
 }
 
 // SetPassthrough leaves a key to the system: it plays nothing and types
@@ -353,132 +584,202 @@ func (d *ProfileDoc) SetPassthrough(layout string, code control.Code) error {
 	if code.Kind != control.KindKey {
 		return fmt.Errorf("%s is not a key; only a key can be left to the system", code)
 	}
-	return d.change(func(text []byte) ([]byte, error) {
-		return config.Set(text, d.Role(layout, code).Section, code.String(), strconv.Quote(engine.PassthroughName))
-	})
+	return d.PutAt(layout, Whole(code), func(r *Role) { r.become(RolePass) })
 }
 
-// offset writes the channel a binding is moved by, if it is.
-func offset(n uint8) string {
-	if n == 0 {
-		return ""
-	}
-	return fmt.Sprintf(", channel_offset = %d", n)
-}
-
-// SetNote makes a control play a note. A control that plays a note
-// already keeps what else its line says about the note.
+// The same for a control itself.
 func (d *ProfileDoc) SetNote(layout string, code control.Code, note midi.Note) error {
-	return d.change(func(text []byte) ([]byte, error) {
-		was := d.Role(layout, code)
-		value := strconv.Quote(note.String())
-		if was.Kind == RoleNote && (was.Offset != 0 || was.Velocity != 0 || was.Touch || was.Shape != (Shape{})) {
-			value = "{ note = " + value
-			if was.Velocity != 0 {
-				value += fmt.Sprintf(", velocity = %d", was.Velocity)
-			}
-			if was.Touch {
-				value += ", touch = true"
-			}
-			value += offset(was.Offset) + was.Shape.text() + " }"
-		}
-		return config.Set(text, was.Section, code.String(), value)
-	})
+	return d.SetNoteAt(layout, Whole(code), note)
 }
-
-// SetCommand makes a control run a command.
 func (d *ProfileDoc) SetCommand(layout string, code control.Code, command engine.Command) error {
-	return d.change(func(text []byte) ([]byte, error) {
-		return config.Set(text, d.Role(layout, code).Section, code.String(), strconv.Quote(command.String()))
-	})
+	return d.SetCommandAt(layout, Whole(code), command)
 }
-
-// SetController makes a control send a controller: an axis its position,
-// read as shape says, and a key 127 while it is held.
 func (d *ProfileDoc) SetController(layout string, code control.Code, controller uint8, shape Shape) error {
-	if controller > 127 {
-		return fmt.Errorf("there is no controller %d; they go from 0 to 127", controller)
-	}
-	return d.change(func(text []byte) ([]byte, error) {
-		was := d.Role(layout, code)
-		moved := ""
-		if was.Kind == RoleController {
-			moved = offset(was.Offset)
-		}
-		value := fmt.Sprintf("{ cc = %d%s%s }", controller, moved, shape.text())
-		return config.Set(text, was.Section, code.String(), value)
-	})
+	return d.SetControllerAt(layout, Whole(code), controller, shape)
 }
-
-// SetBend makes a control bend the pitch: both ways for a centered axis,
-// upwards otherwise.
 func (d *ProfileDoc) SetBend(layout string, code control.Code, shape Shape) error {
-	return d.change(func(text []byte) ([]byte, error) {
-		was := d.Role(layout, code)
-		way, moved := "true", ""
-		if was.Kind == RoleBend {
-			moved = offset(was.Offset)
-			if was.Down {
-				way = `"down"`
-			}
-		}
-		value := fmt.Sprintf("{ pitch_bend = %s%s%s }", way, moved, shape.text())
-		return config.Set(text, was.Section, code.String(), value)
-	})
+	return d.SetBendAt(layout, Whole(code), shape)
+}
+func (d *ProfileDoc) Clear(layout string, code control.Code) error {
+	return d.ClearAt(layout, Whole(code))
+}
+func (d *ProfileDoc) Carry(layout string, from, to control.Code, move bool) error {
+	return d.CarryAt(layout, Whole(from), Whole(to), move)
 }
 
-// Clear makes a control do nothing: it removes the binding the control
-// has in the layout, or the one that applies in every layout. A control
-// the profile's rule would then give a part is told to do nothing
-// instead.
-func (d *ProfileDoc) Clear(layout string, code control.Code) error {
+// silence takes the line of a spot out of a section. Where the profile's
+// rule would give the control a part once no line names it, the line
+// stays and says that the spot does nothing.
+func (d *ProfileDoc) silence(text []byte, layout string, section config.Section, at Spot) ([]byte, error) {
+	if len(d.generated(at.Code)) == 0 {
+		return config.Remove(text, section, at.Key())
+	}
+	text, err := d.keepOther(text, layout, at)
+	if err != nil {
+		return nil, err
+	}
+	return config.Set(text, section, at.Key(), strconv.Quote(engine.NothingName))
+}
+
+// ClearAt makes a spot do nothing: it removes the binding the spot has
+// in the layout, or the one that applies in every layout. A control the
+// profile's rule would then give a part is told to do nothing instead.
+func (d *ProfileDoc) ClearAt(layout string, at Spot) error {
 	return d.change(func(text []byte) ([]byte, error) {
-		role := d.Role(layout, code)
-		out, err := d.silence(text, role.Section, code)
+		role := d.RoleAt(layout, at)
+		out, err := d.silence(text, layout, role.Section, at)
 		if err == nil && bytes.Equal(out, text) && !role.Silent {
-			return nil, fmt.Errorf("the line of %s was not found; %w", code, config.ErrNotEditable)
+			return nil, fmt.Errorf("the line of %s was not found; %w", at.Key(), config.ErrNotEditable)
 		}
 		return out, err
 	})
 }
 
-// Carry gives one control what another does in a layout, exactly as the
-// profile writes it. With move the first control does nothing afterwards;
+// CarryAt gives one spot what another does in a layout, exactly as the
+// profile writes it. With move the first does nothing afterwards;
 // without, both do the same. It is one change, taken back in one step.
-func (d *ProfileDoc) Carry(layout string, from, to control.Code, move bool) error {
+func (d *ProfileDoc) CarryAt(layout string, from, to Spot, move bool) error {
 	if from == to {
 		return nil
 	}
 	return d.change(func(text []byte) ([]byte, error) {
-		source, target := d.Role(layout, from), d.Role(layout, to)
-		value, found, err := config.Get(text, source.Section, from.String())
+		source, target := d.RoleAt(layout, from), d.RoleAt(layout, to)
+		value, found, err := config.Get(text, source.Section, from.Key())
 		if err != nil {
 			return nil, err
 		}
-		if !found && source.Generated && !source.Split {
+		if !found && source.Generated && source.Kind != RoleNone {
 			// What the rule makes of the control, written out.
-			value, found = d.generated(from)[0].Value, true
+			value, err = source.value(from)
+			found = err == nil
 		}
 		if !found {
 			if source.Kind == RoleNone {
-				return nil, fmt.Errorf("%s does nothing; there is nothing to give to %s", from, to)
+				return nil, fmt.Errorf("%s does nothing; there is nothing to give to %s", from.Key(), to.Key())
 			}
-			return nil, fmt.Errorf("the line of %s was not found; %w", from, config.ErrNotEditable)
+			return nil, fmt.Errorf("the line of %s was not found; %w", from.Key(), config.ErrNotEditable)
 		}
 		// Where the target is bound already, it is bound anew there;
 		// a target that does nothing gets its line beside the source's.
 		section := target.Section
-		if target.Kind == RoleNone {
+		if target.Kind == RoleNone && !target.Silent {
 			section = source.Section
 		}
-		out, err := config.Set(text, section, to.String(), value)
+		out, err := d.keepOther(text, layout, to)
 		if err != nil {
 			return nil, err
 		}
+		if out, err = config.Set(out, section, to.Key(), value); err != nil {
+			return nil, err
+		}
 		if move {
-			return d.silence(out, source.Section, from)
+			return d.silence(out, layout, source.Section, from)
 		}
 		return out, nil
+	})
+}
+
+// nextController returns the controller after n that means nothing of its
+// own, or the one before it where the numbers end.
+func nextController(n uint8) uint8 {
+	for c := int(n) + 1; c <= 127; c++ {
+		if !config.ReservedController(uint8(c)) {
+			return uint8(c)
+		}
+	}
+	return n - 1
+}
+
+// Split binds the two halves of an axis apart in place of the axis as a
+// whole, each from the middle outwards, so that the axis at rest sends
+// nothing at all instead of the middle of something. A controller becomes
+// two, the upper half keeping the number and the lower getting the next;
+// the pitch bends up by one half and down by the other; anything else
+// stays on the upper half. Both halves can be changed afterwards like
+// any control.
+func (d *ProfileDoc) Split(layout string, code control.Code) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		whole := d.Role(layout, code)
+		if whole.Split {
+			return text, nil
+		}
+		upper, lower := whole, Role{}
+		upper.Shape.Centered = false
+		switch whole.Kind {
+		case RoleController:
+			lower = upper
+			lower.Controller = nextController(upper.Controller)
+		case RoleBend:
+			lower = upper
+			upper.Down, lower.Down = false, true
+		case RoleOther, RolePass:
+			return nil, fmt.Errorf("what %s does is changed in the file; %w", code, config.ErrNotEditable)
+		}
+		if whole.Shape.Invert {
+			// Reversed as a whole is the two halves the other way
+			// round.
+			upper, lower = lower, upper
+			upper.Shape.Invert, lower.Shape.Invert = false, false
+		}
+		out := text
+		var err error
+		if !whole.Generated && (whole.Kind != RoleNone || whole.Silent) {
+			if out, err = config.Remove(out, whole.Section, code.String()); err != nil {
+				return nil, err
+			}
+		}
+		for _, half := range []struct {
+			at   Spot
+			role Role
+		}{{Spot{code, engine.RangeUpper}, upper}, {Spot{code, engine.RangeLower}, lower}} {
+			value, err := half.role.value(half.at)
+			if err != nil {
+				return nil, err
+			}
+			if out, err = config.Set(out, whole.Section, half.at.Key(), value); err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
+	})
+}
+
+// Join binds an axis as a whole in place of its two halves: it does what
+// the upper half did, read from one end of its travel to the other with
+// its rest in the middle.
+func (d *ProfileDoc) Join(layout string, code control.Code) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		upperAt, lowerAt := Spot{code, engine.RangeUpper}, Spot{code, engine.RangeLower}
+		upper, lower := d.RoleAt(layout, upperAt), d.RoleAt(layout, lowerAt)
+		out := text
+		var err error
+		for _, half := range []struct {
+			at   Spot
+			role Role
+		}{{upperAt, upper}, {lowerAt, lower}} {
+			if out, err = config.Remove(out, half.role.Section, half.at.Key()); err != nil {
+				return nil, err
+			}
+		}
+		whole := upper
+		if whole.Kind == RoleNone {
+			whole = lower
+		}
+		switch whole.Kind {
+		case RoleController, RoleBend:
+			whole.Shape.Centered, whole.Down = true, false
+		case RoleOther, RolePass:
+			return nil, fmt.Errorf("what %s does is changed in the file; %w", code, config.ErrNotEditable)
+		case RoleNone:
+			// Nothing to carry over: the axis is as a profile without
+			// a line for it has it, the rule's where there is one.
+			return out, nil
+		}
+		value, err := whole.value(Whole(code))
+		if err != nil {
+			return nil, err
+		}
+		return config.Set(out, upper.Section, code.String(), value)
 	})
 }
 
