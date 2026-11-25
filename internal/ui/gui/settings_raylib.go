@@ -403,17 +403,17 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	sh.y += 28
 
 	sh.onOff(state)
+	sh.windowSettings()
 	sh.devices(state)
 	sh.midi()
 	sh.lights()
-	sh.windowSettings()
 	sh.profiles()
 }
 
 // onOff draws what turns HIDI on and off.
 func (sh *sheet) onOff(state *ipc.Snapshot) {
 	w, v := sh.window, &sh.window.settings
-	sh.section("On and off")
+	sh.section("State control")
 	toggleNames := make([]string, len(sh.s.Input.Toggle))
 	for i, c := range sh.s.Input.Toggle {
 		toggleNames[i] = strings.TrimPrefix(c.String(), "KEY_")
@@ -469,8 +469,8 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 	}
 	sh.y += 48
 	sh.switches(
-		toggleItem{"The toggle is one key, tapped", "held longer, the key does what it normally does", &sh.s.Input.ToggleTap, ""},
-		toggleItem{"The toggle key is HIDI's alone", "one key, such as Caps Lock, never reaches the system", &sh.s.Input.ToggleExclusive, ""},
+		toggleItem{"Pass the toggle key through to the system when held", "a tap toggles HIDI; held longer, the key does what it normally does", &sh.s.Input.ToggleTap, ""},
+		toggleItem{"The toggle key is HIDI's alone", "it never reaches the system, tapped or held", &sh.s.Input.ToggleExclusive, ""},
 		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn, ""},
 	)
 }
