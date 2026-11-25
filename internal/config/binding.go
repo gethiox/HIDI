@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -211,4 +212,35 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 	}
 	t.done(allowed...)
 	return action, len(r.errs) == before
+}
+
+// toggle finds the keys that turn HIDI off and on with a profile: those of
+// its binding of the toggle command. HIDI is turned off and on for every
+// instrument and in whatever layout, also while nothing else of the
+// profile is in force, so the binding is one, stands among those for
+// every layout, and names keys of the main part and nothing else.
+func (r *reader) toggle(p *engine.Profile) []control.Code {
+	var keys []control.Code
+	for _, l := range p.Layouts {
+		for _, b := range l.Bindings {
+			if b.Action == engine.CommandToggle {
+				r.failf(fmt.Sprintf("layout %q, %s", l.Name, b.Source.Code), "%s belongs in [global]: it has to work in every layout", engine.ToggleName)
+			}
+		}
+	}
+	for _, b := range p.Global {
+		if b.Action != engine.CommandToggle {
+			continue
+		}
+		at := "global, " + b.Source.Code.String()
+		switch {
+		case keys != nil:
+			r.failf(at, "a profile has one %s; this is another", engine.ToggleName)
+		case b.Source.Part != "" || b.Source.Range != engine.RangeWhole || b.Source.Code.Kind != control.KindKey:
+			r.failf(at, "%s is bound to a key or a button of the main part, or to several pressed together", engine.ToggleName)
+		default:
+			keys = append(slices.Clone(b.Source.Modifiers), b.Source.Code)
+		}
+	}
+	return keys
 }

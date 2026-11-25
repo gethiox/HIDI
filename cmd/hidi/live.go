@@ -136,14 +136,6 @@ func (l *liveSettings) apply(s settings.Settings) {
 			*from.value = from.is
 		}
 	}
-	switch {
-	case len(toggle) == 0 && keyboards:
-		l.log.Error("the changed settings are not used: grabbing keyboards needs a toggle combination")
-		return
-	case tap && len(toggle) != 1:
-		l.log.Error("the changed settings are not used: toggle_tap needs a toggle of exactly one key")
-		return
-	}
 	if input := fmt.Sprint(toggle, keyboards, gamepads, tap, always); input != l.input {
 		l.input = input
 		l.manager.SetToggleTap(tap, hidesToggle(always))

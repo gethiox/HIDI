@@ -794,7 +794,7 @@ func builtin(t *testing.T) []*config.Profile {
 // A changed profile takes over a playing instrument: the held note is
 // released, the MIDI device stays, and the next press plays the new note.
 func TestSetProfilesReplacesProfile(t *testing.T) {
-	r := newRigWith(t, Options{Grab: GrabKeyboards}, profile(t, "Mine", `type = "keyboard"`, "C3"))
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys}, profile(t, "Mine", `type = "keyboard"`, "C3"))
 	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
 	e := r.plug(kbd)
 	kbd.set(keyZ, 1)
@@ -1481,4 +1481,87 @@ func TestHiddenToggleFallsBack(t *testing.T) {
 	if kbd.isPassing() {
 		t.Error("passing although it failed")
 	}
+}
+
+// The toggle is the profile's own where the settings name none: the key
+// the profile binds to hidi_toggle turns HIDI off and on from a device
+// that plays with it, and a toggle the settings name comes before it.
+func TestToggleOfTheProfile(t *testing.T) {
+	capsLock := control.Key(58)
+	r := newRigWith(t, Options{Grab: GrabKeyboards})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	if st := r.manager.Status(); len(st) != 1 || !slices.Equal(st[0].Toggle, []control.Code{capsLock}) || st[0].Left {
+		t.Fatalf("the status: %+v", st)
+	}
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	eventually(t, "HIDI to be off", func() bool { return !r.manager.Active() && !kbd.isGrabbed() })
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	eventually(t, "HIDI to be on again", func() bool { return r.manager.Active() && kbd.isGrabbed() })
+
+	// The settings name a toggle for every device: the profile's key
+	// is one no longer.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
+	eventually(t, "the toggle of the settings", func() bool {
+		st := r.manager.Status()
+		return len(st) == 1 && slices.Equal(st[0].Toggle, toggleKeys)
+	})
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	kbd.set(keyCtrl, 1)
+	kbd.set(keyAlt, 1)
+	eventually(t, "HIDI to be off by the combination", func() bool { return !r.manager.Active() })
+	kbd.set(keyAlt, 0)
+	kbd.set(keyCtrl, 0)
+	// And leaves it to the profiles again.
+	r.manager.SetInput(nil, GrabKeyboards)
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	eventually(t, "HIDI to be on by the profile's key", r.manager.Active)
+}
+
+// A keyboard with nothing on it that turns HIDI off is not taken from the
+// system, whatever the settings say about keyboards: it keeps typing
+// while it plays, and the status says so.
+func TestKeyboardWithoutToggleIsLeft(t *testing.T) {
+	plain := profile(t, "Plain", `type = "keyboard"`+"\nvendor = 0x1234", "C3")
+	r := newRigWith(t, Options{Grab: GrabKeyboards}, plain)
+	kbd := newFakeDevice("Bare Keyboard", control.DeviceKeyboard)
+	kbd.info.Hardware.Vendor = 0x1234
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	e := r.plug(kbd)
+	r.plug(pad)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+	if kbd.isGrabbed() {
+		t.Fatal("a keyboard without a toggle was taken from the system")
+	}
+	left := func(name string) (is, found bool) {
+		for _, st := range r.manager.Status() {
+			if st.Device.Name == name {
+				return st.Left, true
+			}
+		}
+		return false, false
+	}
+	if is, found := left("Bare Keyboard"); !found || !is {
+		t.Errorf("the status of the keyboard: left %v, found %v", is, found)
+	}
+	// A game controller has no toggle either and is not a keyboard: it
+	// is simply not grabbed, which is what the settings say.
+	if is, found := left("Test Pad"); !found || is {
+		t.Errorf("the status of the pad: left %v, found %v", is, found)
+	}
+	// With a toggle for every device the keyboard is taken like the
+	// others, and given back without one.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	if is, _ := left("Bare Keyboard"); is {
+		t.Error("the status still says the keyboard is left typing")
+	}
+	r.manager.SetInput(nil, GrabKeyboards)
+	eventually(t, "the keyboard to be let go of", func() bool { return !kbd.isGrabbed() })
 }

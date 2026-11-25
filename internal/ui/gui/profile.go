@@ -552,9 +552,39 @@ func (d *ProfileDoc) SetNoteAt(layout string, at Spot, note midi.Note) error {
 	return d.PutAt(layout, at, func(r *Role) { r.become(RoleNote); r.Note = note })
 }
 
-// SetCommandAt makes a spot run a command.
+// SetCommandAt makes a spot run a command. The command that turns HIDI
+// off and on is for every layout and one of its kind, so it is written
+// among the bindings for every layout, in place of the one that was
+// there, and what the spot did in the layout goes.
 func (d *ProfileDoc) SetCommandAt(layout string, at Spot, command engine.Command) error {
-	return d.PutAt(layout, at, func(r *Role) { r.become(RoleCommand); r.Command = command })
+	if command != engine.CommandToggle {
+		return d.PutAt(layout, at, func(r *Role) { r.become(RoleCommand); r.Command = command })
+	}
+	if at.Half != engine.RangeWhole || at.Code.Kind != control.KindKey {
+		return fmt.Errorf("%s is for a key or a button", engine.ToggleName)
+	}
+	return d.change(func(text []byte) ([]byte, error) {
+		out := text
+		var err error
+		for _, b := range d.Profile.Engine.Global {
+			if b.Action != engine.CommandToggle {
+				continue
+			}
+			key := b.Source.Code.String()
+			for i := len(b.Source.Modifiers) - 1; i >= 0; i-- {
+				key = b.Source.Modifiers[i].String() + "+" + key
+			}
+			if out, err = config.Remove(out, config.Global, key); err != nil {
+				return nil, err
+			}
+		}
+		if was := d.RoleAt(layout, at); !was.Generated && (was.Kind != RoleNone || was.Silent) && was.Section != config.Global {
+			if out, err = config.Remove(out, was.Section, at.Key()); err != nil {
+				return nil, err
+			}
+		}
+		return config.Set(out, config.Global, at.Key(), strconv.Quote(engine.ToggleName))
+	})
 }
 
 // SetControllerAt makes a spot send a controller: an axis its position,

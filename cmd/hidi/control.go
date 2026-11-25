@@ -15,6 +15,7 @@ import (
 
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/config"
+	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
@@ -74,6 +75,15 @@ func withDevices(s ipc.Snapshot, manager *instrument.Manager, seen *seenDevices)
 		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Type, b.Type))
 	})
 	return s
+}
+
+// codeNames writes codes as profiles do.
+func codeNames(codes []control.Code) []string {
+	var out []string
+	for _, c := range codes {
+		out = append(out, c.String())
+	}
+	return out
 }
 
 // keyRole names what a key does, for the snapshot.
@@ -163,6 +173,8 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Sounding:    st.State.Sounding,
 			Notes:       st.State.NoteNumbers(),
 			Controllers: sends,
+			Toggle:      codeNames(st.Toggle),
+			Typing:      st.Left,
 			InputRate:   st.InputRate,
 			MIDIRate:    st.MIDIRate,
 		})

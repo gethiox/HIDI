@@ -61,9 +61,9 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 	fs.BoolVarP(&o.verbose, "verbose", "v", false, "also log details, such as every ignored device")
 	fs.BoolVar(&o.logMIDI, "log-midi", false, "also log every MIDI message sent, for finding faults; implies -v")
 	fs.BoolVar(&o.noStatus, "no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
-	toggle := fs.String("toggle", defaultToggle,
-		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
-	fs.BoolVar(&o.toggleTap, "toggle-tap", false, "the toggle is one key and works by a tap; held for longer than half a second,\nthe key does what it normally does")
+	toggle := fs.String("toggle", "",
+		"keys that, pressed together, turn HIDI off and on from every device, such as KEY_SCROLLLOCK\nor KEY_LEFTCTRL+KEY_RIGHTCTRL; empty leaves it to the profiles (hidi_toggle)")
+	fs.BoolVar(&o.toggleTap, "toggle-tap", false, "a toggle of one key works by a tap; held for longer than half a second,\nthe key does what it normally does")
 	fs.BoolVar(&o.alwaysGrab, "always-grab", false, "on Linux, keep keyboards grabbed while HIDI is off too and pass their keys on,\nso that the tapped toggle key is hidden from the system")
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	fs.BoolVar(&o.grabGamepads, "grab-gamepads", false, "also take game controllers away from the rest of the system")
@@ -98,14 +98,6 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 			return fail("--toggle: %v", err)
 		}
 	}
-	if o.given["toggle"] && len(o.toggle) != 1 && !o.given["toggle-tap"] {
-		// A combination named on the command line is not tapped, even
-		// where the settings tap their one key.
-		s.Input.ToggleTap = false
-	}
-	if o.given["toggle"] && len(o.toggle) == 0 && !o.given["off"] {
-		s.Input.StartOn = true // without a toggle HIDI could not be turned on
-	}
 	o.grabKeyboards = !*noGrab
 	for _, from := range []struct {
 		option string
@@ -136,15 +128,8 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 	if o.given["openrgb"] {
 		o.lightsOn, o.lightsAddress = true, *lights
 	}
-	switch {
-	case o.toggleTap && len(o.toggle) != 1:
-		return fail("--toggle-tap needs a toggle of exactly one key, such as --toggle=KEY_CAPSLOCK")
-	case len(o.toggle) == 0 && o.grabKeyboards:
-		// A grabbed keyboard cannot type Ctrl+C, so without the
-		// combination a user with one keyboard could not get it back.
-		return fail("grabbing keyboards needs a toggle combination to release them; set --toggle or pass --no-grab")
-	case len(o.toggle) == 0 && o.startOff:
-		return fail("--off needs a toggle combination to turn HIDI on")
-	}
+	// Nothing here depends on there being a toggle: without one for
+	// every device each goes by its profile's, and a keyboard that has
+	// none is not taken from the system.
 	return o, 0, true
 }

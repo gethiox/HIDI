@@ -418,10 +418,12 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 	for i, c := range sh.s.Input.Toggle {
 		toggleNames[i] = strings.TrimPrefix(c.String(), "KEY_")
 	}
-	vx := sh.row("Toggle combination", "turns HIDI off and on")
+	// The toggle is each profile's own unless one is named here for
+	// every device.
+	vx := sh.row("One toggle for every device", "otherwise each profile has its own, as hidi_toggle")
 	combination := strings.Join(toggleNames, " + ")
 	if combination == "" {
-		combination = "none"
+		combination = "by profile"
 	}
 	if state == nil && v.capture != nil {
 		// HIDI went away; what was pressed so far is not a combination.
@@ -437,10 +439,6 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 				if code, err := control.ParseCode(name); err == nil {
 					sh.s.Input.Toggle = append(sh.s.Input.Toggle, code)
 				}
-			}
-			if len(sh.s.Input.Toggle) != 1 {
-				// A tap, and a key of HIDI's alone, are of one key.
-				sh.s.Input.ToggleTap, sh.s.Input.ToggleExclusive = false, false
 			}
 			v.capture = nil
 			sh.changed()
@@ -463,14 +461,26 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 		w.text(w.sans, "start HIDI to change it here", vx+width(w.mono, combination, sizeMono)+14, sh.y+3, sizeText-2, col(colFaint))
 	default:
 		w.text(w.mono, combination, vx, sh.y+3, sizeMono, col(colText))
-		if hit, _ := w.button("Change", vx+width(w.mono, combination, sizeMono)+14, sh.y-2); hit && sh.editable {
+		label := "Set one"
+		if len(sh.s.Input.Toggle) > 0 {
+			label = "Change"
+		}
+		hit, end := w.button(label, vx+width(w.mono, combination, sizeMono)+14, sh.y-2)
+		if hit && sh.editable {
 			v.capture, v.message = &capture{}, ""
+		}
+		if len(sh.s.Input.Toggle) > 0 {
+			// Back to what the profiles say.
+			if hit, _ := w.button("Use the profiles'", end+8, sh.y-2); hit && sh.editable {
+				sh.s.Input.Toggle = nil
+				sh.changed()
+			}
 		}
 	}
 	sh.y += 48
 	sh.switches(
-		toggleItem{"Pass the toggle key through to the system when held", "a tap toggles HIDI; held longer, the key does what it normally does", &sh.s.Input.ToggleTap, ""},
-		toggleItem{"The toggle key is HIDI's alone", "it never reaches the system, tapped or held", &sh.s.Input.ToggleExclusive, ""},
+		toggleItem{"Pass the toggle key through to the system when held", "one key: a tap toggles; held longer, it acts as usual", &sh.s.Input.ToggleTap, ""},
+		toggleItem{"The toggle key is HIDI's alone", "one key: it never reaches the system, tapped or held", &sh.s.Input.ToggleExclusive, ""},
 		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn, ""},
 	)
 }
@@ -480,7 +490,7 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 	w := sh.window
 	sh.section("Devices")
 	sh.switches(
-		toggleItem{"Keyboards do not type while HIDI is on", "needs a toggle combination", &sh.s.Input.GrabKeyboards, ""},
+		toggleItem{"Keyboards do not type while HIDI is on", "one without a toggle is left typing", &sh.s.Input.GrabKeyboards, ""},
 		toggleItem{"Game controllers are kept from other programs", "Linux only: Windows cannot", &sh.s.Input.GrabGamepads, "linux"},
 		toggleItem{"Keyboards stay grabbed while HIDI is off", "Linux only: hides the tapped key from the system", &sh.s.Input.AlwaysGrab, "linux"},
 	)

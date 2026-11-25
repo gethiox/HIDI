@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -277,6 +278,55 @@ func TestExampleProfiles(t *testing.T) {
 		}
 		if p.Match.Vendor == nil {
 			t.Errorf("%s is not for the devices of one maker", file)
+		}
+	}
+}
+
+// The toggle of a profile is its binding of hidi_toggle: one, among the
+// bindings for every layout, of a key or of several pressed together.
+func TestProfileToggle(t *testing.T) {
+	profiles, err := Builtin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range profiles {
+		switch p.Match.Type {
+		case control.DeviceKeyboard:
+			if len(p.Toggle) != 1 || p.Toggle[0] != control.Key(58) {
+				t.Errorf("%s: toggle %v, want Caps Lock", p.Name, p.Toggle)
+			}
+			// The key is the toggle's in every layout: no layout
+			// gives it something else to do.
+			for _, l := range p.Engine.Layouts {
+				for _, b := range l.Bindings {
+					if b.Source.Code == control.Key(58) {
+						t.Errorf("%s: layout %q binds Caps Lock as well", p.Name, l.Name)
+					}
+				}
+			}
+		case control.DeviceGamepad:
+			if len(p.Toggle) != 0 {
+				t.Errorf("%s: toggle %v, want none", p.Name, p.Toggle)
+			}
+		}
+	}
+	head := "schema = 1\nname = \"P\"\n"
+	layout := "[[layout]]\nname = \"L\"\n[layout.bindings]\n"
+	p, err := Parse([]byte(head + "[global]\n\"KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT\" = \"hidi_toggle\"\n" + layout))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []control.Code{control.Key(29), control.Key(42), control.Key(56)}; !slices.Equal(p.Toggle, want) {
+		t.Errorf("a combination: %v, want %v", p.Toggle, want)
+	}
+	for text, want := range map[string]string{
+		head + layout + "KEY_F1 = \"hidi_toggle\"\n":                                     "belongs in [global]",
+		head + "[global]\nKEY_F1 = \"hidi_toggle\"\nKEY_F2 = \"hidi_toggle\"\n" + layout: "has one hidi_toggle",
+		head + "[global]\nABS_X = \"hidi_toggle\"\n" + layout:                            "a key or a button",
+		head + "[global]\n\"Touchpad:BTN_LEFT\" = \"hidi_toggle\"\n" + layout:            "a key or a button",
+	} {
+		if _, err := Parse([]byte(text)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("error %v, want one that mentions %q, for\n%s", err, want, text)
 		}
 	}
 }

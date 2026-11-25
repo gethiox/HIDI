@@ -152,7 +152,6 @@ func Default() Settings {
 			// nothing else any more. HIDI starts turned off, with its
 			// window open, so that a keyboard types until it is asked
 			// to play.
-			Toggle:          []control.Code{control.Key(58)},
 			ToggleTap:       true,
 			ToggleExclusive: true,
 			GrabKeyboards:   true,
@@ -248,20 +247,6 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.StartOn, f.Input.StartOn)
 	set(&s.Input.ToggleTap, f.Input.ToggleTap)
 	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
-	// A file that names its own toggle and says nothing more gets what
-	// goes with that toggle: a combination of keys cannot be tapped or
-	// kept from the system, and without a toggle HIDI has to start on.
-	if f.Input.Toggle != nil && len(s.Input.Toggle) != 1 {
-		if f.Input.ToggleTap == nil {
-			s.Input.ToggleTap = false
-		}
-		if f.Input.ToggleExclusive == nil {
-			s.Input.ToggleExclusive = false
-		}
-		if f.Input.StartOn == nil && len(s.Input.Toggle) == 0 {
-			s.Input.StartOn = true
-		}
-	}
 	set(&s.Input.LearnThreshold, f.Input.LearnThreshold)
 	set(&s.Input.ToggleExclusive, f.Input.ToggleExclusive)
 	if s.Input.LearnThreshold < 1 || s.Input.LearnThreshold > 100 {
@@ -338,20 +323,6 @@ func FormatColour(c light.RGB) string { return fmt.Sprintf("#%02x%02x%02x", c.R,
 // Check returns what is wrong with settings that each make sense alone.
 func (s Settings) Check() []string {
 	var problems []string
-	if len(s.Input.Toggle) == 0 && s.Input.GrabKeyboards {
-		// A grabbed keyboard cannot type, so without the combination a
-		// user with one keyboard could not get it back.
-		problems = append(problems, "input: grabbing keyboards needs a toggle combination to release them; set toggle, or set grab_keyboards to false")
-	}
-	if len(s.Input.Toggle) == 0 && !s.Input.StartOn {
-		problems = append(problems, "input: starting turned off needs a toggle combination to turn HIDI on")
-	}
-	if s.Input.ToggleExclusive && len(s.Input.Toggle) != 1 {
-		problems = append(problems, "input: toggle_exclusive needs a toggle of exactly one key; a combination of keys cannot be kept from the system")
-	}
-	if s.Input.ToggleTap && len(s.Input.Toggle) != 1 {
-		problems = append(problems, "input: toggle_tap needs a toggle of exactly one key, such as [\"KEY_CAPSLOCK\"]")
-	}
 	host, port, err := net.SplitHostPort(s.Lights.Endpoint())
 	if n, perr := strconv.Atoi(port); err != nil || host == "" || perr != nil || n < 1 || n > 65535 {
 		problems = append(problems, fmt.Sprintf("lights.address: %q is not a host and a port, such as %q", s.Lights.Address, DefaultOpenRGBAddress))
@@ -400,12 +371,16 @@ func (s Settings) Text() []byte {
 schema = %d
 
 [input]
-# The keys that, pressed together on one device, turn HIDI off and on.
-# An empty list means there is no such combination.
+# What turns HIDI off and on. Left empty, every profile says it for the
+# devices that play with it: a key, or several pressed together, bound to
+# "hidi_toggle". The keyboard profile HIDI comes with uses Caps Lock.
+# Keys named here are the toggle for every device instead, whatever the
+# profiles say: ["KEY_SCROLLLOCK"], or several to be pressed together.
 toggle = %s
 
-# Keep keyboards from typing while HIDI is on. This needs a toggle
-# combination, or a single keyboard could never be got back.
+# Keep keyboards from typing while HIDI is on. A keyboard that has no
+# toggle, by its profile or by the line above, is left typing all the
+# same: nothing on it could turn HIDI off again.
 grab_keyboards = %t
 
 # Also keep game controllers from other programs while HIDI is on.
@@ -415,12 +390,12 @@ grab_gamepads = %t
 # Whether HIDI is on when it starts.
 start_on = %t
 
-# Turn HIDI off and on by tapping one key, such as Caps Lock: set toggle to
-# that one key and this to true. The key then plays nothing. Held for
-# longer than half a second it does not toggle, and does what it normally
-# does instead. On Windows the tap is hidden from the system. On Linux it
-# is hidden only with always_grab; without it, the tap that turns HIDI on
-# also reaches the system.
+# A toggle of one key, such as Caps Lock, works by a tap, and the key
+# plays nothing. Held for longer than half a second it does not toggle,
+# and does what it normally does instead. On Windows the tap is hidden
+# from the system. On Linux it is hidden only with always_grab; without
+# it, the tap that turns HIDI on also reaches the system. A toggle of
+# several keys is pressed, whatever this says.
 toggle_tap = %t
 
 # Linux only, and only of use with toggle_tap. Keep keyboards grabbed
@@ -431,10 +406,10 @@ toggle_tap = %t
 # It needs access to /dev/uinput.
 always_grab = %t
 
-# Keep the toggle key from the rest of the system altogether: with toggle
-# set to one key, such as Caps Lock, that key is HIDI's alone and never
-# does what it normally does, also while HIDI is off. On Linux HIDI then
-# keeps keyboards grabbed all the time, as with always_grab.
+# Keep a toggle of one key from the rest of the system altogether: the
+# key is HIDI's alone and never does what it normally does, also while
+# HIDI is off. On Linux HIDI then keeps keyboards grabbed all the time,
+# as with always_grab.
 toggle_exclusive = %t
 
 # Learning mode makes every axis stand still until it is moved by more

@@ -113,6 +113,13 @@ type Instrument struct {
 	// Chord is the remembered chord as its intervals above the note
 	// played, such as "+4 +7"; empty when there is none.
 	Chord string `json:"chord,omitempty"`
+	// Toggle names the key, or the keys pressed together, that turn
+	// HIDI off and on from this device; none if it has no way to.
+	Toggle []string `json:"toggle,omitempty"`
+	// Typing says that the device is a keyboard that keeps typing while
+	// it plays, although keyboards are kept from that: nothing on it
+	// turns HIDI off, so HIDI does not take it.
+	Typing bool `json:"typing,omitempty"`
 	// Learning says that the learn command is held: axes get through
 	// only when moved far.
 	Learning bool `json:"learning,omitempty"`

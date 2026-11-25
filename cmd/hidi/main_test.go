@@ -41,8 +41,6 @@ func TestRun(t *testing.T) {
 		{"doctor with an argument", []string{"doctor", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"bad toggle key", []string{"run", "--toggle", "KEY_NOPE"}, 2, "", "unknown control"},
 		{"toggle with an axis", []string{"run", "--toggle", "ABS_X"}, 2, "", "not a key"},
-		{"grab without toggle", []string{"run", "--toggle", ""}, 2, "", "needs a toggle combination"},
-		{"off without toggle", []string{"run", "--toggle", "", "--no-grab", "--off"}, 2, "", "-off needs a toggle"},
 		{"on and off", []string{"run", "--on", "--off"}, 2, "", "contradict each other"},
 	}
 	for _, tt := range tests {
@@ -62,12 +60,16 @@ func TestRun(t *testing.T) {
 }
 
 func TestParseToggle(t *testing.T) {
-	keys, err := parseToggle(defaultToggle)
+	keys, err := parseToggle("KEY_CAPSLOCK")
 	if err != nil || len(keys) != 1 {
-		t.Fatalf("parseToggle(default) = %v, %v", keys, err)
+		t.Fatalf("parseToggle of one key = %v, %v", keys, err)
 	}
-	if got := formatToggle(keys); got != defaultToggle {
-		t.Errorf("formatToggle = %q, want %q", got, defaultToggle)
+	if got := formatToggle(keys); got != "KEY_CAPSLOCK" {
+		t.Errorf("formatToggle = %q", got)
+	}
+	// No keys: the toggle is left to the profiles.
+	if keys, err := parseToggle(""); err != nil || len(keys) != 0 {
+		t.Errorf("parseToggle of nothing = %v, %v", keys, err)
 	}
 	if keys, err := parseToggle(" key_a + KEY_B "); err != nil || len(keys) != 2 {
 		t.Errorf("parseToggle with spaces and lower case = %v, %v", keys, err)

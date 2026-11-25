@@ -196,9 +196,18 @@ const (
 	// instruments, so the engine only notes the wish
 	// ([Engine.LearnRequested]).
 	CommandLearn
+	// CommandToggle turns HIDI off and on, for all instruments. The
+	// engine does nothing for it: it does not run while HIDI is off, and
+	// the key has to work then. Whoever holds the device watches the key
+	// or the keys of the binding itself.
+	CommandToggle
 
 	commandCount
 )
+
+// ToggleName is how the command that turns HIDI off and on is written in
+// a profile.
+const ToggleName = "hidi_toggle"
 
 var commandNames = [commandCount]string{
 	CommandOctaveUp: "octave_up", CommandOctaveDown: "octave_down",
@@ -207,6 +216,7 @@ var commandNames = [commandCount]string{
 	CommandLayoutNext: "layout_next", CommandLayoutPrevious: "layout_previous",
 	CommandVelocityUp: "velocity_up", CommandVelocityDown: "velocity_down",
 	CommandPanic: "panic", CommandChord: "chord", CommandLearn: "learn",
+	CommandToggle: ToggleName,
 }
 
 // String returns the name used for the command in configuration files, such

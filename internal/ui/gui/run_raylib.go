@@ -712,7 +712,13 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	w.text(w.bold, name, x, y, sizeName, col(colText))
 	if left := room - width(w.bold, name, sizeName) - 12; left > 40 {
 		about := fit(w.sans, in.Type+" · profile "+in.Profile, sizeText, left)
-		w.text(w.sans, about, x+width(w.bold, name, sizeName)+12, y+3, sizeText, col(colFaint))
+		ax := x + width(w.bold, name, sizeName) + 12
+		w.text(w.sans, about, ax, y+3, sizeText, col(colFaint))
+		if left -= width(w.sans, about, sizeText) + 12; in.Typing && left > 60 {
+			// A keyboard HIDI does not take from the system, and why.
+			note := fit(w.sans, "types while it plays: its profile has no hidi_toggle", sizeText, left)
+			w.text(w.sans, note, ax+width(w.sans, about, sizeText)+12, y+3, sizeText, col(colUnsaved))
+		}
 	}
 
 	// The numbers are set in the fixed-width font with a fixed number of

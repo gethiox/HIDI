@@ -26,12 +26,9 @@ func TestDefaultRoundTrip(t *testing.T) {
 		len(got.Output.Connect) != 0 || got.Window != want.Window || !got.Window.ShowAtStart {
 		t.Errorf("the default file reads as %+v", got)
 	}
-	names := []string{}
-	for _, c := range want.Input.Toggle {
-		names = append(names, c.String())
-	}
-	if strings.Join(names, " ") != "KEY_CAPSLOCK" {
-		t.Errorf("the default toggle is %v", names)
+	// No toggle of the settings' own: each profile has its.
+	if len(want.Input.Toggle) != 0 || len(got.Input.Toggle) != 0 || !got.Input.ToggleTap || !got.Input.ToggleExclusive {
+		t.Errorf("the default toggle: %v, read back %+v", want.Input.Toggle, got.Input)
 	}
 
 	changed := Default()
@@ -53,18 +50,20 @@ func TestDefaultRoundTrip(t *testing.T) {
 func TestParse(t *testing.T) {
 	// What is left out keeps its default.
 	s, err := Parse([]byte("schema = 1\n[input]\ngrab_gamepads = true\n"))
-	if err != nil || !s.Input.GrabGamepads || !s.Input.GrabKeyboards || len(s.Input.Toggle) != 1 {
+	if err != nil || !s.Input.GrabGamepads || !s.Input.GrabKeyboards || len(s.Input.Toggle) != 0 {
 		t.Errorf("partial file: %+v, %v", s, err)
 	}
-	// An empty list is not the same as no list.
-	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = []\ngrab_keyboards = false\n"))
-	if err != nil || len(s.Input.Toggle) != 0 || s.Input.ToggleTap || s.Input.ToggleExclusive || !s.Input.StartOn {
+	// No toggle of the settings' own is how HIDI comes, with keyboards
+	// kept from typing and HIDI off at the start: the profiles have the
+	// toggle, and a keyboard without one is left alone.
+	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = []\n"))
+	if err != nil || len(s.Input.Toggle) != 0 || !s.Input.GrabKeyboards || s.Input.StartOn {
 		t.Errorf("no toggle: %+v, %v", s.Input, err)
 	}
-	// A combination of keys in a file that says nothing else is not
-	// tapped, and is not HIDI's alone.
+	// A combination of keys for every device. What is said about a
+	// toggle of one key stays as it is and does not apply.
 	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_LEFTCTRL\", \"KEY_F1\"]\n"))
-	if err != nil || len(s.Input.Toggle) != 2 || s.Input.ToggleTap || s.Input.ToggleExclusive || s.Input.StartOn {
+	if err != nil || len(s.Input.Toggle) != 2 || !s.Input.ToggleTap || !s.Input.ToggleExclusive {
 		t.Errorf("a combination: %+v, %v", s.Input, err)
 	}
 
@@ -75,8 +74,6 @@ func TestParse(t *testing.T) {
 		{"unknown table", "schema = 1\n[colours]\nx = 1\n", "unknown setting"},
 		{"bad key", "schema = 1\n[input]\ntoggle = [\"KEY_NOPE\"]\n", `"KEY_NOPE" is not the name of a key`},
 		{"axis as key", "schema = 1\n[input]\ntoggle = [\"ABS_X\"]\n", "not the name of a key"},
-		{"grab without toggle", "schema = 1\n[input]\ntoggle = []\n", "needs a toggle combination"},
-		{"off without toggle", "schema = 1\n[input]\ntoggle = []\ngrab_keyboards = false\nstart_on = false\n", "starting turned off"},
 		{"negative", "schema = 1\n[window]\nfps = -1\n", "cannot be negative"},
 		{"not TOML", "schema = \n", "toml"},
 	} {
@@ -84,7 +81,7 @@ func TestParse(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: error %v, want one about %q", tt.name, err, tt.want)
 		}
-		if !s.Input.GrabKeyboards || len(s.Input.Toggle) != 1 {
+		if !s.Input.GrabKeyboards || len(s.Input.Toggle) != 0 || !s.Input.ToggleTap {
 			t.Errorf("%s: a file with mistakes did not give the defaults: %+v", tt.name, s)
 		}
 	}
@@ -390,8 +387,9 @@ func TestToggleTapSettings(t *testing.T) {
 	if err != nil || !again.Input.ToggleTap || !again.Input.AlwaysGrab || len(again.Input.Toggle) != 1 {
 		t.Errorf("written and read again: %+v, %v", again.Input, err)
 	}
-	// A tap needs exactly one key.
-	if _, err := Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_A\", \"KEY_B\", \"KEY_C\"]\ntoggle_tap = true\n")); err == nil || !strings.Contains(err.Error(), "toggle_tap") {
+	// A tap is for a toggle of one key. With three it says nothing,
+	// and is no mistake: the toggle may be one key by another profile.
+	if _, err := Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_A\", \"KEY_B\", \"KEY_C\"]\ntoggle_tap = true\n")); err != nil {
 		t.Errorf("a tap with three keys: %v", err)
 	}
 }

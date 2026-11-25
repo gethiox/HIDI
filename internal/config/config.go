@@ -28,6 +28,10 @@ type Profile struct {
 	Engine engine.Profile
 	// Generate is that rule; the zero value is none.
 	Generate Generate
+	// Toggle is the key, or the keys pressed together, that turn HIDI off
+	// and on from a device with this profile: those of the binding of
+	// "hidi_toggle". Empty where the profile has none.
+	Toggle []control.Code
 	// WrittenFor is the schema version the file declared. It is lower than
 	// [Schema] if the file was upgraded while reading.
 	WrittenFor int
@@ -187,6 +191,8 @@ func Parse(data []byte) (*Profile, error) {
 			Bindings: r.bindings(where, t.sub("bindings").values),
 		})
 	}
+
+	p.Toggle = r.toggle(&p.Engine)
 
 	// The engine checks everything that depends on values rather than on
 	// the shape of the file.

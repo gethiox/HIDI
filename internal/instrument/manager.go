@@ -43,7 +43,10 @@ type Options struct {
 	// system while HIDI is active. Nil grabs nothing.
 	Grab func(control.DeviceInfo) bool
 	// Toggle is a set of keys that, pressed together on one device, turns
-	// HIDI off and on again. Empty disables the combination.
+	// HIDI off and on again, whatever the device and its profile. Empty
+	// leaves it to the profiles: each device then goes by the toggle of
+	// its own ([config.Profile.Toggle]), and one whose profile has none
+	// cannot turn HIDI off or on.
 	Toggle []control.Code
 	// ToggleTap makes a Toggle of one key work by tapping it: pressed and
 	// let go within [TapHold], it turns HIDI off or on. The key plays
@@ -292,7 +295,7 @@ func (m *Manager) SetProfiles(profiles []*config.Profile) {
 		if sameProfile(a.profile, r.assigned) {
 			continue
 		}
-		r.assign(a)
+		m.assign(r, a)
 	}
 }
 
@@ -323,7 +326,7 @@ func (m *Manager) SetAllow(allow func(control.DeviceInfo) bool) {
 		if sameProfile(a.profile, r.assigned) {
 			continue
 		}
-		r.assign(a)
+		m.assign(r, a)
 	}
 }
 
@@ -409,11 +412,10 @@ func (m *Manager) add(dev input.Device) {
 	m.mu.Lock()
 	m.running[r] = struct{}{}
 	r.endpointName = m.takeName(EndpointPrefix + info.Name)
-	r.rules.Store(m.rulesFor(info))
 	r.wanted.Store(m.active)
 	r.learn.Store(&learnWish{m.learning, m.opts.LearnThreshold})
 	r.simulate = m.simulated[lightKey(info.Name, info.Type.String(), info.Location)]
-	r.assign(m.choose(info, r.has, r.log))
+	m.assign(r, m.choose(info, r.has, r.log))
 	m.mu.Unlock()
 
 	m.done.Add(1)
@@ -431,21 +433,56 @@ func (m *Manager) add(dev input.Device) {
 // count as a tap.
 var TapHold = 500 * time.Millisecond
 
-// inputRules is what the settings say about one device.
+// inputRules is what the settings and its profile say about one device.
 type inputRules struct {
 	grab   bool
 	toggle []control.Code
 	// tap says that the toggle is one key and works by a tap, and hide
 	// that the key is kept from the system.
 	tap, hide bool
+	// left says that the device would be kept from the system and is
+	// not, because nothing on it turns HIDI off again.
+	left bool
 }
 
-func (m *Manager) rulesFor(info control.DeviceInfo) *inputRules {
-	tap := m.opts.ToggleTap && len(m.opts.Toggle) == 1
-	return &inputRules{
-		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: m.opts.Toggle,
-		tap: tap, hide: len(m.opts.Toggle) == 1 && (tap && m.opts.HideToggle || m.opts.OwnToggle),
+// rulesFor works out the rules for a device that plays with a profile, or
+// with none. The toggle is the one the settings name for every device, or
+// else the profile's own. A keyboard without either is not kept from the
+// system, whatever the settings say: with nothing on it to turn HIDI off,
+// whoever has only that keyboard could not type again.
+func (m *Manager) rulesFor(info control.DeviceInfo, profile *config.Profile) *inputRules {
+	toggle := m.opts.Toggle
+	if len(toggle) == 0 && profile != nil {
+		toggle = profile.Toggle
 	}
+	tap := m.opts.ToggleTap && len(toggle) == 1
+	r := &inputRules{
+		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: toggle,
+		tap: tap, hide: len(toggle) == 1 && (tap && m.opts.HideToggle || m.opts.OwnToggle),
+	}
+	if r.grab && len(toggle) == 0 && info.Type == control.DeviceKeyboard {
+		r.grab, r.left = false, profile != nil
+	}
+	return r
+}
+
+// rule gives a device the rules that go with a profile, and says so when
+// they leave a keyboard typing that was to be kept from it. The caller
+// holds m.mu.
+func (m *Manager) rule(r *runner, profile *config.Profile) {
+	rules := m.rulesFor(r.info, profile)
+	if was := r.rules.Load(); rules.left && (was == nil || !was.left) {
+		r.log.Warn("this keyboard keeps typing while it plays: its profile has no "+engine.ToggleName+" and the settings name no toggle, so nothing on it could turn HIDI off again",
+			"profile", profile.Name)
+	}
+	r.rules.Store(rules)
+}
+
+// assign gives a device what it is to be, with the rules that go with
+// it. The caller holds m.mu.
+func (m *Manager) assign(r *runner, a assignment) {
+	m.rule(r, a.profile)
+	r.assign(a)
 }
 
 // SetToggleTap changes whether the toggle works by a tap and whether its
@@ -456,7 +493,7 @@ func (m *Manager) SetToggleTap(tap, hide bool) {
 	defer m.mu.Unlock()
 	m.opts.ToggleTap, m.opts.HideToggle = tap, hide
 	for r := range m.running {
-		r.rules.Store(m.rulesFor(r.info))
+		m.rule(r, r.assigned)
 		r.poke()
 	}
 }
@@ -468,7 +505,7 @@ func (m *Manager) SetOwnToggle(own bool) {
 	defer m.mu.Unlock()
 	m.opts.OwnToggle = own
 	for r := range m.running {
-		r.rules.Store(m.rulesFor(r.info))
+		m.rule(r, r.assigned)
 		r.poke()
 	}
 }
@@ -481,7 +518,7 @@ func (m *Manager) SetInput(toggle []control.Code, grab func(control.DeviceInfo) 
 	defer m.mu.Unlock()
 	m.opts.Toggle, m.opts.Grab = toggle, grab
 	for r := range m.running {
-		r.rules.Store(m.rulesFor(r.info))
+		m.rule(r, r.assigned)
 		r.poke()
 	}
 }
@@ -540,6 +577,13 @@ type Status struct {
 	// does not control them, and Lights and LightRest are what it would
 	// show, as [Manager.SetSimulated] asked for.
 	Simulated bool
+	// Toggle is the key, or the keys pressed together, that turn HIDI
+	// off and on from this device; none if it has no way to.
+	Toggle []control.Code
+	// Left says that the device would be kept from the rest of the
+	// system while it plays and is not, because it has no toggle: a
+	// keyboard that keeps typing.
+	Left bool
 }
 
 // lightKey names a device for [Manager.SetSimulated].
@@ -578,6 +622,9 @@ func (m *Manager) Status() []Status {
 	out := make([]Status, 0, len(m.running))
 	for r := range m.running {
 		if status, ok := r.snapshot(); ok {
+			if rules := r.rules.Load(); rules != nil {
+				status.Toggle, status.Left = rules.toggle, rules.left
+			}
 			out = append(out, status)
 		}
 	}

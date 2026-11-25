@@ -24,6 +24,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/crashlog"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/light"
@@ -311,9 +312,11 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 
 	log.Info("HIDI started; press Ctrl+C to stop", "version", buildinfo.Get().String())
 	switch {
-	case o.toggleTap:
+	case len(o.toggle) == 0:
+		log.Info("the toggle that turns HIDI off and on is each profile's own (" + engine.ToggleName + "); the keyboard profile HIDI comes with has it on Caps Lock")
+	case o.toggleTap && len(o.toggle) == 1:
 		log.Info("tap the toggle key to turn HIDI off and on", "key", formatToggle(o.toggle))
-	case len(o.toggle) > 0:
+	default:
 		log.Info("press the toggle combination to turn HIDI off and on", "keys", formatToggle(o.toggle))
 	}
 	if o.grabKeyboards {
@@ -519,12 +522,6 @@ func hidesToggle(alwaysGrab bool) bool {
 // footerPause is the least time between two drawings of the lines at the
 // bottom of the terminal.
 const footerPause = 100 * time.Millisecond
-
-// defaultToggle is the combination that turns HIDI off and on. It consists
-// of modifier keys only, so that pressing it while HIDI is off, when the
-// keys reach the desktop, does not trigger anything there, and every
-// keyboard has the three keys.
-const defaultToggle = "KEY_CAPSLOCK"
 
 // parseToggle reads a key combination written like "KEY_A+KEY_B".
 func parseToggle(s string) ([]control.Code, error) {

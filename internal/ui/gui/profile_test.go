@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -801,5 +802,52 @@ func TestRoleSendsAndLabels(t *testing.T) {
 		if got := SpotLabel(tt.device, tt.at, tt.names); got != tt.want {
 			t.Errorf("SpotLabel(%v, names %v) = %q, want %q", tt.at, tt.names, got, tt.want)
 		}
+	}
+}
+
+// The key that turns HIDI off and on is one for the whole profile: given
+// to another key, it leaves the one that had it, and what the new key did
+// in the layout goes.
+func TestProfileDocToggle(t *testing.T) {
+	file, userDir, _ := factoryProfile(t)
+	own, _, err := Customise(file, userDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := OpenProfile(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := doc.DefaultLayout()
+	capsLock, keyZ := control.Key(58), control.Key(44)
+	if r := doc.Role(layout, capsLock); r.Kind != RoleCommand || r.Command != engine.CommandToggle || r.Section != config.Global {
+		t.Fatalf("Caps Lock: %+v", r)
+	}
+	if r := doc.Role(layout, keyZ); r.Kind != RoleNote || r.Section.Layout != layout {
+		t.Fatalf("Z: %+v", r)
+	}
+	if err := doc.SetCommand(layout, keyZ, engine.CommandToggle); err != nil {
+		t.Fatal(err)
+	}
+	p, err := config.Parse(doc.Text())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.Toggle, []control.Code{keyZ}) {
+		t.Errorf("the toggle of the profile: %v", p.Toggle)
+	}
+	if r := doc.Role(layout, capsLock); r.Kind != RoleNone {
+		t.Errorf("Caps Lock afterwards: %+v", r)
+	}
+	if r := doc.Role(layout, keyZ); r.Kind != RoleCommand || r.Command != engine.CommandToggle || r.Section != config.Global {
+		t.Errorf("Z afterwards: %+v", r)
+	}
+	// One step back, and it is as it was.
+	if !doc.Undo() || doc.Dirty() {
+		t.Error("taking it back did not leave the profile as saved")
+	}
+	// An axis cannot be the toggle.
+	if err := doc.SetCommandAt(layout, Whole(control.Axis(0)), engine.CommandToggle); err == nil {
+		t.Error("an axis was made the toggle")
 	}
 }
