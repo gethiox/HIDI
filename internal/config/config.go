@@ -28,6 +28,14 @@ type Profile struct {
 	Engine engine.Profile
 	// Generate is that rule; the zero value is none.
 	Generate Generate
+	// Deadzone is the dead zone of every axis the profile binds without
+	// naming one for it, and of those its rule binds: the part of the
+	// travel next to the rest position that is ignored. Zero unless the
+	// profile says otherwise.
+	Deadzone float64
+	// own names the bindings that say their dead zone themselves; see
+	// [Profile.OwnDeadzone].
+	own map[ownKey]bool
 	// Toggle is the key, or the keys pressed together, that turn HIDI off
 	// and on from a device with this profile: those of the binding of
 	// "hidi_toggle". Empty where the profile has none.
@@ -166,8 +174,9 @@ func Parse(data []byte) (*Profile, error) {
 	var s settings
 	p.Engine.Defaults, s = r.defaults(top.sub("defaults"))
 	p.Engine.Collision, p.Engine.RestAxes, p.AxisRate, p.AxisThreshold = s.collision, s.restAxes, s.axisRate, s.axisThreshold
+	p.Deadzone, r.deadzone = s.deadzone, s.deadzone
 	p.Generate = r.generate(top.sub("generate"))
-	p.Engine.Global = r.bindings("global", top.sub("global").values)
+	p.Engine.Global = r.bindings("global", "", top.sub("global").values)
 
 	layouts, _ := top.values["layout"].([]any)
 	if _, isList := top.values["layout"].([]any); top.has("layout") && !isList {
@@ -188,11 +197,11 @@ func Parse(data []byte) (*Profile, error) {
 		}
 		p.Engine.Layouts = append(p.Engine.Layouts, engine.Layout{
 			Name:     name,
-			Bindings: r.bindings(where, t.sub("bindings").values),
+			Bindings: r.bindings(where, name, t.sub("bindings").values),
 		})
 	}
 
-	p.Toggle = r.toggle(&p.Engine)
+	p.Toggle, p.own = r.toggle(&p.Engine), r.own
 
 	// The engine checks everything that depends on values rather than on
 	// the shape of the file.
@@ -251,6 +260,8 @@ type settings struct {
 	axisRate  int
 	// axisThreshold is described at Profile.AxisThreshold.
 	axisThreshold float64
+	// deadzone is described at Profile.Deadzone.
+	deadzone float64
 }
 
 func (r *reader) defaults(t *table) (engine.Defaults, settings) {
@@ -280,7 +291,12 @@ func (r *reader) defaults(t *table) (engine.Defaults, settings) {
 		r.failf(t.where, "axis_threshold must be from 0 to %v, not %v", MaxAxisThreshold, s.axisThreshold)
 		s.axisThreshold = DefaultAxisThreshold
 	}
-	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate", "axis_threshold")
+	s.deadzone = t.number("deadzone", 0)
+	if !(s.deadzone >= 0 && s.deadzone < 1) {
+		r.failf(t.where, "deadzone must be from 0 to below 1, not %v", s.deadzone)
+		s.deadzone = 0
+	}
+	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate", "axis_threshold", "deadzone")
 	return d, s
 }
 
@@ -288,6 +304,21 @@ func (r *reader) defaults(t *table) (engine.Defaults, settings) {
 // them can be reported together.
 type reader struct {
 	errs []error
+	// deadzone is the dead zone of the profile, which a binding of an
+	// axis has unless it names one, and own the bindings that do.
+	deadzone float64
+	own      map[ownKey]bool
+}
+
+// ownKey names a binding of a profile: its layout, or none for one that
+// applies in every layout, and what it binds.
+type ownKey struct{ layout, source string }
+
+// OwnDeadzone reports whether the binding of a source in a layout, or
+// among those for every layout if layout is empty, names its dead zone
+// itself. One that does not has the profile's ([Profile.Deadzone]).
+func (p *Profile) OwnDeadzone(layout string, s engine.Source) bool {
+	return p.own[ownKey{layout, sourceID(s)}]
 }
 
 func (r *reader) failf(where, format string, args ...any) {

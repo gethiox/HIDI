@@ -13,7 +13,7 @@ import (
 
 // bindings reads a table of bindings. Entries are processed in sorted order
 // so that the result does not depend on map iteration.
-func (r *reader) bindings(where string, values map[string]any) []engine.Binding {
+func (r *reader) bindings(where, layout string, values map[string]any) []engine.Binding {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -41,6 +41,16 @@ func (r *reader) bindings(where string, values map[string]any) []engine.Binding 
 		action, ok := r.action(at, &source, values[key])
 		if !ok {
 			continue
+		}
+		// An axis has the dead zone of the profile unless its binding
+		// names one.
+		if table, _ := values[key].(map[string]any); table["deadzone"] != nil {
+			if r.own == nil {
+				r.own = map[ownKey]bool{}
+			}
+			r.own[ownKey{layout, id}] = true
+		} else if source.Code.Kind == control.KindAxis {
+			source.Deadzone = r.deadzone
 		}
 		out = append(out, engine.Binding{Source: source, Action: action})
 	}

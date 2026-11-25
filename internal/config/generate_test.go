@@ -330,3 +330,82 @@ func TestProfileToggle(t *testing.T) {
 		}
 	}
 }
+
+// An axis has the dead zone of its profile unless its binding names one;
+// what the profile's rule binds has the profile's.
+func TestProfileDeadzone(t *testing.T) {
+	p, err := Parse([]byte(`
+schema = 1
+name = "Zones"
+[defaults]
+deadzone = 0.05
+[generate]
+controllers = 16
+notes = "C1"
+[global]
+ABS_Z = { cc = 7 }
+[[layout]]
+name = "L"
+[layout.bindings]
+ABS_Y = { pitch_bend = true, centered = true }
+ABS_RX = { cc = 1, deadzone = 0.2 }
+ABS_RY = { cc = 2, deadzone = 0 }
+"ABS_RZ+" = "C3"
+KEY_A = { cc = 64 }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Deadzone != 0.05 {
+		t.Fatalf("the dead zone of the profile: %v", p.Deadzone)
+	}
+	made := p.For([]control.Input{{Code: control.Axis(0)}, {Code: control.Axis(0x10), Hat: true}})
+	want := map[string]struct {
+		zone float64
+		own  bool
+	}{
+		"ABS_Y": {0.05, false}, "ABS_RX": {0.2, true}, "ABS_RY": {0, true}, "ABS_RZ": {0.05, false},
+		"KEY_A": {0, false}, "ABS_X": {0.05, false}, "ABS_HAT0X": {0.05, false},
+	}
+	seen := 0
+	for _, b := range made.Layouts[0].Bindings {
+		w, ok := want[b.Source.Code.String()]
+		if !ok {
+			continue
+		}
+		seen++
+		if b.Source.Deadzone != w.zone || p.OwnDeadzone("L", b.Source) != w.own {
+			t.Errorf("%s: dead zone %v, its own %v; want %v, %v", b.Source.Code, b.Source.Deadzone, p.OwnDeadzone("L", b.Source), w.zone, w.own)
+		}
+	}
+	if seen != 8 { // the hat is two bindings
+		t.Errorf("%d of the bindings looked at", seen)
+	}
+	if z := p.Engine.Global[0].Source; z.Deadzone != 0.05 || p.OwnDeadzone("", z) {
+		t.Errorf("a binding for every layout: %+v", z)
+	}
+	// The profiles HIDI comes with have none.
+	profiles, _ := Builtin()
+	for _, b := range profiles {
+		if b.Deadzone != 0 {
+			t.Errorf("%s has a dead zone of %v", b.Name, b.Deadzone)
+		}
+		for _, l := range b.Engine.Layouts {
+			for _, bb := range l.Bindings {
+				if bb.Source.Deadzone != 0 {
+					t.Errorf("%s, %s: a dead zone of %v", b.Name, bb.Source.Code, bb.Source.Deadzone)
+				}
+			}
+		}
+	}
+	if _, err := Parse([]byte("schema = 1\nname = \"P\"\n[defaults]\ndeadzone = 1\n[[layout]]\nname = \"L\"\n")); err == nil || !strings.Contains(err.Error(), "deadzone") {
+		t.Errorf("a dead zone of the whole travel: %v", err)
+	}
+	// The factory game-controller profile names the pitch bend and
+	// nothing else.
+	for _, b := range profiles {
+		if b.Match.Type == control.DeviceGamepad && (len(b.Engine.Global) != 0 || len(b.Engine.Layouts) != 1 || len(b.Engine.Layouts[0].Bindings) != 1) {
+			t.Errorf("%s names more than the pitch bend: %+v, %+v", b.Name, b.Engine.Global, b.Engine.Layouts)
+		}
+	}
+}

@@ -638,3 +638,23 @@ func TestStateIsKeptApart(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayingSettings(t *testing.T) {
+	d := Default()
+	if d.Input.Hysteresis != 2 || !d.Output.ResetPitchBend || d.Output.ResetControllers {
+		t.Errorf("as HIDI comes: hysteresis %d, reset pitch bend %v, controllers %v", d.Input.Hysteresis, d.Output.ResetPitchBend, d.Output.ResetControllers)
+	}
+	d.Input.Hysteresis, d.Output.ResetPitchBend, d.Output.ResetControllers = 100, false, true
+	got, err := Parse(d.Text())
+	if err != nil || got.Input.Hysteresis != 100 || got.Output.ResetPitchBend || !got.Output.ResetControllers {
+		t.Errorf("written and read again: %+v, %+v, %v", got.Input, got.Output, err)
+	}
+	if got, err := Parse([]byte("schema = 1\n[input]\nhysteresis = 0\n")); err != nil || got.Input.Hysteresis != 0 || !got.Output.ResetPitchBend {
+		t.Errorf("no hysteresis: %+v, %v", got.Input, err)
+	}
+	for _, bad := range []string{"-1", "101"} {
+		if _, err := Parse([]byte("schema = 1\n[input]\nhysteresis = " + bad + "\n")); err == nil || !strings.Contains(err.Error(), "hysteresis") {
+			t.Errorf("hysteresis = %s: %v", bad, err)
+		}
+	}
+}

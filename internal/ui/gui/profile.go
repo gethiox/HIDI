@@ -254,8 +254,10 @@ type Shape struct {
 	// Invert reverses the direction.
 	Invert bool
 	// Deadzone is the fraction of travel next to the rest position that
-	// is ignored, from 0 to below 1.
-	Deadzone float64
+	// is ignored, from 0 to below 1. It is the profile's, which every
+	// axis has, unless OwnDeadzone says that the binding names its own.
+	Deadzone    float64
+	OwnDeadzone bool
 	// Threshold is how far an axis has to move for a note or a command
 	// to trigger, as a fraction of its travel; 0 is the usual half.
 	Threshold float64
@@ -276,7 +278,7 @@ func (s Shape) text(held bool) string {
 	if s.Invert {
 		out += ", invert = true"
 	}
-	if s.Deadzone > 0 {
+	if s.OwnDeadzone {
 		out += ", deadzone = " + number(s.Deadzone)
 	}
 	if s.Threshold > 0 && held {
@@ -470,6 +472,7 @@ func (d *ProfileDoc) RoleAt(layout string, at Spot) Role {
 	if found {
 		role.take(b.Action)
 		role.Shape = Shape{Centered: b.Source.Centered, Invert: b.Source.Invert, Deadzone: b.Source.Deadzone, Threshold: b.Source.Threshold}
+		role.Shape.OwnDeadzone = !generated && d.Profile.OwnDeadzone(section.Layout, b.Source)
 	}
 	if at.Half != engine.RangeWhole {
 		return role
@@ -891,6 +894,14 @@ func (d *ProfileDoc) DefaultLayout() string {
 func (d *ProfileDoc) SetDefaultLayout(name string) error {
 	return d.change(func(text []byte) ([]byte, error) {
 		return config.Set(text, config.Defaults, "layout", strconv.Quote(name))
+	})
+}
+
+// SetDeadzone sets the dead zone of the profile, which every axis has
+// that names none of its own.
+func (d *ProfileDoc) SetDeadzone(zone float64) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		return config.Set(text, config.Defaults, "deadzone", number(zone))
 	})
 }
 

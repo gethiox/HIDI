@@ -108,6 +108,14 @@ func (p *Profile) Generated(controls []control.Input) []Generated {
 	g := p.Generate
 	buttons, axes := Number(controls)
 	var out []Generated
+	// What the rule binds has the dead zone of the profile, as far as it
+	// is an axis.
+	deadzone := func(code control.Code) float64 {
+		if code.Kind == control.KindAxis {
+			return p.Deadzone
+		}
+		return 0
+	}
 	note := func(code control.Code, half engine.Range, n int) {
 		if !g.Notes || int(g.FirstNote)+n > int(midi.MaxNote) {
 			return
@@ -121,7 +129,7 @@ func (p *Profile) Generated(controls []control.Input) []Generated {
 			key += "+"
 		}
 		out = append(out, Generated{
-			Binding: engine.Binding{Source: engine.Source{Code: code, Range: half}, Action: engine.Note{Note: pitch}},
+			Binding: engine.Binding{Source: engine.Source{Code: code, Range: half, Deadzone: deadzone(code)}, Action: engine.Note{Note: pitch}},
 			Key:     key, Value: strconv.Quote(pitch.String()),
 		})
 	}
@@ -143,7 +151,7 @@ func (p *Profile) Generated(controls []control.Input) []Generated {
 		}
 		if cc, ok := controller(g.FirstController, n); ok {
 			out = append(out, Generated{
-				Binding: engine.Binding{Source: engine.Source{Code: a.Code}, Action: engine.ControlChange{Controller: cc}},
+				Binding: engine.Binding{Source: engine.Source{Code: a.Code, Deadzone: p.Deadzone}, Action: engine.ControlChange{Controller: cc}},
 				Key:     a.Code.String(), Value: fmt.Sprintf("{ cc = %d }", cc),
 			})
 		}

@@ -143,7 +143,7 @@ func TestProfileDocAxes(t *testing.T) {
 	layout := doc.Layouts()[0]
 	absX, absY, absRX, absZ, absMisc := control.Axis(0), control.Axis(1), control.Axis(3), control.Axis(2), control.Axis(0x28)
 
-	if r := doc.Role(layout, absX); r.Kind != RoleController || r.Controller != 0 || !r.Shape.Centered || r.Shape.Deadzone != 0.1 || r.Split {
+	if r := doc.Role(layout, absX); r.Kind != RoleController || r.Controller != 0 || !r.Shape.Centered || r.Shape.Deadzone != 0.1 || !r.Shape.OwnDeadzone || r.Split {
 		t.Errorf("ABS_X: %+v", r)
 	}
 	if r := doc.Role(layout, absY); r.Kind != RoleBend || !r.Shape.Invert {
@@ -162,11 +162,11 @@ func TestProfileDocAxes(t *testing.T) {
 	if err := doc.SetController(layout, absZ, 74, Shape{Invert: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := doc.SetBend(layout, absMisc, Shape{Centered: true, Deadzone: 0.05}); err != nil {
+	if err := doc.SetBend(layout, absMisc, Shape{Centered: true, Deadzone: 0.05, OwnDeadzone: true}); err != nil {
 		t.Fatal(err)
 	}
 	shape := doc.Role(layout, absX).Shape
-	shape.Deadzone = 0
+	shape.Deadzone, shape.OwnDeadzone = 0, false
 	if err := doc.SetController(layout, absX, 0, shape); err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +473,9 @@ func TestProfileDocGenerated(t *testing.T) {
 		t.Errorf("ABS_X: %+v", r)
 	}
 	// What the file names is as the file says.
-	if r := doc.Role(layout, start); r.Kind != RoleCommand || r.Generated {
+	// Start is the fourth button of this device and plays by its number
+	// like the others: the profile names no button.
+	if r := doc.Role(layout, start); r.Kind != RoleNote || r.Note != 39 || !r.Generated {
 		t.Errorf("BTN_START: %+v", r)
 	}
 	if r := doc.Role(layout, absY); r.Kind != RoleBend || r.Generated {
@@ -547,7 +549,7 @@ func TestProfileDocGenerated(t *testing.T) {
 			notes[b.Source.Code] = n.Note
 		}
 	}
-	if len(notes) != 2 || notes[btnA] != 38 || notes[btnB] != 72 {
+	if len(notes) != 3 || notes[btnA] != 38 || notes[btnB] != 72 || notes[start] != 39 {
 		t.Errorf("the notes of the buttons as HIDI plays them: %v", notes)
 	}
 }
@@ -694,7 +696,7 @@ func TestProfileDocSplitAndJoin(t *testing.T) {
 		t.Errorf("a second split: %v", err)
 	}
 	// A half is changed like any control.
-	if err := doc.SetControllerAt(layout, lower, 74, Shape{Deadzone: 0.1, Centered: true}); err != nil {
+	if err := doc.SetControllerAt(layout, lower, 74, Shape{Deadzone: 0.1, OwnDeadzone: true, Centered: true}); err != nil {
 		t.Fatal(err)
 	}
 	if r := doc.RoleAt(layout, lower); r.Controller != 74 || r.Shape.Deadzone != 0.1 || r.Shape.Centered {
@@ -718,7 +720,7 @@ func TestProfileDocSplitAndJoin(t *testing.T) {
 		t.Fatal(err)
 	}
 	up, down := doc.RoleAt(layout, Spot{y, engine.RangeUpper}), doc.RoleAt(layout, Spot{y, engine.RangeLower})
-	if up.Kind != RoleBend || down.Kind != RoleBend || !up.Down || down.Down || up.Shape.Invert || down.Shape.Deadzone != 0.1 {
+	if up.Kind != RoleBend || down.Kind != RoleBend || !up.Down || down.Down || up.Shape.Invert || down.Shape.OwnDeadzone {
 		t.Errorf("the halves of the pitch bend: + %+v, - %+v", up, down)
 	}
 	if _, err := config.Parse(doc.Text()); err != nil {
@@ -849,5 +851,66 @@ func TestProfileDocToggle(t *testing.T) {
 	// An axis cannot be the toggle.
 	if err := doc.SetCommandAt(layout, Whole(control.Axis(0)), engine.CommandToggle); err == nil {
 		t.Error("an axis was made the toggle")
+	}
+}
+
+// The dead zone of an axis is the profile's unless the axis has its own.
+func TestProfileDocDeadzone(t *testing.T) {
+	doc, layout := openPad(t)
+	x, y := control.Axis(0), control.Axis(1)
+	if doc.Profile.Deadzone != 0 {
+		t.Fatalf("the dead zone of the profile HIDI comes with: %v", doc.Profile.Deadzone)
+	}
+	for _, code := range []control.Code{x, y} {
+		if r := doc.Role(layout, code); r.Shape.Deadzone != 0 || r.Shape.OwnDeadzone {
+			t.Errorf("%s before anything was set: %+v", code, r.Shape)
+		}
+	}
+	// The profile's applies to what the rule binds and to what a line
+	// names without saying more.
+	if err := doc.SetDeadzone(0.05); err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []control.Code{x, y} {
+		if r := doc.Role(layout, code); r.Shape.Deadzone != 0.05 || r.Shape.OwnDeadzone {
+			t.Errorf("%s with the profile's dead zone: %+v", code, r.Shape)
+		}
+	}
+	// An axis with its own keeps it, also at zero, whatever the
+	// profile's becomes.
+	shape := doc.Role(layout, y).Shape
+	shape.OwnDeadzone, shape.Deadzone = true, 0
+	if err := doc.SetShapeAt(layout, Whole(y), shape); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetDeadzone(0.2); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, y); r.Shape.Deadzone != 0 || !r.Shape.OwnDeadzone {
+		t.Errorf("an axis with a dead zone of its own: %+v", r.Shape)
+	}
+	if r := doc.Role(layout, x); r.Shape.Deadzone != 0.2 || r.Shape.OwnDeadzone || !r.Generated {
+		t.Errorf("an axis without: %+v", r)
+	}
+	if !strings.Contains(string(doc.Text()), "deadzone = 0 }") || !strings.Contains(string(doc.Text()), "deadzone = 0.2\n") {
+		t.Errorf("the file:\n%s", doc.Text())
+	}
+	// And gives it up again.
+	shape.OwnDeadzone = false
+	if err := doc.SetShapeAt(layout, Whole(y), shape); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, y); r.Shape.Deadzone != 0.2 || r.Shape.OwnDeadzone {
+		t.Errorf("after giving up its own: %+v", r.Shape)
+	}
+	// What HIDI plays has the same.
+	p, err := config.Parse(doc.Text())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range p.For(doc.controls).Layouts[0].Bindings {
+		if b.Source.Code.Kind == control.KindAxis && b.Source.Deadzone != 0.2 {
+			t.Errorf("%s plays with a dead zone of %v", b.Source.Code, b.Source.Deadzone)
+		}
 	}
 }

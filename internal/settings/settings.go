@@ -113,12 +113,21 @@ type Input struct {
 	// LearnThreshold is how far an axis has to be moved to get through
 	// in learning mode, in hundredths of its range.
 	LearnThreshold int
+	// Hysteresis is the hysteresis of an axis that acts as a button, in
+	// hundredths of its travel: the axis has to pass its trigger point
+	// by half of it to count as pressed, and to come back behind the
+	// point by half of it to count as let go.
+	Hysteresis int
 }
 
 // Output says where the instruments send, besides their own MIDI devices.
 type Output struct {
 	// Connect names existing MIDI ports every instrument also sends to.
 	Connect []string
+	// ResetPitchBend returns the pitch bend to rest when HIDI is turned
+	// off, and ResetControllers every controller. What is not returned
+	// stays as it was last sent.
+	ResetPitchBend, ResetControllers bool
 }
 
 // Window holds what the window remembers.
@@ -157,7 +166,9 @@ func Default() Settings {
 			GrabKeyboards:   true,
 			StartOn:         false,
 			LearnThreshold:  50,
+			Hysteresis:      2,
 		},
+		Output:  Output{ResetPitchBend: true},
 		Devices: Devices{Mode: Blacklist},
 		Lights:  Lights{Colours: light.DefaultColours()},
 		Window:  Window{Scale: 100, ShowAtStart: true},
@@ -176,6 +187,7 @@ type file struct {
 		ToggleTap       *bool     `toml:"toggle_tap"`
 		AlwaysGrab      *bool     `toml:"always_grab"`
 		LearnThreshold  *int      `toml:"learn_threshold"`
+		Hysteresis      *int      `toml:"hysteresis"`
 		ToggleExclusive *bool     `toml:"toggle_exclusive"`
 	} `toml:"input"`
 	Devices struct {
@@ -183,7 +195,9 @@ type file struct {
 		List *[]string `toml:"list"`
 	} `toml:"devices"`
 	Output struct {
-		Connect *[]string `toml:"connect"`
+		Connect          *[]string `toml:"connect"`
+		ResetPitchBend   *bool     `toml:"reset_pitch_bend"`
+		ResetControllers *bool     `toml:"reset_controllers"`
 	} `toml:"output"`
 	Lights struct {
 		OpenRGB *bool             `toml:"openrgb"`
@@ -258,6 +272,12 @@ func Parse(data []byte) (Settings, error) {
 		problems = append(problems, fmt.Sprintf("devices.mode: %q is neither %q nor %q", s.Devices.Mode, Blacklist, Whitelist))
 	}
 	set(&s.Output.Connect, f.Output.Connect)
+	set(&s.Output.ResetPitchBend, f.Output.ResetPitchBend)
+	set(&s.Output.ResetControllers, f.Output.ResetControllers)
+	set(&s.Input.Hysteresis, f.Input.Hysteresis)
+	if s.Input.Hysteresis < 0 || s.Input.Hysteresis > 100 {
+		problems = append(problems, fmt.Sprintf("input.hysteresis: %d is not a number of hundredths from 0 to 100", s.Input.Hysteresis))
+	}
 	set(&s.Lights.OpenRGB, f.Lights.OpenRGB)
 	set(&s.Lights.Address, f.Lights.Address)
 	named := map[string]*light.RGB{}
@@ -418,6 +438,16 @@ toggle_exclusive = %t
 # changes at all.
 learn_threshold = %d
 
+# The hysteresis of an axis that acts as a button, in hundredths of its
+# travel. An axis that plays a note or runs a command does so when it
+# passes a point, half of its way unless the profile says otherwise. With
+# a hysteresis it has to pass the point by half of this to count as
+# pressed, and to come back behind the point by half of this to count as
+# let go, so that an axis that rests near the point does not trigger over
+# and over. Neither goes past the ends of the travel: 100 means pressed at
+# the far end and let go at rest, wherever the point is. 0 turns it off.
+hysteresis = %d
+
 [devices]
 # Which devices become instruments, by their names as HIDI shows them.
 # With "blacklist" every keyboard and game controller plays except the
@@ -429,6 +459,14 @@ list = %s
 # Existing MIDI ports that every instrument also sends to, by a part of
 # their name or by their ID as "hidi ports" lists them.
 connect = %s
+
+# What turning HIDI off does to what the instruments sent, beside ending
+# every note. The pitch bend goes back to no bend, so that nothing stays
+# out of tune. Controllers stay as they were last sent, a volume for one,
+# unless reset_controllers is true: then every controller goes back to
+# its rest as well.
+reset_pitch_bend = %t
+reset_controllers = %t
 
 [lights]
 # Light the keys of keyboards to show what they play, through an OpenRGB
@@ -473,9 +511,9 @@ check_updates = %t
 # is plugged in. With this the names profiles use for them, such as
 # BTN_SOUTH and ABS_X, stand beside the numbers.
 control_names = %t
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold,
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold, s.Input.Hysteresis,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
-		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
+		list(s.Output.Connect), s.Output.ResetPitchBend, s.Output.ResetControllers, s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.Scale,
 		s.Window.CheckUpdates, s.Window.ControlNames)
 	return []byte(b.String())

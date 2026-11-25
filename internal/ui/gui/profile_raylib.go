@@ -388,6 +388,18 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		}
 		sx = end + 22
 	}
+	if doc.Profile.Match.Type != control.DeviceKeyboard {
+		// The dead zone of every axis that names none of its own.
+		need := width(w.sans, "dead zone", sizeText) + 130
+		if sx > x && sx+need > right {
+			sx, y = x, y+34
+		}
+		zone := doc.Profile.Deadzone
+		if delta, _ := w.stepper("dead zone", fmt.Sprintf("%.2f", zone), sx, y); delta != 0 {
+			hundredths := int(zone*100+0.5) + delta*5
+			e.try(doc.SetDeadzone(float64(min(max(hundredths, 0), 95)) / 100))
+		}
+	}
 	y += 40
 
 	y = w.editLayouts(e, x, y, right)

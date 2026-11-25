@@ -383,9 +383,9 @@ func TestNotesFromAxis(t *testing.T) {
 		Binding{Source: Source{Code: stickX, Range: RangeUpper}, Action: Note{Note: 60}},
 		Binding{Source: Source{Code: stickX, Range: RangeLower}, Action: Note{Note: 62}},
 	))
-	r.set(stickX, 0.74, "") // 0.48 of the upper half
-	r.set(stickX, 0.75, "NoteOn ch=1 note=C3 velocity=100")
-	r.set(stickX, 0.74, "") // still above the release threshold
+	r.set(stickX, 0.75, "") // the trigger point itself: half the hysteresis short
+	r.set(stickX, 0.76, "NoteOn ch=1 note=C3 velocity=100")
+	r.set(stickX, 0.75, "") // back at the point: still held
 	r.set(stickX, 0.76, "")
 	r.set(stickX, 0, "NoteOff ch=1 note=C3 velocity=0; NoteOn ch=1 note=D3 velocity=100")
 	r.set(stickX, 0.5, "NoteOff ch=1 note=D3 velocity=0")
@@ -977,10 +977,10 @@ func TestThreshold(t *testing.T) {
 		ev   control.Event
 		want string
 	}{
-		{control.Event{Code: z, Value: 0.19}, ""},
-		{control.Event{Code: z, Value: 0.21}, "NoteOn"},
-		{control.Event{Code: z, Value: 0.19}, ""}, // within the gap below the threshold
-		{control.Event{Code: z, Value: 0.17}, "NoteOff"},
+		{control.Event{Code: z, Value: 0.2}, ""}, // at the point: half the hysteresis short
+		{control.Event{Code: z, Value: 0.22}, "NoteOn"},
+		{control.Event{Code: z, Value: 0.2}, ""}, // back at the point: still held
+		{control.Event{Code: z, Value: 0.18}, "NoteOff"},
 		// The upper half of the stick at four fifths of its way, the
 		// lower at the usual half.
 		{control.Event{Code: x, Value: 0.85}, ""},
@@ -1064,5 +1064,116 @@ func TestControllers(t *testing.T) {
 	e.Handle(control.Event{Code: next, Value: 1}, nil)
 	if got := list(); !strings.HasPrefix(got, "bend ch3=") || strings.Count(got, "bend") != 1 || !strings.Contains(got, "cc64") || strings.Contains(got, "cc7") {
 		t.Errorf("in the second layout: %s", got)
+	}
+}
+
+// An axis that acts as a button has to pass its trigger point by half the
+// hysteresis to count as pressed and to come back behind it by as much to
+// be let go. Neither end leaves the travel of the axis, so whatever the
+// two are set to, the note can be played and ended.
+func TestHysteresis(t *testing.T) {
+	z := control.Axis(2)
+	for _, tt := range []struct {
+		name           string
+		threshold, h   float64
+		press, release float64 // where it begins and ends
+		between        float64 // a place where it stays as it is
+	}{
+		{"as HIDI comes", 0, DefaultHysteresis, 0.51, 0.49, 0.5},
+		{"a tenth", 0, 0.1, 0.55, 0.45, 0.5},
+		{"the whole travel", 0, 1, 1, 0, 0.5},
+		{"more than the travel has above the point", 0.9, 0.5, 1, 0.65, 0.8},
+		{"more than the travel has below the point", 0.1, 0.5, 0.35, 0, 0.2},
+		{"none", 0.3, 0, 0.3, 0.3, 0.3},
+	} {
+		e, err := New(Profile{
+			Defaults: Defaults{Velocity: 100},
+			Layouts: []Layout{{Name: "L", Bindings: []Binding{
+				{Source: Source{Code: z, Threshold: tt.threshold}, Action: Note{Note: 60}},
+			}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.SetHysteresis(tt.h)
+		sent := func(v float64) int { return len(e.Handle(control.Event{Code: z, Value: v}, nil)) }
+		const hair = 0.001
+		if tt.press-hair > tt.release && sent(tt.press-hair) != 0 {
+			t.Errorf("%s: pressed a hair before %v", tt.name, tt.press)
+		}
+		if sent(tt.press) != 1 {
+			t.Errorf("%s: not pressed at %v", tt.name, tt.press)
+		}
+		if sent(tt.between) != 0 {
+			t.Errorf("%s: let go at %v, between the two", tt.name, tt.between)
+		}
+		if tt.release+hair < tt.press && sent(tt.release+hair) != 0 {
+			t.Errorf("%s: let go a hair before %v", tt.name, tt.release)
+		}
+		down := tt.release
+		if tt.release == tt.press {
+			down -= hair // with no hysteresis the point itself is pressed
+		}
+		if sent(down) != 1 {
+			t.Errorf("%s: not let go at %v", tt.name, down)
+		}
+		if tt.between > tt.release && tt.between < tt.press && sent(tt.between) != 0 {
+			t.Errorf("%s: pressed at %v, between the two", tt.name, tt.between)
+		}
+	}
+	// A key is down or not, whatever the hysteresis.
+	a := control.Key(30)
+	e, _ := New(Profile{Layouts: []Layout{{Name: "L", Bindings: []Binding{{Source: Source{Code: a}, Action: Note{Note: 60}}}}}, Defaults: Defaults{Velocity: 100}})
+	e.SetHysteresis(1)
+	if len(e.Handle(control.Event{Code: a, Value: 1}, nil)) != 1 || len(e.Handle(control.Event{Code: a, Value: 0}, nil)) != 1 {
+		t.Error("a key did not play with the hysteresis at its most")
+	}
+}
+
+// Turned off, an instrument ends its notes, and puts back to rest what it
+// is told to: the pitch bend, the controllers, both or neither. What is
+// left alone is not sent again when its axis is where it was.
+func TestSilence(t *testing.T) {
+	x, y, a := control.Axis(0), control.Axis(1), control.Key(30)
+	profile := Profile{
+		Defaults: Defaults{Velocity: 100},
+		Layouts: []Layout{{Name: "L", Bindings: []Binding{
+			{Source: Source{Code: x}, Action: ControlChange{Controller: 7}},
+			{Source: Source{Code: y, Centered: true}, Action: PitchBend{}},
+			{Source: Source{Code: a}, Action: Note{Note: 60}},
+		}}},
+	}
+	text := func(msgs []midi.Message) string {
+		var parts []string
+		for _, m := range msgs {
+			parts = append(parts, m.String())
+		}
+		return strings.Join(parts, "; ")
+	}
+	for _, tt := range []struct {
+		rest    Rest
+		off, on string
+	}{
+		{Rest{PitchBend: true}, "NoteOff ch=1 note=C3 velocity=0; PitchBend ch=1 bend=+0", "PitchBend ch=1 bend=+8191"},
+		{Rest{Controllers: true}, "NoteOff ch=1 note=C3 velocity=0; ControlChange ch=1 controller=7 value=0", "ControlChange ch=1 controller=7 value=95"},
+		{Rest{}, "NoteOff ch=1 note=C3 velocity=0", ""},
+		{Rest{Controllers: true, PitchBend: true}, "NoteOff ch=1 note=C3 velocity=0; ControlChange ch=1 controller=7 value=0; PitchBend ch=1 bend=+0", "ControlChange ch=1 controller=7 value=95; PitchBend ch=1 bend=+8191"},
+	} {
+		e, err := New(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.Handle(control.Event{Code: x, Value: 0.75}, nil)
+		e.Handle(control.Event{Code: y, Value: 1}, nil)
+		e.Handle(control.Event{Code: a, Value: 1}, nil)
+		if got := text(e.Silence(tt.rest, nil)); got != tt.off {
+			t.Errorf("%+v, turned off:\n got %s\nwant %s", tt.rest, got, tt.off)
+		}
+		// Turned on again, the axes say where they stand.
+		on := e.Handle(control.Event{Code: x, Value: 0.75}, nil)
+		on = e.Handle(control.Event{Code: y, Value: 1}, on)
+		if got := text(on); got != tt.on {
+			t.Errorf("%+v, turned on again:\n got %s\nwant %s", tt.rest, got, tt.on)
+		}
 	}
 }

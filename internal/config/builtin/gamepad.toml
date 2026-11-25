@@ -2,10 +2,10 @@ schema = 1
 name = "Default gamepad"
 
 # For every game controller: pads, sticks, throttles, wheels, button boxes.
-# The few lines further down name what nearly all of them have. Everything
-# else a controller has plays by its number, as [generate] says, so a pad
-# of ten buttons and a stick of a hundred are both instruments from the
-# start, and the same ones every time.
+# One line names what nearly all of them have, a stick that bends the
+# pitch. Everything else a controller has plays by its number, as
+# [generate] says, so a pad of ten buttons and a stick of a hundred are
+# both instruments from the start, and the same ones every time.
 
 [match]
 type = "gamepad"
@@ -17,6 +17,10 @@ channel = 1
 velocity = 64
 layout = "Default"
 collision = "interrupt"
+# The part of an axis's travel next to its rest that is ignored, for every
+# axis that names none of its own: 0.05 for a stick that does not quite
+# come back to the middle.
+deadzone = 0
 
 # A button or an axis that has no line in a layout, nor in [global], gets
 # its part by the number the window shows it by:
@@ -32,15 +36,10 @@ collision = "interrupt"
 notes = "C1"
 controllers = 16
 
-[global]
-BTN_SELECT = "channel_down"
-BTN_START = "channel_up"
-BTN_MODE = "panic"
-
 [[layout]]
 name = "Default"
 
 [layout.bindings]
 # The stick, or the left one of two, bends the pitch when pushed forward
 # and pulled back.
-ABS_Y = { pitch_bend = true, centered = true, invert = true, deadzone = 0.1 }
+ABS_Y = { pitch_bend = true, centered = true, invert = true }

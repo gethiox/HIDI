@@ -427,6 +427,9 @@ func (s *session) apply() {
 		}
 		s.regrab()
 	}
+	if s.eng != nil {
+		s.eng.SetHysteresis(s.rule.hysteresis) // a new engine has none of its own
+	}
 	want := s.wanted.Load()
 	if s.eng == nil || want == s.active || s.failed {
 		s.regrab() // a new instrument, or one that stopped being one
@@ -440,10 +443,12 @@ func (s *session) apply() {
 	}
 	// Turning off: the device goes back to the system, and nothing
 	// may keep sounding. The device first: whatever holds up the
-	// sending must not keep a keyboard from its owner.
+	// sending must not keep a keyboard from its owner. The pitch bend
+	// and the controllers go back to rest as far as the settings say;
+	// what stays is as it was last sent.
 	s.limit.drop() // a position from before must not arrive after
 	s.regrab()
-	if !s.send(s.endpoint, s.eng.Reset(s.out[:0])) {
+	if !s.send(s.endpoint, s.eng.Silence(s.rule.rest, s.out[:0])) {
 		s.fail()
 	}
 	s.publish(s.eng, &s.state)

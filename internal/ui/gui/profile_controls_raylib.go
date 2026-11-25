@@ -638,11 +638,17 @@ func (w *window) editShape(e *editor, at Spot, role Role, x, y, inner float32) f
 	}
 	toggle("reversed", &shape.Invert)
 	if follows {
-		delta, _ := w.stepper("dead zone", fmt.Sprintf("%.2f", shape.Deadzone), px, y-2)
-		if delta != 0 {
-			hundredths := int(shape.Deadzone*100+0.5) + delta*5
-			shape.Deadzone = float64(min(max(hundredths, 0), 95)) / 100
-			again()
+		// The dead zone is the profile's unless the axis has its own.
+		toggle("own dead zone", &shape.OwnDeadzone)
+		if shape.OwnDeadzone {
+			delta, _ := w.stepper("", fmt.Sprintf("%.2f", shape.Deadzone), px-10, y-2)
+			if delta != 0 {
+				hundredths := int(shape.Deadzone*100+0.5) + delta*5
+				shape.Deadzone = float64(min(max(hundredths, 0), 95)) / 100
+				again()
+			}
+		} else {
+			w.text(w.mono, fmt.Sprintf("%.2f, the profile's", shape.Deadzone), px, y+3, sizeMono, col(colFaint))
 		}
 	} else {
 		// Where the axis counts as pressed, in steps of a twentieth.

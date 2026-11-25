@@ -2,6 +2,7 @@ package instrument
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/midi"
 )
@@ -184,7 +186,9 @@ func TestHeardNotesGoWithTheDevice(t *testing.T) {
 	}
 }
 
-// Found in review: a lever at rest is not sent again after HIDI was off and on.
+// Found in review: a lever at rest is not sent again after HIDI was off and
+// on. That is where turning off puts the controllers to rest; where it
+// leaves them, as HIDI comes, see TestOffKeepsControllers.
 func TestRestingAxisIsSentAfterOffAndOn(t *testing.T) {
 	lever, err := config.Parse([]byte(`
 schema = 1
@@ -201,7 +205,7 @@ ABS_Z = { cc = 7 }
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRig(t, lever)
+	r := newRigWith(t, Options{Rest: engine.Rest{Controllers: true, PitchBend: true}}, lever)
 	pad := newFakeDevice("Throttle", control.DeviceGamepad)
 	e := r.plug(pad)
 	pad.set(control.Axis(2), 0.75)
@@ -247,4 +251,66 @@ func TestParkedInputIsNotPlayedLater(t *testing.T) {
 	if sent != "" {
 		t.Errorf("the new instrument played %d old notes at once", strings.Count(sent, "NoteOn"))
 	}
+}
+
+// Turned off, an instrument puts back to rest what the settings say and
+// leaves the rest as it was sent: the pitch bend goes, a controller stays
+// and is not sent again when HIDI is turned on with its axis where it
+// was. Changed while HIDI runs, the settings count from the next time.
+func TestOffKeepsControllers(t *testing.T) {
+	stick, err := config.Parse([]byte(`
+schema = 1
+name = "Stick"
+[match]
+type = "gamepad"
+[defaults]
+axis_rate = 0
+[[layout]]
+name = "Main"
+[layout.bindings]
+ABS_Z = { cc = 7 }
+ABS_Y = { pitch_bend = true, centered = true }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRigWith(t, Options{Rest: engine.Rest{PitchBend: true}}, stick)
+	pad := newFakeDevice("Stick", control.DeviceGamepad)
+	e := r.plug(pad)
+	pad.set(control.Axis(2), 0.75)
+	pad.set(control.Axis(1), 1)
+	const played = "ControlChange ch=1 controller=7 value=95; PitchBend ch=1 bend=+8191"
+	r.expectSent(e, played)
+	pad.drain(t)
+
+	r.manager.SetActive(false)
+	r.expectSent(e, played+"; PitchBend ch=1 bend=+0")
+	// The output view keeps showing what the controller stands at.
+	shows := func(want string) bool {
+		for _, st := range r.manager.Status() {
+			var got []string
+			for _, c := range st.Controllers {
+				if c.Known && c.PitchBend {
+					got = append(got, fmt.Sprint("bend ", int(midi.To14(c.Value))-8192))
+				} else if c.Known {
+					got = append(got, fmt.Sprint("cc", c.Controller, " ", midi.To7(c.Value)))
+				}
+			}
+			if strings.Join(got, ", ") == want {
+				return true
+			}
+		}
+		return false
+	}
+	eventually(t, "the status after turning off", func() bool { return shows("bend 0, cc7 95") })
+
+	// On again: the stick is still pushed, so the pitch is bent again;
+	// the controller is where it was and says nothing.
+	r.manager.SetActive(true)
+	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191")
+
+	// The other way round, set while HIDI runs.
+	r.manager.SetPlaying(0, engine.Rest{Controllers: true})
+	r.manager.SetActive(false)
+	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191; ControlChange ch=1 controller=7 value=0")
 }

@@ -482,6 +482,8 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 		toggleItem{"Pass the toggle key through to the system when held", "one key: a tap toggles; held longer, it acts as usual", &sh.s.Input.ToggleTap, ""},
 		toggleItem{"The toggle key is HIDI's alone", "one key: it never reaches the system, tapped or held", &sh.s.Input.ToggleExclusive, ""},
 		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn, ""},
+		toggleItem{"Reset the pitch bend when HIDI is turned off", "otherwise it stays bent as it was", &sh.s.Output.ResetPitchBend, ""},
+		toggleItem{"Reset controllers when HIDI is turned off", "otherwise every controller keeps its last value", &sh.s.Output.ResetControllers, ""},
 	)
 }
 
@@ -499,6 +501,14 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 	vx := sh.row("Learning mode lets an axis through", "when it moved by this much of its range")
 	if picked, hit := sh.choices(vx, sh.s.Input.LearnThreshold, []int{5, 10, 20, 30, 50}, percent); hit {
 		sh.s.Input.LearnThreshold = picked
+		sh.changed()
+	}
+	sh.y += 46
+	// How far past its trigger point an axis has to go to count as
+	// pressed, and behind it to count as let go, halved each way.
+	vx = sh.row("Hysteresis of axes that act as buttons", "pressed half of this past the trigger point, let go half of it before")
+	if picked, hit := sh.choices(vx, sh.s.Input.Hysteresis, []int{0, 2, 5, 10, 20, 50, 100}, percent); hit {
+		sh.s.Input.Hysteresis = picked
 		sh.changed()
 	}
 	sh.y += 46

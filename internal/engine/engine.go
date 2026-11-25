@@ -11,14 +11,42 @@ import (
 	"github.com/gethiox/HIDI/internal/midi"
 )
 
-// thresholds returns where a momentary action of the source triggers and
-// where it ends: the usual ones, or those of the source's own threshold,
-// with the same gap in proportion.
-func (s *Source) thresholds() (press, release float64) {
+// point is where a momentary action of the source triggers: half of the
+// way, or the source's own threshold.
+func (s *Source) point() float64 {
 	if s.Threshold > 0 && s.Code.Kind != control.KindKey {
-		return s.Threshold, s.Threshold * releaseThreshold / pressThreshold
+		return s.Threshold
 	}
-	return pressThreshold, releaseThreshold
+	return pressThreshold
+}
+
+// DefaultHysteresis is the hysteresis of an axis that acts as a button,
+// unless it is set: two hundredths of its travel.
+const DefaultHysteresis = 0.02
+
+// thresholds returns where a momentary action of a source begins and where
+// it ends. A key is down or not. An axis has to pass its trigger point by
+// half the hysteresis to count as pressed, and to come back behind it by
+// as much to count as let go, so that an axis that rests near the point,
+// or trembles there, does not trigger over and over. Neither end leaves
+// the travel of the axis: a hysteresis of the whole travel means pressed
+// at the far end and let go at rest, wherever the point is.
+func (e *Engine) thresholds(s *Source) (press, release float64) {
+	if s.Code.Kind == control.KindKey {
+		return pressThreshold, releaseThreshold
+	}
+	at := s.point()
+	return min(at+e.hysteresis/2, 1), max(at-e.hysteresis/2, 0)
+}
+
+// SetHysteresis sets the hysteresis of axes that act as buttons, as a part
+// of their travel from 0 to 1: see [DefaultHysteresis]. What is held
+// stays held until it is let go by the new measure.
+func (e *Engine) SetHysteresis(h float64) {
+	if !(h >= 0 && h <= 1) {
+		h = DefaultHysteresis
+	}
+	e.hysteresis = h
 }
 
 // Shape reduces a raw position of the control, from 0 to 1, to what the
@@ -31,12 +59,9 @@ func (s Source) Shape(v float64) float64 { return shape(&s, min(max(v, 0), 1)) }
 // whole of a control that rests in the middle.
 func (s Source) Bipolar() bool { return s.bipolar() }
 
-// Triggers reports whether a shaped position is past the point where a
-// note or a command of the source triggers.
-func (s Source) Triggers(x float64) bool {
-	press, _ := s.thresholds()
-	return x >= press
-}
+// Triggers reports whether a shaped position is at or past the point
+// where a note or a command of the source triggers, hysteresis aside.
+func (s Source) Triggers(x float64) bool { return x >= s.point() }
 
 // A momentary action triggers when its source rises to pressThreshold and
 // ends when the source falls below releaseThreshold. The gap keeps an axis
@@ -197,6 +222,8 @@ type Engine struct {
 	learning       bool
 	learnThreshold float64
 	learnAsked     bool
+	// hysteresis is described at [Engine.SetHysteresis].
+	hysteresis float64
 }
 
 // DefaultLearnThreshold is how far an axis has to be moved to get through
@@ -263,6 +290,8 @@ func New(p Profile) (*Engine, error) {
 		states:  map[sourceKey]*sourceState{},
 		targets: map[target]*targetState{},
 		down:    map[control.Code]bool{},
+
+		hysteresis: DefaultHysteresis,
 	}
 	for i := range p.Layouts {
 		idx := map[controlKey][]*Binding{}
@@ -367,7 +396,7 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 	}
 	// Follow the way from rest to the trigger point, for notes that take
 	// their velocity from how fast it is covered.
-	press, release := b.Source.thresholds()
+	press, release := e.thresholds(&b.Source)
 	if !st.pressed {
 		switch {
 		case x <= restLevel:
@@ -391,7 +420,11 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 		st.leftRest = time.Time{}
 		st.pressed, st.latched = true, b
 		out = e.press(st, out)
-	case st.pressed && x < release:
+	case st.pressed && (x < release || x <= release && release < press):
+		// Behind the point by the hysteresis. Reaching that place is
+		// enough where there is one, so that an axis whose place to let
+		// go at is its very end gets there; with no hysteresis at all
+		// the point itself still counts as pressed.
 		out = e.release(st, out)
 	}
 	return out
@@ -831,12 +864,28 @@ func (e *Engine) panic(out []midi.Message) []midi.Message {
 
 // Reset returns the instrument to silence: it releases every held note and
 // returns every controller and pitch bend it has moved to rest. Call it when
-// the instrument is disabled or its device disconnects. Octave,
+// the instrument is to end, or its device disconnects. Octave,
 // transposition, channel, velocity and layout are kept.
 //
 // Controls that are still physically held do nothing when they are released
 // afterwards.
 func (e *Engine) Reset(out []midi.Message) []midi.Message {
+	return e.Silence(Rest{Controllers: true, PitchBend: true}, out)
+}
+
+// Rest says what [Engine.Silence] returns to rest beside the notes.
+type Rest struct {
+	// Controllers returns every controller that was moved to rest, and
+	// PitchBend the pitch bend.
+	Controllers, PitchBend bool
+}
+
+// Silence releases every held note and returns to rest what rest names.
+// What it leaves stays as it was last sent, and is not sent again while
+// the control that drives it stands where it stood: a volume that was set
+// before the instrument was turned off is the same when it is turned on
+// again.
+func (e *Engine) Silence(rest Rest, out []midi.Message) []midi.Message {
 	for _, st := range e.stateOrder {
 		if st.pressed {
 			out = e.release(st, out)
@@ -844,7 +893,9 @@ func (e *Engine) Reset(out []midi.Message) []midi.Message {
 		st.driving, st.hasBase = false, false
 	}
 	for _, t := range e.targetOrder {
-		out = e.rest(t, out)
+		if t.pitchBend && rest.PitchBend || !t.pitchBend && rest.Controllers {
+			out = e.rest(t, out)
+		}
 		e.targets[t].owner = nil
 	}
 	clear(e.down)

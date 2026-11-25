@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/logging"
@@ -68,6 +69,7 @@ type liveSettings struct {
 	connect []string
 	learn   int
 	own     bool
+	playing string // the hysteresis and what turning off resets, as one text
 }
 
 func newLiveSettings(o runOptions, s settings.Settings, manager *instrument.Manager, hub *light.Hub, address *atomic.Pointer[string], router *output.Router, log *slog.Logger, showToggle func([]control.Code), changed func()) *liveSettings {
@@ -80,7 +82,13 @@ func newLiveSettings(o runOptions, s settings.Settings, manager *instrument.Mana
 		connect: o.connect,
 		learn:   s.Input.LearnThreshold,
 		own:     s.Input.ToggleExclusive,
+		playing: fmt.Sprint(s.Input.Hysteresis, s.Output.ResetPitchBend, s.Output.ResetControllers),
 	}
+}
+
+// restOf is what turning HIDI off returns to rest, by the settings.
+func restOf(o settings.Output) engine.Rest {
+	return engine.Rest{PitchBend: o.ResetPitchBend, Controllers: o.ResetControllers}
 }
 
 // text returns the settings in use, written as the settings file is.
@@ -153,6 +161,11 @@ func (l *liveSettings) apply(s settings.Settings) {
 		l.learn = s.Input.LearnThreshold
 		l.manager.SetLearnThreshold(float64(l.learn) / 100)
 		l.log.Info("settings changed", "learn_threshold", l.learn)
+	}
+	if playing := fmt.Sprint(s.Input.Hysteresis, s.Output.ResetPitchBend, s.Output.ResetControllers); playing != l.playing {
+		l.playing = playing
+		l.manager.SetPlaying(float64(s.Input.Hysteresis)/100, restOf(s.Output))
+		l.log.Info("settings changed", "hysteresis", s.Input.Hysteresis, "reset_pitch_bend", s.Output.ResetPitchBend, "reset_controllers", s.Output.ResetControllers)
 	}
 	if s.Input.ToggleExclusive != l.own {
 		l.own = s.Input.ToggleExclusive

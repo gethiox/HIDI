@@ -68,6 +68,13 @@ type Options struct {
 	// Nil allows every device. [Manager.SetAllow] replaces it while the
 	// manager runs.
 	Allow func(control.DeviceInfo) bool
+	// Hysteresis is the hysteresis of axes that act as buttons, as a
+	// part of their travel; see [engine.Engine.SetHysteresis]. Rest is
+	// what turning HIDI off returns to rest beside the notes: the pitch
+	// bend, the controllers, both or neither. [Manager.SetPlaying]
+	// changes them.
+	Hysteresis float64
+	Rest       engine.Rest
 	// LearnThreshold is how far an axis has to move to get through in
 	// learning mode, as a part of its range. Zero means
 	// [engine.DefaultLearnThreshold]. [Manager.SetLearnThreshold] changes
@@ -443,6 +450,9 @@ type inputRules struct {
 	// left says that the device would be kept from the system and is
 	// not, because nothing on it turns HIDI off again.
 	left bool
+	// hysteresis and rest are described at [Options].
+	hysteresis float64
+	rest       engine.Rest
 }
 
 // rulesFor works out the rules for a device that plays with a profile, or
@@ -459,6 +469,7 @@ func (m *Manager) rulesFor(info control.DeviceInfo, profile *config.Profile) *in
 	r := &inputRules{
 		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: toggle,
 		tap: tap, hide: len(toggle) == 1 && (tap && m.opts.HideToggle || m.opts.OwnToggle),
+		hysteresis: m.opts.Hysteresis, rest: m.opts.Rest,
 	}
 	if r.grab && len(toggle) == 0 && info.Type == control.DeviceKeyboard {
 		r.grab, r.left = false, profile != nil
@@ -504,6 +515,19 @@ func (m *Manager) SetOwnToggle(own bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.opts.OwnToggle = own
+	for r := range m.running {
+		m.rule(r, r.assigned)
+		r.poke()
+	}
+}
+
+// SetPlaying changes the hysteresis of axes that act as buttons and what
+// turning HIDI off returns to rest, while the manager runs; see
+// [Options.Hysteresis] and [Options.Rest].
+func (m *Manager) SetPlaying(hysteresis float64, rest engine.Rest) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.Hysteresis, m.opts.Rest = hysteresis, rest
 	for r := range m.running {
 		m.rule(r, r.assigned)
 		r.poke()
