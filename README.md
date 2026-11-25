@@ -148,8 +148,8 @@ rows, laid out like a piano.
 A game controller of any kind, a pad, a stick, a throttle or a wheel,
 plays notes on its buttons, from C1 up in the order of their numbers, and
 sends a controller from each axis, from controller 16 up. The stick, or the
-left one of two, bends the pitch; the first hat or the direction pad changes
-octave and layout; select and start change the channel. HIDI has no
+left one of two, bends the pitch; the directions of a hat or a direction pad
+are buttons like the others; select and start change the channel. HIDI has no
 profiles for single products: it asks each controller what it has and gives
 everything a part by its number, the same every time. What exactly, and
 everything else, is in the [profiles](#settings-and-profiles).
@@ -168,11 +168,17 @@ away, so they keep working in other programs.
 
 Caps Lock is HIDI's alone from then on: it no longer switches capitals,
 whether HIDI is on or off. The settings can give the key back to the system
-when it is held, choose another key, or a combination of several keys
-pressed together instead, such as left Ctrl, Shift and Alt. What the rest
-of the system sees of a tapped key differs between Windows and Linux; see
-"One key that turns HIDI off and on" in the
+when it is held. What the rest of the system sees of a tapped key differs
+between Windows and Linux; see "One key that turns HIDI off and on" in the
 [configuration reference](docs/configuration.md).
+
+The toggle belongs to the profile: the keyboard profile HIDI comes with
+binds Caps Lock to the command `hidi_toggle`, and a profile of your own can
+bind another key, or several pressed together such as left Ctrl, Shift and
+Alt. The settings can name one toggle for every device instead. A keyboard
+that has no toggle either way is not taken away: it plays and keeps typing,
+since nothing on it could turn HIDI off again, and its card in the window
+says so.
 
 ## The window
 
@@ -183,7 +189,10 @@ MIDI. The two numbers for it take
 the same colours while they are not zero, and the top of the window has them
 for all instruments together.
 The switches "input" and "output" beside "show" add what the device reports
-and the notes that are played because of it; the window remembers them for
+and what goes out as MIDI because of it: the notes that are on, and a bar
+for every controller the instrument sends and for the pitch bend, with the
+value last sent (0 to 127, and -100% to +100% for the pitch bend), in the
+order of the axes that drive them. The window remembers the switches for
 every device.
 
 A keyboard is drawn as a full-size keyboard. Every key has the colour of
@@ -193,9 +202,9 @@ glow in the colours of their lights, so the drawing shows what the keyboard
 shows. A game controller shows all the buttons and axes it has, numbered
 from 0: the numbers are the same whenever a controller of that kind is
 plugged in. "Name the controls of game controllers" in the settings shows
-them by the names profiles use instead, such as BTN_SOUTH and ABS_X; the
-profile editor shows both. A controller that cannot say what it has shows
-its controls by name as they are used.
+the names profiles use beside the numbers, such as BTN_SOUTH and ABS_X. A
+controller that cannot say what it has shows its controls by name as they
+are used.
 While HIDI is off, what is pressed shows in grey.
 
 Every keyboard has the sign of OpenRGB, a ring of colours, beside "show". It is
@@ -230,8 +239,8 @@ instruments. A click beside the sheet closes it.
 
 ![The settings](docs/images/gui-settings.png)
 
-What is in `settings.toml` can be changed there, in sections: turning HIDI
-on and off, the devices, MIDI, the lights, the window, and the profiles.
+What is in `settings.toml` can be changed there, in sections: state
+control, the window, the devices, MIDI, the lights, and the profiles.
 A change is in use at once: the running HIDI follows it as you make it, so
 turning on the lights lights them, and a colour changes on the keyboard
 while its slider moves. It is not written, though, until you save, with the
@@ -243,13 +252,17 @@ that it is not saved, when it opens again. A few settings matter only when
 HIDI starts, and say so. A setting that only the other system has is shown
 greyed out.
 
-- "Change" beside the toggle combination takes a new one from the keyboard:
-  press the keys together and let go. One key alone works too, and can then
-  be made to work by a tap.
+- "One toggle for every device" shows "by profile" as HIDI comes: each
+  profile says which key turns HIDI off and on. "Set one" takes a key, or
+  several pressed together, from the keyboard and makes it the toggle for
+  all devices; "Use the profiles'" goes back.
+- "Pass the toggle key through to the system when held": a toggle of one
+  key works by a tap, and held longer the key does what it normally does.
 - "Devices that play" chooses which devices become instruments: with
   "blacklist" every one except those you tick, with "whitelist" only those
   you tick. The list has the devices that are connected and, after them and
-  in grey, those HIDI has seen before.
+  in grey, those that were unplugged since HIDI started and those the
+  settings name.
 - "Also send to MIDI ports" lists the MIDI ports that exist. A click on one
   makes every instrument send there as well.
 - "OpenRGB server" is where the lights are sent: an address and a port.
@@ -261,7 +274,7 @@ greyed out.
   from 85 % to 200 %. The window follows at once, and keeps the size when
   you save.
 - "The toggle key is HIDI's alone" keeps a toggle of one key, such as Caps
-  Lock, from the rest of the system altogether.
+  Lock, from the rest of the system altogether, held or tapped.
 - "Look for a newer HIDI" lets the window ask GitHub once a day whether
   there is a newer release. It is off unless you turn it on. The answer is
   in the lower right corner of the window, grey while HIDI is up to date
@@ -285,29 +298,62 @@ is unfocused" lowers it only while another window is in use.
 
 "Edit profile" on an instrument, or "Edit" beside a profile in the settings,
 opens the profile. A factory profile is shown and cannot be changed;
-"Customise" on its page makes the copy of your own that can. The page
-shows the numbers an instrument starts with, the layouts, and
-what every control does. A keyboard's profile is drawn as a keyboard,
-coloured by what the keys do; other profiles list their buttons and axes.
-Drag a control onto another to move what it does there, and hold Ctrl
-while doing so to copy it instead. The right mouse button empties a control;
-with Ctrl it leaves a key to the system.
+"Customise Default" on its page makes the copy of your own that can. The
+page shows the numbers an instrument starts with, the layouts, and what
+every control does, with what the device is doing at this moment laid over
+it.
+
+A keyboard's profile is drawn as a keyboard, coloured by what the keys do,
+and the keys that are down are marked. Keys the drawing has no place for,
+media keys for one, show up in a row "Other keys" once they have been
+pressed, and are changed like the rest.
+
+A game controller's profile has three groups:
+
+- **Buttons** are chips, lit while pressed: the number of the button,
+  "=>", and what it does ("12 => C2").
+- **Axes** are lines: the number, a bar for where the axis stands, "=>",
+  and what it is mapped to. A controller ("cc16") or the pitch bend
+  ("PB") is a chip that fills by the value it would send; a note or a
+  command lights up once the axis is past its trigger point.
+- **Hats** are lines with their two directions as two chips, each a
+  button of its own.
+
+Numbers are the ones the main page shows. With "Name the controls of game
+controllers" the names profiles use stand beside them.
+
 Click a control, or press it on the device, and make it play a note, send a
-controller, run a command, or do nothing. An axis sends a controller or
-bends the pitch, and has switches for resting in the middle and for being
-reversed, and a dead zone.
+controller, run a command, or do nothing. Drag one onto another to move
+what it does there, and hold Ctrl while doing so to copy it instead. The
+right mouse button empties a control; with Ctrl it leaves a key to the
+system. Among the commands of a key is `hidi_toggle`, which makes it the
+key that turns HIDI off and on for devices with this profile.
+
+An axis can be anything a button can, and more:
+
+- a controller or the pitch bend, with "rests in the middle" for a stick
+  (a dead zone is then around the middle, the pitch bends both ways from
+  there, and a controller counts 64 as its rest), "reversed", and a dead
+  zone;
+- a note or a command, triggered when the axis passes a point you set
+  ("triggers at", half of its way unless changed);
+- two halves bound apart. "Split into two halves" turns a controller into
+  two, one for each direction from the middle, so that a stick at rest
+  sends 0 on both instead of 64 on one; each half is then chosen by its
+  chip and changed like a button. "Join the halves" is the way back.
 
 With a game controller connected, the page lists everything the controller
-has, with its number. Most of it has no line in the profile and plays "by
-its number"; changing such a control writes a line for it, and emptying it
-writes that it does nothing.
+has. Most of it has no line in the profile and plays "by its number";
+changing such a control writes a line for it, and emptying it writes that
+it does nothing.
 
 ![The profile of one game controller, with what each control does](docs/images/gui-controller.png)
 
-A change to the profile for game controllers applies to all of them. "Only
-for" with the name of a device, at the top of the page, makes a profile of
-your own for that product alone, out of what the page shows, and opens it.
-The device plays with it from then on; the others stay as they were.
+A change to the profile for game controllers applies to all of them.
+"Customise for specific device", at the top of the page, unfolds the
+devices that play with the profile; a click on one makes a profile of your
+own for that product alone, out of what the page shows, and opens it. The
+device plays with it from then on; the others stay as they were.
 
 ![Changing a keyboard's profile](docs/images/gui-profile.png)
 
@@ -330,9 +376,9 @@ The keys for all this reach the window only while the keyboard is not
 HIDI's alone: turn HIDI off, or use the buttons.
 
 Saving changes the lines that changed and nothing else: notes you wrote into
-the file by hand stay. Program changes, keys that need a modifier, the two
-directions of an axis bound apart, and the options of a note are shown where
-they apply and changed in the file. So is making a new profile.
+the file by hand stay. Program changes, keys that need a modifier and the
+options of a note are shown where they apply and changed in the file. So is
+making a new profile.
 
 The window needs 64-bit Linux or Windows with OpenGL 3.3.
 
@@ -368,8 +414,8 @@ same for `hidi` and `hidi --headless`, and each overrides its setting in
 |---|---|
 | `--headless` | Run the instruments only, without the icon and the window. |
 | `--window` | Open the window at once. |
-| `--toggle KEYS` | Use another toggle, such as `--toggle KEY_SCROLLLOCK` or `--toggle KEY_LEFTCTRL+KEY_RIGHTCTRL`. Several keys are pressed together and not tapped. |
-| `--toggle-tap` | The toggle is one key and works by a tap, as it does unless the settings say otherwise. |
+| `--toggle KEYS` | One toggle for every device, in place of the profiles' own: `--toggle KEY_SCROLLLOCK`, or `--toggle KEY_LEFTCTRL+KEY_RIGHTCTRL` for keys pressed together. |
+| `--toggle-tap` | A toggle of one key works by a tap, as it does unless the settings say otherwise. |
 | `--always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
 | `--no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `--grab-gamepads` | Also take game controllers away from other programs. |
@@ -397,7 +443,7 @@ From another terminal, or from a script:
 |---|---|
 | `hidi status` | Show the instruments and their state. |
 | `hidi monitor` | The same, kept up to date, with the end of the log. |
-| `hidi off`, `hidi on`, `hidi toggle` | Turn HIDI off or on, like the toggle combination. |
+| `hidi off`, `hidi on`, `hidi toggle` | Turn HIDI off or on, like the toggle. |
 | `hidi gui` | Open the window. |
 | `hidi tray` | Show an icon for a HIDI that runs without one. |
 | `hidi devices` | List the input devices and the profile each would use. |
@@ -422,12 +468,17 @@ instance.
 On its first start HIDI creates its directory, `~/.config/HIDI` on Linux and
 `%AppData%\HIDI` on Windows:
 
-- `settings.toml` holds HIDI's own settings: the toggle, what is grabbed,
-  where else to send, the window.
+- `settings.toml` holds HIDI's own settings: what is grabbed, where else to
+  send, the lights, the window.
 - `profiles` holds one file for each kind of device, which says what its
   keys, buttons and axes do: in `profiles/factory` those HIDI comes with,
   which it keeps as they are, and in `profiles/user` your own, which come
   first.
+
+Nothing else is kept there. What HIDI notes for itself, which files it
+wrote and how the window was left, is in a directory of its own that stays
+on the machine: `%LocalAppData%\HIDI` on Windows, `~/.local/state/HIDI` on
+Linux.
 
 `hidi config` shows where they are, and the settings in the window have a
 button that opens the directory. To change what a device plays, make a copy
@@ -530,7 +581,7 @@ gives HIDI a console window of its own, which suits a shortcut:
 ### What is different from Linux
 
 - **No keyboard types while HIDI is on.** Windows cannot keep one keyboard
-  from typing and let another type. The toggle combination gives them all
+  from typing and let another type. The toggle gives them all
   back.
 - **A grabbed keyboard is told apart by where you last typed.** While
   keyboards are kept from typing, Windows does not say which keyboard a key
@@ -543,7 +594,10 @@ gives HIDI a console window of its own, which suits a shortcut:
   `--grab-gamepads` has no effect.
 - **Xbox controllers**, and those that imitate one, are read through XInput
   and are all named "Xbox controller"; Windows knows four of them at most.
-  Every other controller is read as the HID device it is.
+  Every other controller is read as the HID device it is, with every button
+  it has: a stick with a hundred and twenty-eight, of which a modifier
+  brings up the upper ones, has them all. (Linux itself stops at eighty
+  buttons for a joystick.)
 - Sending to existing MIDI ports (`--connect`, `hidi ports`) and receiving
   notes for the lights are not there yet.
 

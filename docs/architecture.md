@@ -255,6 +255,12 @@ settings in `settings.toml`, and the profiles as files in `profiles`. The two
 are kept apart on purpose: a profile says how one kind of device plays, the
 settings say how HIDI behaves.
 
+What HIDI notes for itself is kept apart from both, in a state directory
+(`%LocalAppData%\HIDI`, `$XDG_STATE_HOME/HIDI`): the record of the files
+it wrote, by which it knows a directory for its own, and how the window
+was left. On Windows the settings follow the user between machines and
+this does not. Nothing is kept about the devices HIDI has met.
+
 HIDI carries its default settings and profiles inside the binary. The
 profiles are written into `profiles/factory` and kept there exactly as the
 binary has them, on every start: missing ones written, differing ones
@@ -399,6 +405,15 @@ rule sees nothing but the device's own list, in the order of its codes, the
 same device gets the same instrument on every start, and the window can
 work out for itself what the running HIDI plays.
 
+What turns HIDI off and on is a command of the profile, `hidi_toggle`, and
+the one command the engine does nothing for: the engine does not run while
+HIDI is off, which is when the key matters most. The parser lifts the keys
+of that binding out of the profile (`config.Profile.Toggle`), and the
+manager makes them the rule for each device that plays with the profile,
+unless the settings name one toggle for all. The loop of the device watches
+the keys in both states, as it always did. A keyboard for which the rule
+comes out empty is not grabbed.
+
 The settings in use are the running HIDI's (`liveSettings` in `cmd/hidi`),
 not the file's and not the window's. They start as the file's. The window
 hands over what its sheet shows, change by change, and asks for them when
@@ -427,6 +442,12 @@ Whether a page has something to save is asked of the profiles, not of the
 text: `config.Same` compares what is shown with what the file says as
 parsed profiles, setting aside the order of lines. A change that is taken
 back by hand leaves nothing to save.
+
+The page names what it changes by a `Spot`: a control, or one half of an
+axis. One function writes a role out as the right side of a binding, and
+every change goes through it. What a position of an axis would send is
+reckoned with the engine's own shaping (`engine.Source.Shape`), which is
+how the page shows values while HIDI is off.
 
 The window's own widgets are a small kit over raylib (`kit` in `ui/gui`):
 buttons, switches, fields and steppers that take the pointer and the scale

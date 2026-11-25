@@ -51,7 +51,7 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (24 November 2026)
+## Where things stand (25 November 2026)
 
 `dev` holds everything up to the review of the whole code (pull requests
 50 and 51). One pull request is open on top of it:
@@ -63,9 +63,11 @@ completes or changes an item.
   saving, learning mode, the Steam Controller, and then factory and user
   profiles, settings that are saved on purpose, HIDI's icon, the check for
   updates, and a Windows program without a console that carries its icon.
-  Since then, the rounds below: the newest is the ninth, with new
-  defaults, settings that the running HIDI holds, and one factory profile
-  for every game controller.
+  Since then, the rounds below: the ninth, with new defaults, settings
+  that the running HIDI holds, and one factory profile for every game
+  controller; and the tenth, with the profile page finished for axes, the
+  toggle as a command of the profile, and HIDI's own notes out of the
+  settings.
 
 Apart from HIDI itself: a change to raylib's Win32 backend is on the
 maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
@@ -83,6 +85,28 @@ move.
 is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
+
+### Tenth round (25 November 2026): what was reported, and what was done
+
+| Reported or asked for | Done |
+|---|---|
+| The Gladiator's second set of buttons, brought up by a modifier, does nothing | Ours. Buttons past the 56th had no code: the table stopped at the last code Linux names. They now run on through all of Linux's codes and past them (`KEY_0x300` and up), so a stick with 128 buttons has them all. Linux itself stops at 80 for a joystick. **Not tried on Windows.** |
+| `.devices.json` has to go | Gone. The settings offer the devices seen since HIDI started. |
+| The "note" in `.written.json` has to go | Gone. |
+| No state in the settings; state belongs in the local application data | A state directory, `%LocalAppData%\HIDI` and `$XDG_STATE_HOME/HIDI`: the record of written files, and `window.json` for what the window shows of which instrument. `show_input` and `show_output` are no settings any more. A directory named with `--config` keeps its state in `.state` inside itself. |
+| "On and off" is "State control"; the switch for tapping renamed; the window's settings second | Done as asked. |
+| The output view shows the controllers and the pitch bend | A bar each, labelled "cc16" and "PB", with the value last sent (0 to 127; -100% to +100%), in the order of the axes that drive them. |
+| The profile page shows what the device does | Keys and buttons that are down are marked; axes have a bar; mappings fill by the value they would send or light up past their trigger point. Keys beyond the drawn keyboard appear once pressed. |
+| Numbers always, names added | On the profile page and the main page. |
+| "=>" between a control and what it does | Done. |
+| No octave and layout on the hat | The hat's directions are buttons in the pool the rule fills. Pitch bend on Y stays. |
+| "Customise Default"; one button for the devices | "Customise for specific device" unfolds them. |
+| Buttons, axes and hats apart | Three groups. |
+| What does "rests in the middle" do | It says the axis is a stick: a dead zone is then around the middle, the pitch bends both ways from there, and a controller counts 64 as its rest, to which it returns when channel or layout change. Without a dead zone a controller sends the same values either way. The page says so beside the switch. |
+| Split into two controllers | "Split into two halves": one controller for each direction from the middle, 0 at rest. Also splits the pitch bend into up and down. "Join the halves" goes back. |
+| Hats configurable like buttons | Each direction is chosen by its chip and changed like a button. |
+| An axis as a button at a threshold, or as two | `threshold` on a binding, "triggers at" on the page; halves as above. |
+| `hidi_toggle` as a command of the profile | Built: one binding in `[global]`, the setting as an override for all devices, tapping and "HIDI's alone" left as settings, and a keyboard without a toggle not taken from the system, said in the log and on its card. |
 
 ### Ninth round (24 November 2026): what was reported, and what was done
 
@@ -139,7 +163,8 @@ asked why the profiles for single products were still there.
   code: the pads of a Steam Controller use the hat codes and are no hats.
 - The four profiles for single products are examples now, in
   `docs/examples/profiles`.
-- "Only for <device>" on a profile's page makes a profile of the user's
+- A button on a profile's page ("Only for <device>" then, "Customise for
+  specific device" since the tenth round) makes a profile of the user's
   for that vendor and product, out of what the page shows.
 
 Decided on the way, and the maintainer's to overturn:
@@ -212,7 +237,7 @@ be tried.
 ### Smaller things about profiles, none of them built
 
 - Renaming a profile from the window.
-- The same "Only for" from an instrument's card on the main page.
+- A profile for one device from an instrument's card on the main page.
 - Saying on the card why this profile was chosen for this device, where
   two fit.
 
@@ -264,12 +289,22 @@ To be tried on Windows, none of which has run there:
   Controller, which now lists its controls, and an Xbox controller.
 - That nothing is sent for an axis when HIDI is turned on before the axis
   was touched: no pitch bent down at the start.
-- "Only for <device>" on the page of the game-controller profile: the
+- "Customise for specific device" on the page of the game-controller
+  profile: the
   file it makes, and that the device plays with it within a few seconds.
 - Settings in use at once and not saved: OpenRGB on and off, a colour
   following its slider, and that saving changes nothing that is heard or
   seen.
 - A frame limit of 30 and of 15: is motion even on a real monitor.
+- The Gladiator's upper buttons with the modifier held: do they show, with
+  numbers above 55, and play.
+- The toggle from the profile: Caps Lock as before; a keyboard with a
+  profile of one's own without `hidi_toggle` keeps typing and says so;
+  "One toggle for every device" set and taken back in the settings.
+- The profile page with real devices: marks and bars following the
+  device, split and join, a hat direction changed, a threshold.
+- That `%AppData%\HIDI` holds only the settings and the profiles after a
+  start, and `%LocalAppData%\HIDI` the rest.
 
 To be tried with a keyboard OpenRGB lights, which was not at hand: that a
 released key goes dark at once, how fast the lights follow while playing,
@@ -294,22 +329,12 @@ To be decided:
 - Whether the raylib change goes to raylib, and when HIDI moves to
   raylib-go 0.63.
 - Whether the rest of the profile editor belongs in 2.0.
-- The toggle as a command of a profile. The maintainer's idea: a profile
-  binds `hidi_toggle` to a key, or to a combination, like any other
-  command, and the setting stays as a way to name one key for everything.
-  What it needs: the toggle is handled outside the engine, which is not
-  run while HIDI is off, so an instrument would have to watch its
-  profile's toggle bindings itself in both states; tapping and keeping the
-  key from the system would become options of that binding, or stay
-  settings; and a keyboard that is grabbed with a profile that has no
-  toggle needs a way out, by refusing to grab it or by a combination that
-  always works. Not started.
 - What the generated mapping gives; see "One generated mapping" above.
 
 ### Left to do
 
-- The rest of configuring in the window: the two halves of an axis bound
-  apart, program changes, keys with modifiers, the options of a note,
+- The rest of configuring in the window: program changes, keys with
+  modifiers (a toggle of several keys among them), the options of a note,
   renaming a layout or a profile, a new profile from nothing.
 - A profile that is tried and not saved stays in use if the window ends
   without a word, by a crash for one, until its file changes or HIDI

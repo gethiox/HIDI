@@ -15,6 +15,19 @@ HIDI/
     user/          your own profiles, which come before the factory ones
 ```
 
+What HIDI notes for itself is not in this directory: which files it wrote
+there, and how the window was left (which instruments show their input and
+output). That is state, not something you set, and it stays on the machine:
+
+| System | Directory |
+|---|---|
+| Linux | `~/.local/state/HIDI` (or under `$XDG_STATE_HOME`) |
+| Windows | `%LocalAppData%\HIDI` |
+
+A directory named with `--config` that is not the usual one keeps its state
+in a directory `.state` inside itself. HIDI keeps no list of the devices it
+has met: the settings offer the devices seen since it started.
+
 `hidi config` prints these places. The `--config DIR` option of every command
 names another directory, and `--config ""` uses no directory at all: HIDI then
 runs with what it comes with.
@@ -30,7 +43,8 @@ settings with their defaults, and the profiles HIDI comes with in
   itself. A profile of yours is used before a factory profile that fits a
   device as well, so the way to change how a device plays is a copy of its
   factory profile in `profiles/user`. "Customise" in the window makes that
-  copy, and "Only for ..." makes one for a single product.
+  copy, and "Customise for specific device" makes one for a single
+  product.
 - A directory from an earlier HIDI 2, with the profiles in `profiles`
   itself, is brought into this shape on the first start: files HIDI wrote
   and you did not change are dropped, since `factory` has them, and the
@@ -67,7 +81,7 @@ something else is handed to it:
 schema = 1
 
 [input]
-toggle = ["KEY_CAPSLOCK"]
+toggle = []
 grab_keyboards = true
 grab_gamepads = false
 start_on = false
@@ -106,19 +120,17 @@ show_at_start = true
 fps = 0
 background_fps = 0
 scale = 100
-show_input = []
-show_output = []
 check_updates = false
 control_names = false
 ```
 
 | Setting | Meaning | Option |
 |---|---|---|
-| `input.toggle` | The keys that, pressed together on one device, turn HIDI off and on. An empty list means no combination. | `--toggle` |
-| `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. Needs a toggle combination. | `--no-grab` |
+| `input.toggle` | One toggle for every device: a key, or several to be pressed together, that turns HIDI off and on whatever the profiles say. Empty, as HIDI comes, leaves it to the profiles, each of which binds a key to `hidi_toggle`. | `--toggle` |
+| `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. A keyboard that has no toggle, by its profile or by the setting above, is left typing all the same: nothing on it could turn HIDI off again. HIDI says so in its log and on the instrument's card. | `--no-grab` |
 | `input.grab_gamepads` | Also keep game controllers from other programs. | `--grab-gamepads` |
 | `input.start_on` | Whether HIDI is on when it starts. | `--on`, `--off` |
-| `input.toggle_tap` | The toggle is one key and works by a tap. See below. | `--toggle-tap` |
+| `input.toggle_tap` | A toggle of one key works by a tap, and held longer the key does what it normally does. See below. | `--toggle-tap` |
 | `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
 | `input.toggle_exclusive` | A toggle of one key is HIDI's alone: the key never reaches the rest of the system, held or tapped, while HIDI is on or off. For a key such as Caps Lock that should only toggle. On Linux keyboards are then kept grabbed as with `always_grab`. | |
 | `input.learn_threshold` | How far an axis has to move to get through in learning mode, in hundredths of its range, 1 to 100. See the `learn` command. | |
@@ -130,27 +142,27 @@ control_names = false
 | `lights.colours` | The colours of the keys, each as `"#rrggbb"`. See below. | |
 | `window.show_at_start` | Open the window when HIDI starts; without it HIDI starts as an icon in the tray. | |
 | `window.check_updates` | Let the window ask GitHub, once when it opens and once a day after, whether a newer HIDI has been released. The answer is shown in the lower right corner; a click opens the release. Nothing is installed, and the request says nothing but the version of HIDI that asks. Off unless turned on. | |
-| `window.control_names` | Show the buttons and axes of game controllers by the names profiles use for them, such as `BTN_SOUTH`. Without it the window numbers them from 0, in an order that is the same whenever a controller of that kind is plugged in. | |
+| `window.control_names` | The window numbers the buttons and axes of game controllers from 0, in an order that is the same whenever a controller of that kind is plugged in. With this the names profiles use, such as `BTN_SOUTH`, stand beside the numbers. | |
 | `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
 | `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
 | `window.scale` | The size of everything the window draws, in hundredths of its ordinary size, 50 to 300. | |
-| `window.show_input`, `window.show_output` | The instruments whose input and whose notes are drawn in the window, each as `"name \| kind \| where it is plugged in"`, so that two devices of one name are apart. The window keeps these lists itself. | |
 
-What a fresh HIDI does, then: Caps Lock turns it off and on with a tap and
-does nothing else any more, HIDI starts turned off with its window open, so
-that the keyboard types until it is asked to play.
+What a fresh HIDI does, then: Caps Lock, which the keyboard profile binds
+to `hidi_toggle`, turns it off and on with a tap and does nothing else any
+more, and HIDI starts turned off with its window open, so that the keyboard
+types until it is asked to play.
 
-Three of the defaults go with a toggle of one key. A file that names a
-toggle of its own and says nothing more gets what fits it: a combination of
-several keys is not tapped and not kept from the system, and with no toggle
-at all HIDI starts on. `--toggle` on the command line does the same.
+`toggle_tap` and `toggle_exclusive` are about a toggle of one key, wherever
+it comes from. A toggle of several keys is pressed, and neither applies.
 
 A setting that only one system has, `always_grab` for one, is shown on the
 sheet of the other system too, greyed out and not to be changed there.
 
-`window.log_height` was a setting of earlier HIDI 2 builds. A file that
-still has it is read without complaint, and the line is gone the next time
-HIDI writes the file: the window always opens with the log folded away.
+`window.log_height`, `window.show_input` and `window.show_output` were
+settings of earlier HIDI 2 builds. A file that still has them is read
+without complaint, and the lines are gone the next time the file is saved:
+the window always opens with the log folded away, and which instruments
+show their input and output is kept with HIDI's state.
 
 #### The colours of the lights
 
@@ -173,10 +185,17 @@ those sixteen colours are fixed.
 
 #### One key that turns HIDI off and on
 
-This is how HIDI comes:
+This is how HIDI comes: the keyboard profile says
 
 ```toml
-toggle = ["KEY_CAPSLOCK"]
+[global]
+KEY_CAPSLOCK = "hidi_toggle"
+```
+
+and the settings say
+
+```toml
+toggle = []
 toggle_tap = true
 toggle_exclusive = true
 ```
@@ -184,8 +203,12 @@ toggle_exclusive = true
 Tap the key, pressed and let go within half a second, and HIDI turns off or
 on. The key plays nothing any more. Hold it longer and it does not toggle.
 
-Several keys pressed together work too, and need neither of the other two
-settings: `toggle = ["KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT"]`.
+Another key is another line in a profile of your own, and several keys
+pressed together are written as a combination:
+`"KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT" = "hidi_toggle"`. A profile has one
+such line, in `[global]`, since the toggle has to work in every layout and
+while HIDI is off. `toggle = ["KEY_SCROLLLOCK"]` in the settings names one
+toggle for every device instead, and the profiles' are then not looked at.
 
 What the rest of the system sees of that key differs:
 
@@ -254,10 +277,10 @@ the copying and opens the copy. That copy is for every device of the kind,
 as the factory profile is.
 
 For one device to play differently from the others of its kind, it needs a
-profile that names it. On the page of a profile in the window, each device
-that is playing with that profile has a button "Only for" with its name. It
-makes a profile of yours that is the one shown, named after the device, for
-that product alone:
+profile that names it. On the page of a profile in the window, "Customise
+for specific device" unfolds the devices that are playing with that
+profile. A click on one makes a profile of yours that is the one shown,
+named after the device, for that product alone:
 
 ```toml
 [match]
@@ -448,8 +471,9 @@ BTN_TL = "nothing"
 ```
 
 The factory profile for game controllers is little more than this rule: it
-names the commands on select, start and the middle button, pitch bend on
-the stick, and octave and layout on the first hat.
+names the commands on select, start and the middle button, and pitch bend
+on the stick. The hats are left to the rule, their directions buttons like
+the others.
 
 ## Layouts and global bindings
 
@@ -547,12 +571,29 @@ and any of these options:
 | Option | Meaning |
 |---|---|
 | `channel_offset` | Added to the current channel, 0 to 15, wrapping around after channel 16. It lets one layout play several channels that move together with the channel commands. |
-| `centered` | Set to `true` for an axis that rests in the middle of its travel, such as a stick. The dead zone is then placed around the middle, and pitch bend treats the middle as no bend. Not needed with the `+` and `-` forms. |
+| `centered` | Set to `true` for an axis that rests in the middle of its travel, such as a stick. The dead zone is then placed around the middle, pitch bend treats the middle as no bend and bends both ways from there, and a controller counts 64 as its rest, to which it returns when a change of channel or layout takes the axis away. Without a dead zone a controller sends the same values either way. Not needed with the `+` and `-` forms. |
 | `invert` | Set to `true` to reverse the direction of the control. |
 | `deadzone` | The fraction of travel next to the rest position to ignore, from 0 up to 1. |
+| `threshold` | For a note, a program change or a command on an axis: how far the axis has to move for it to trigger, from above 0 to below 1; half of the way unless set. Of the half, for the `+` and `-` forms, and of what is left after the dead zone. |
 
 Notes and commands work on axes too: they trigger when the axis passes half of
-its travel.
+its travel, or the point `threshold` names:
+
+```toml
+ABS_Z = { note = "C3", threshold = 0.2 }                # a trigger as a pad
+"ABS_X+" = { command = "octave_up", threshold = 0.8 }   # a stick pushed far right
+```
+
+The two halves of an axis can each send a controller of their own, which
+is how a stick that springs back to the middle sends 0 at rest and not 64:
+
+```toml
+"ABS_RX+" = { cc = 20 }
+"ABS_RX-" = { cc = 21 }
+```
+
+"Split into two halves" on the page of a profile in the window writes
+that.
 
 ### Commands
 
@@ -566,6 +607,7 @@ its travel.
 | `panic` | Silence everything on every channel the instrument has played on. |
 | `chord` | Remember a chord, or forget it. See below. |
 | `learn` | Turn learning mode on, or off: axes stand still until they are moved far. See below. |
+| `hidi_toggle` | Turn HIDI off and on, for all instruments. One for a profile, in `[global]`, on a key or on several pressed together. See "One key that turns HIDI off and on". |
 
 Holding both commands of an up/down pair at once resets that value to its
 default.
