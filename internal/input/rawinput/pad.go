@@ -73,7 +73,14 @@ const (
 	btnThumbL       = 0x13d
 	btnThumbR       = 0x13e
 	btnTriggerHappy = 0x2c0
-	btnTriggerLast  = 0x2e7
+	// btnLast is the last key code Linux has (KEY_MAX). The kernel gives
+	// the buttons of a controller codes up to there, eighty of them for
+	// a joystick, and drops the rest. Windows reports every button, so
+	// those past it get the numbers after it, which no Linux name
+	// stands for: btnBeyond and up, to btnEnd.
+	btnLast   = 0x2ff
+	btnBeyond = 0x300
+	btnEnd    = 0x7ff
 )
 
 // isGameController reports whether a top-level HID usage is one of the
@@ -145,10 +152,7 @@ func (l layout) button(n uint16, joystick bool) (uint16, bool) {
 		if int(i) < len(named) {
 			return named[i], true
 		}
-		if code := btnTriggerHappy + (i - uint16(len(named))); code <= btnTriggerLast {
-			return code, true
-		}
-		return 0, false
+		return extraButton(i - uint16(len(named)))
 	}
 	if i < 16 {
 		if joystick {
@@ -156,8 +160,21 @@ func (l layout) button(n uint16, joystick bool) (uint16, bool) {
 		}
 		return btnSouth + i, true
 	}
-	if code := btnTriggerHappy + (i - 16); code <= btnTriggerLast {
-		return code, true
+	return extraButton(i - 16)
+}
+
+// extraButton returns the code of the k-th button, counted from zero,
+// after those that have a place of their own: the codes Linux gives such
+// buttons while it has any, and the numbers past all of Linux's after
+// that. A stick with a hundred and twenty-eight buttons, of which a
+// modifier brings up the upper ones, has every one of them.
+func extraButton(k uint16) (uint16, bool) {
+	const linux = btnLast - btnTriggerHappy + 1
+	switch {
+	case k < linux:
+		return btnTriggerHappy + k, true
+	case k-linux <= btnEnd-btnBeyond:
+		return btnBeyond + (k - linux), true
 	}
 	return 0, false
 }
