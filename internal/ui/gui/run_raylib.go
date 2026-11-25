@@ -257,7 +257,7 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 		w.gear.set(true, time.Now())
 	}
 	if opts.EditProfile != "" {
-		w.editProfile(opts.EditProfile)
+		w.editProfile(opts.EditProfile, "")
 	}
 	started := time.Now()
 	var seen uint64
@@ -601,6 +601,17 @@ func (w *window) switchHIDI() {
 
 // ask asks HIDI for something without making the drawing wait for the
 // answer; the new state arrives like every other.
+// reload asks the running HIDI to look at its profile files now, after the
+// window wrote or removed one: by itself HIDI notices within a second or
+// two, which is long to wait for a click to show.
+func (w *window) reload() {
+	go func() {
+		ctx, cancel := context.WithTimeout(w.ctx, 2*time.Second)
+		defer cancel()
+		w.hidi.Reload(ctx)
+	}()
+}
+
 func (w *window) ask(what func(context.Context)) {
 	select {
 	case w.toggling <- struct{}{}:
@@ -683,7 +694,7 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		label := "Edit profile"
 		right -= width(w.sans, label, sizeText) + 20
 		if hit, end := w.button(label, right, r.Y+9); hit {
-			w.editProfile(in.ProfileFile)
+			w.editProfile(in.ProfileFile, EntryKey(in))
 		} else if w.unsaved(in.ProfileFile) {
 			rl.DrawCircleV(rl.NewVector2(end-2, r.Y+11), 4.5, col(colUnsaved))
 		}
@@ -1002,12 +1013,18 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 		bar := rl.NewRectangle(float32(int(ax+labelW+8)), ay+(axisRowH-axisBarH)/2, cell-axisGap-labelW-16-valueW, axisBarH)
 		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
 		value := float32(min(max(a.Value, 0), 1))
-		if filled := bar.Width * value; filled >= 1 {
+		if filled := bar.Width * value; filled >= 1 && a.Known {
 			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, filled, bar.Height), 1, 4, col(w.pressed()))
 		}
 		// A mark in the middle, where a stick rests.
 		rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
-		w.text(w.mono, fmt.Sprintf("%.2f", a.Value), bar.X+bar.Width+8, ay+3, axisSize, col(colText))
+		// An axis the device listed and has said nothing of stands
+		// nowhere that is known.
+		shown, ink := fmt.Sprintf("%.2f", a.Value), colText
+		if !a.Known {
+			shown, ink = "  – ", colFaint
+		}
+		w.text(w.mono, shown, bar.X+bar.Width+8, ay+3, axisSize, col(ink))
 	}
 }
 

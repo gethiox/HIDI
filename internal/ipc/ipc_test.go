@@ -28,6 +28,7 @@ type fakeHost struct {
 	previewed [2]string
 	// simulated is the last request to show lights, as one text.
 	simulated string
+	reloads   int
 }
 
 func (h *fakeHost) host() Host {
@@ -61,6 +62,11 @@ func (h *fakeHost) host() Host {
 			h.simulated = "settings of " + fmt.Sprint(len(text))
 			h.mu.Unlock()
 			return nil
+		},
+		Reload: func() {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.reloads++
 		},
 		Simulate: func(name, kind, location string, on bool) {
 			h.mu.Lock()
@@ -580,5 +586,21 @@ func TestCurrentSettings(t *testing.T) {
 	got, err := client.Settings(t.Context())
 	if err != nil || got != "schema = 1\n# as HIDI has them\n" {
 		t.Errorf("Settings = %q, %v", got, err)
+	}
+}
+
+// Asked to, the host looks at its profile files.
+func TestReload(t *testing.T) {
+	h, client, _ := start(t)
+	for range 2 {
+		if err := client.Reload(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.mu.Lock()
+	got := h.reloads
+	h.mu.Unlock()
+	if got != 2 {
+		t.Errorf("the host looked %d times, want 2", got)
 	}
 }

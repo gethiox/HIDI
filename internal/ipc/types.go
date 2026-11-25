@@ -180,6 +180,9 @@ type Axis struct {
 	// Hat says that the device calls the axis one of a hat: it rests in
 	// the middle or at an end.
 	Hat bool `json:"hat,omitempty"`
+	// Known says that the device has reported where the axis stands. An
+	// axis the device only listed has not, and its Value means nothing.
+	Known bool `json:"known,omitempty"`
 }
 
 // LogLine is one line of the running HIDI's log.
@@ -247,6 +250,10 @@ type Host struct {
 	// an instrument, named as a snapshot names it. Nil for a host that
 	// cannot.
 	Simulate func(name, kind, location string, on bool)
+	// Reload makes HIDI look at its profile files now, where it would
+	// otherwise notice a change within a second or two. Whoever wrote
+	// one asks for it. Nil for a host that does not follow its files.
+	Reload func()
 	// TrySettings makes HIDI go by the settings in text, written as the
 	// settings file is, without anything being saved: the window hands
 	// over what the user changes there. Settings returns the settings

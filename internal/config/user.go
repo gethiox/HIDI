@@ -148,19 +148,26 @@ func WriteBuiltin(dir string) (written, skipped []string, err error) {
 //
 // load reads the profiles anew; it is [Load] of the directory, or
 // [LoadDir] where the built-in profiles are not wanted beside it.
-func Watch(ctx context.Context, dir string, interval time.Duration, load func() ([]*Profile, []Problem, error), changed func([]*Profile, []Problem)) {
+//
+// A value on look makes it look at once and take what is there without
+// waiting for it to settle: whoever sends it has written a file whole and
+// says so, where an editor that saves is only noticed. look may be nil.
+func Watch(ctx context.Context, dir string, interval time.Duration, look <-chan struct{}, load func() ([]*Profile, []Problem, error), changed func([]*Profile, []Problem)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	loaded := fingerprint(dir)
 	seen := loaded
 	for {
+		told := false
 		select {
 		case <-ctx.Done():
 			return
+		case <-look:
+			told = true
 		case <-ticker.C:
 		}
 		now := fingerprint(dir)
-		settled := now == seen
+		settled := now == seen || told
 		seen = now
 		if !settled || now == loaded {
 			continue

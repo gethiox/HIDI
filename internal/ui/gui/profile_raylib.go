@@ -52,13 +52,25 @@ type editor struct {
 	// offering says that the list of devices that can have a profile
 	// of their own is unfolded.
 	offering bool
+	// saved says that the file was written in this frame; the running
+	// HIDI is then asked to look at it at once.
+	saved bool
+	// device names the instrument the page was opened for, as
+	// [EntryKey] does: the page shows what that device has and does.
+	// Empty where it was opened for none, from the list of profiles.
+	device string
 }
 
-// editProfile opens the page for a profile file.
-func (w *window) editProfile(path string) {
-	// A page that was left with changes on it is as it was left.
+// editProfile opens the page for a profile file, for the instrument that
+// device names by its [EntryKey], or for none in particular.
+func (w *window) editProfile(path, device string) {
+	// A page that was left with changes on it is as it was left, and
+	// shown for the device it is opened for now.
 	if e := w.docs[path]; e != nil {
 		w.edit = e
+		if device != "" && device != e.device {
+			e.device, e.chosen = device, false
+		}
 		return
 	}
 	doc, err := OpenProfile(path)
@@ -71,7 +83,7 @@ func (w *window) editProfile(path string) {
 		return
 	}
 	doc.ReadOnly = IsFactory(path, w.opts.Paths)
-	w.edit = &editor{doc: doc, layout: doc.DefaultLayout(), held: map[string]bool{}}
+	w.edit = &editor{doc: doc, layout: doc.DefaultLayout(), held: map[string]bool{}, device: device}
 	if w.docs == nil {
 		w.docs = map[string]*editor{}
 	}
@@ -115,8 +127,15 @@ func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y, left, righ
 	row := newFlow(left, right, y+32, 30, 8)
 	for _, device := range can {
 		label := fit(w.sans, device.Name, sizeText, 260)
-		bx, by := row.put(width(w.sans, label, sizeText) + 20)
-		if hit, _ := w.button(label, bx, by); !hit {
+		bw := width(w.sans, label, sizeText) + 20
+		bx, by := row.put(bw)
+		hit, _ := w.button(label, bx, by)
+		if EntryKey(*device) == e.device {
+			// The device the page was opened for.
+			rl.DrawRectangleRounded(rl.NewRectangle(bx, by, bw, 24), 0.35, 6, colA(colAccent, 60))
+			rl.DrawRectangleRoundedLinesEx(rl.NewRectangle(bx, by, bw, 24), 0.35, 6, 1.5, colA(colAccent, 200))
+		}
+		if !hit {
 			continue
 		}
 		own, made, err := CustomiseFor(e.doc.Text(), w.opts.Paths.User, *device)
@@ -131,8 +150,9 @@ func (w *window) offerOwn(e *editor, devices []*ipc.Instrument, x, y, left, righ
 		}
 		e.offering = false
 		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+		w.reload()
 		w.edit = nil
-		w.editProfile(own)
+		w.editProfile(own, EntryKey(*device))
 		if w.edit != nil && made {
 			w.edit.message = fmt.Sprintf("A profile for %s alone, made of %q.", device.Name, e.doc.Profile.Name)
 		}
@@ -215,6 +235,10 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			e.touched = false
 			w.preview(doc)
 		}
+		if e.saved {
+			e.saved = false
+			w.reload()
+		}
 	}()
 	// The keys that take a change back, make it again, and save. They
 	// reach the window only while the keyboard is not HIDI's alone.
@@ -247,16 +271,25 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	right := area.Width - margin
 
 	// The device that plays with this profile now, if any: its presses
-	// choose a control.
+	// choose a control. It is the one the page was opened for, whatever
+	// profile HIDI has it play with at this moment: a profile that was
+	// just made for it is its own a moment later. A page opened for no
+	// device shows the first that plays with the profile.
 	var device *ipc.Instrument
 	var devices []*ipc.Instrument // all that play with it
 	if state != nil {
 		for i := range state.Instruments {
-			if state.Instruments[i].ProfileFile == doc.Path {
-				device = &state.Instruments[i]
-				devices = append(devices, device)
+			in := &state.Instruments[i]
+			if in.ProfileFile == doc.Path {
+				devices = append(devices, in)
+			}
+			if e.device != "" && EntryKey(*in) == e.device {
+				device = in
 			}
 		}
+	}
+	if device == nil && len(devices) > 0 {
+		device = devices[0]
 	}
 	// What the profile's rule makes of that device shows with the rest.
 	doc.ShowFor(DeviceControls(device))
@@ -306,7 +339,15 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		e.try(nil)
 	}
 	w.text(w.bold, doc.Profile.Name, end+14, y+2, sizeName, col(colText))
-	w.drawPath(doc.Path, end+14+width(w.bold, doc.Profile.Name, sizeName)+14, y+6, tools-end-42-width(w.bold, doc.Profile.Name, sizeName))
+	hx := end + 14 + width(w.bold, doc.Profile.Name, sizeName) + 12
+	if device != nil {
+		// The device the page shows the profile for: its controls, what
+		// the rule makes of them, and what it does at this moment.
+		shown := fit(w.sans, "for "+device.Name, sizeText, max(tools-hx-120, 80))
+		w.text(w.sans, shown, hx, y+5, sizeText, col(colAccent))
+		hx += width(w.sans, shown, sizeText) + 12
+	}
+	w.drawPath(doc.Path, hx, y+6, tools-hx-14)
 	y += 34
 	// One line for what is to be said: what went wrong, or else how
 	// things stand with saving.
@@ -321,7 +362,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		hit, end := w.button(label, x, y-4)
 		if hit {
 			w.edit = nil
-			w.customise(doc.Path)
+			w.customise(doc.Path, e.device)
 			return
 		}
 		end, below, gone := w.offerOwn(e, devices, end+8, y-4, x, right)
@@ -422,9 +463,9 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 
 // save writes the profile and says what came of it.
 func (e *editor) save() {
-	e.message = ""
+	e.message, e.saved = "", true
 	if err := e.doc.Save(); err != nil {
-		e.message = strings.ReplaceAll(err.Error(), "\n", " ")
+		e.message, e.saved = strings.ReplaceAll(err.Error(), "\n", " "), false
 	}
 }
 

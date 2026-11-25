@@ -673,13 +673,14 @@ func (sh *sheet) profiles() {
 				} else {
 					v.message = ""
 					v.refresh(p, w.opts.Ports, time.Now(), true)
+					w.reload()
 				}
 			}
 		}
 		edit, end := w.button("Edit", sh.x+50, sh.y)
 		if edit {
 			w.gear.set(false, time.Now()) // the page is under the sheet
-			w.editProfile(profile.Source)
+			w.editProfile(profile.Source, "")
 		} else if w.unsaved(profile.Source) {
 			rl.DrawCircleV(rl.NewVector2(end-2, sh.y+2), 4.5, col(colUnsaved))
 		}
@@ -711,7 +712,7 @@ func (sh *sheet) profiles() {
 		view, end := w.button("View", sh.x, sh.y)
 		if view {
 			w.gear.set(false, time.Now())
-			w.editProfile(profile.Source)
+			w.editProfile(profile.Source, "")
 		}
 		label := "Customise"
 		if mine[filepath.Base(profile.Source)] {
@@ -719,7 +720,7 @@ func (sh *sheet) profiles() {
 		}
 		hit, end := w.button(label, end+6, sh.y)
 		if hit {
-			w.customise(profile.Source)
+			w.customise(profile.Source, "")
 		}
 		about(profile, end+12, colText)
 		sh.y += 32
@@ -761,6 +762,7 @@ func (w *window) deleteProfile(profile *config.Profile) {
 		}
 		w.settings.message = ""
 		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+		w.reload()
 	})
 }
 
@@ -775,16 +777,19 @@ func (w *window) show(path string) {
 
 // customise opens the user's own copy of a factory profile for changing,
 // making the copy if there is none.
-func (w *window) customise(factoryFile string) {
-	own, _, err := Customise(factoryFile, w.opts.Paths.User)
+func (w *window) customise(factoryFile, device string) {
+	own, made, err := Customise(factoryFile, w.opts.Paths.User)
 	if err != nil {
 		w.settings.message = strings.ReplaceAll(err.Error(), "\n", " ")
 		w.gear.set(true, time.Now())
 		return
 	}
 	w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+	if made {
+		w.reload()
+	}
 	w.gear.set(false, time.Now())
-	w.editProfile(own)
+	w.editProfile(own, device)
 }
 
 // drawDeviceList draws the choice of the devices that play: the way the

@@ -20,9 +20,10 @@ import (
 // live is what the device a profile is shown for does at this moment, as
 // far as the page shows it: the controls of its main part.
 type live struct {
-	// seen are the keys and buttons the device has, or has used so far.
-	seen []control.Code
-	down map[control.Code]bool
+	// seen are the keys and buttons the device has, or has used so far,
+	// and axes its axes.
+	seen, axes []control.Code
+	down       map[control.Code]bool
 	// at is where each axis stands, from 0 to 1.
 	at map[control.Code]float64
 }
@@ -39,8 +40,12 @@ func liveOf(device *ipc.Instrument) live {
 		}
 	}
 	for _, a := range device.Axes {
+		// An axis that has said nothing yet has no place to show.
 		if code, err := control.ParseCode(a.Name); err == nil && a.Part == "" {
-			now.at[code] = a.Value
+			now.axes = append(now.axes, code)
+			if a.Known {
+				now.at[code] = a.Value
+			}
 		}
 	}
 	return now
@@ -175,6 +180,9 @@ func (w *window) spotChip(e *editor, at Spot, text string, now live, x, y float3
 	chip := rl.NewRectangle(x, y, cw, chipH)
 	back := roleColour(role)
 	from, to, held := role.Sends(at, now.position(at))
+	if _, known := now.at[at.Code]; at.Code.Kind == control.KindAxis && !known {
+		from, to, held = 0, 0, false // nobody knows where the axis stands
+	}
 	if at.Code.Kind != control.KindAxis && now.down[at.Code] {
 		held = true // a key that is down shows, whatever it does
 	}
@@ -315,13 +323,9 @@ const (
 // whose directions are buttons. What the device does at this moment
 // shows on all of them.
 func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y, inner float32) float32 {
-	var seenAxes []control.Code
-	for code := range now.at {
-		seenAxes = append(seenAxes, code)
-	}
 	buttons := e.named(control.KindKey, now.seen)
 	var axes, hats []control.Code
-	for _, code := range e.named(control.KindAxis, seenAxes) {
+	for _, code := range e.named(control.KindAxis, now.axes) {
 		if e.isHat(code) {
 			hats = append(hats, code)
 		} else {
@@ -340,8 +344,25 @@ func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y,
 		y += 24
 	}
 
+	// A group says when the profile names none of what is in it, or only
+	// some: those parts are generated for this device by its rule.
+	about := func(name string, codes []control.Code) string {
+		made := 0
+		for _, code := range codes {
+			if e.doc.Role(e.layout, code).Generated {
+				made++
+			}
+		}
+		switch {
+		case made == 0:
+			return name
+		case made == len(codes):
+			return name + "  (generated)"
+		}
+		return name + "  (partly generated)"
+	}
 	if len(buttons) > 0 {
-		y = w.heading("Buttons", x, y)
+		y = w.heading(about("Buttons", buttons), x, y)
 		row := newFlow(x, x+inner, y, chipH+6, 6)
 		for _, code := range buttons {
 			at := Whole(code)
@@ -359,7 +380,7 @@ func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y,
 		if len(group.codes) == 0 {
 			continue
 		}
-		y = w.heading(group.name, x, y)
+		y = w.heading(about(group.name, group.codes), x, y)
 		// The names take the room of the widest of them.
 		var labelW float32
 		for _, code := range group.codes {
@@ -383,12 +404,21 @@ func (w *window) axisLine(e *editor, device *ipc.Instrument, now live, code cont
 	whole := Whole(code)
 	role := e.doc.RoleAt(e.layout, whole)
 	label := w.spotLabel(device, whole)
-	// The name and the bar are the axis as a whole.
+	// The name and the bar stand for the axis: they are marked whenever
+	// anything of the axis is chosen, and a click on them chooses the
+	// first thing the axis is mapped to, the axis as a whole or else its
+	// lower half.
+	halves := role.Split || hat
+	wholeToo := role.Kind != RoleNone || role.Silent || !halves
+	first := whole
+	if !wholeToo {
+		first = Spot{code, engine.RangeLower}
+	}
 	head := rl.NewRectangle(x-3, y, labelW+14+axisBar+6, chipH)
-	if e.chosen && e.at == whole {
+	if e.chosen && e.at.Code == code {
 		rl.DrawRectangleRoundedLinesEx(head, 0.3, 6, 1.5, col(colText))
 	}
-	w.pointAt(e, whole, head, 0.3)
+	w.pointAt(e, first, head, 0.3)
 	w.text(w.mono, label, x+labelW-width(w.mono, label, sizeMono), y+3, sizeMono, col(colText))
 	bar := rl.NewRectangle(float32(int(x+labelW+10)), y+(chipH-axisBarH)/2, axisBar, axisBarH)
 	rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
@@ -409,10 +439,10 @@ func (w *window) axisLine(e *editor, device *ipc.Instrument, now live, code cont
 		}
 		cx += w.spotChip(e, at, target(sign, e.doc.RoleAt(e.layout, at)), now, cx, y) + 6
 	}
-	if role.Kind != RoleNone || role.Silent || !(role.Split || hat) {
+	if wholeToo {
 		put(whole, "")
 	}
-	if role.Split || hat {
+	if halves {
 		put(Spot{code, engine.RangeLower}, "−")
 		put(Spot{code, engine.RangeUpper}, "+")
 	}

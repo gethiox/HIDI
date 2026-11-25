@@ -442,6 +442,17 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		return nil
 	}
 	host.Settings = live.text
+	// The window says when it wrote a profile, so that nobody waits for
+	// the next look at the directory.
+	look := make(chan struct{}, 1)
+	if pl.profiles != "" {
+		host.Reload = func() {
+			select {
+			case look <- struct{}{}:
+			default: // a look is asked for already
+			}
+		}
+	}
 	host.Preview = func(file, text string) error {
 		now, err := tried.set(file, text)
 		if err != nil {
@@ -482,7 +493,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}()
 	}
 	if pl.profiles != "" {
-		go config.Watch(ctx, pl.profiles, time.Second, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
+		go config.Watch(ctx, pl.profiles, time.Second, look, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
 			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
 			manager.SetProfiles(tried.loaded(profiles))

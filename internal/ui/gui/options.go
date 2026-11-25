@@ -28,6 +28,9 @@ type Controller interface {
 	// Preview makes HIDI use text in place of a profile file until the
 	// file changes; an empty text ends that.
 	Preview(ctx context.Context, file, text string) error
+	// Reload asks HIDI to look at its profile files now, after the
+	// window wrote one.
+	Reload(ctx context.Context) error
 }
 
 // Options change how the window behaves.

@@ -143,6 +143,13 @@ func (c *Client) long(ctx context.Context, head string, fields any) error {
 // and returns the state afterwards.
 func (c *Client) ToggleLearning(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "learn") }
 
+// Reload asks HIDI to look at its profile files now: one of them was
+// written, and waiting for HIDI to notice by itself takes a second or two.
+func (c *Client) Reload(ctx context.Context) error {
+	_, err := c.send(ctx, request{Op: "reload"})
+	return err
+}
+
 // Simulate asks HIDI to show, or to stop showing, what the lights of an
 // instrument's keyboard would show, for a keyboard whose lights HIDI does
 // not control. The instrument is named as a snapshot names it.

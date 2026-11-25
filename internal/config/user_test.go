@@ -174,7 +174,7 @@ func TestWatch(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Watch(ctx, dir, 10*time.Millisecond, func() ([]*Profile, []Problem, error) { return Load(dir) }, func(profiles []*Profile, problems []Problem) {
+		Watch(ctx, dir, 10*time.Millisecond, nil, func() ([]*Profile, []Problem, error) { return Load(dir) }, func(profiles []*Profile, problems []Problem) {
 			var names []string
 			for _, p := range profiles {
 				if !p.IsBuiltin() {
@@ -301,5 +301,38 @@ func TestLoadKinds(t *testing.T) {
 	}
 	if got := Select(Enabled(all), keyboard); got == nil || got.Name != "Factory" {
 		t.Errorf("with the user's profile off: %v", got)
+	}
+}
+
+// Told to look, Watch takes what is there at once, where by itself it
+// would wait for its next look and for the directory to settle.
+func TestWatchLooksWhenTold(t *testing.T) {
+	dir := t.TempDir()
+	look := make(chan struct{}, 1)
+	got := make(chan int, 4)
+	go Watch(t.Context(), dir, time.Hour, look, func() ([]*Profile, []Problem, error) { return Load(dir) }, func(profiles []*Profile, _ []Problem) {
+		got <- len(profiles)
+	})
+	time.Sleep(20 * time.Millisecond) // the watcher has seen the empty directory
+	text := "schema = 1\nname = \"New\"\n[[layout]]\nname = \"L\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "new.toml"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	look <- struct{}{}
+	builtin, _ := Builtin()
+	select {
+	case n := <-got:
+		if n != len(builtin)+1 {
+			t.Errorf("%d profiles loaded, want the built-in ones and the new one", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("told to look, the watcher loaded nothing")
+	}
+	// Told again with nothing changed, it does nothing.
+	look <- struct{}{}
+	select {
+	case n := <-got:
+		t.Errorf("loaded again, %d profiles, though nothing changed", n)
+	case <-time.After(50 * time.Millisecond):
 	}
 }

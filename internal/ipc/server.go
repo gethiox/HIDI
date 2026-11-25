@@ -211,6 +211,13 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 			return
 		}
 		out.Encode(response{Settings: host.Settings()})
+	case "reload":
+		if host.Reload == nil {
+			out.Encode(response{Error: "this HIDI reads its profiles once"})
+			return
+		}
+		host.Reload()
+		out.Encode(response{})
 	case "simulate":
 		if host.Simulate == nil {
 			out.Encode(response{Error: "this HIDI cannot show lights it does not control"})
