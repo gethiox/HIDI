@@ -41,14 +41,14 @@ func TestLiveSettings(t *testing.T) {
 		t.Fatalf("the settings in use: %+v, %v", back.Lights, err)
 	}
 
-	// The window writes the file for what it shows of an instrument.
-	// Nothing about HIDI changed in it, so what is being tried stays.
+	// The file is written again as it was, by a save of something that
+	// was in use already for one. Nothing changed in it, so what is
+	// being tried stays.
 	written := file
-	written.Shown.Input = []string{"Some Keyboard | keyboard | usb-1"}
 	live.fileChanged(written)
 	back, _ = settings.Parse([]byte(live.text()))
 	if !back.Lights.OpenRGB || back.Lights.Address != "10.0.0.9:6742" || back.Input.LearnThreshold != 35 {
-		t.Fatalf("a file written for the window undid what was tried: %+v", back.Lights)
+		t.Fatalf("a file written without a change undid what was tried: %+v", back.Lights)
 	}
 
 	// The file is changed by hand: that is taken over, all of it.

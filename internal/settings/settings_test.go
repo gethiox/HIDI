@@ -1,8 +1,11 @@
 package settings
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -421,7 +424,7 @@ func TestPrepareWritesAMissingRecord(t *testing.T) {
 	if !Managed(p) {
 		t.Fatal("not in use after the first start")
 	}
-	if err := os.Remove(p.record); err != nil {
+	if err := os.Remove(p.record()); err != nil {
 		t.Fatal(err)
 	}
 	// And something a write left behind when HIDI was ended in it.
@@ -449,14 +452,13 @@ func TestDevicesAndColoursSettings(t *testing.T) {
 	s.Devices = Devices{Mode: Whitelist, List: []string{"My \"best\" Keyboard", "Pad"}}
 	s.Lights.Colours.Passthrough = light.RGB{R: 0x12, G: 0xab, B: 0xff}
 	s.Lights.Colours.Command = light.RGB{B: 0x80}
-	s.Shown = Shown{Input: []string{"Pad"}, Output: []string{"My \"best\" Keyboard"}}
 	got, err := Parse(s.Text())
 	if err != nil {
 		t.Fatalf("what was written is not read back: %v", err)
 	}
 	if got.Devices.Mode != Whitelist || !slices.Equal(got.Devices.List, s.Devices.List) ||
-		got.Lights.Colours != s.Lights.Colours || !slices.Equal(got.Shown.Input, s.Shown.Input) || !slices.Equal(got.Shown.Output, s.Shown.Output) {
-		t.Errorf("read back: %+v %+v %+v", got.Devices, got.Lights.Colours, got.Shown)
+		got.Lights.Colours != s.Lights.Colours {
+		t.Errorf("read back: %+v %+v", got.Devices, got.Lights.Colours)
 	}
 	if got.Devices.Allowed("Other") || !got.Devices.Allowed("Pad") {
 		t.Error("a whitelist allows exactly the listed devices")
@@ -550,6 +552,91 @@ func TestOpenRGBAddress(t *testing.T) {
 		s.Lights.Address = address
 		if ok := len(s.Check()) == 0; ok != good {
 			t.Errorf("%q: accepted %v", address, ok)
+		}
+	}
+}
+
+// What HIDI notes for itself is not among what the user sets: a directory
+// that is not the usual one keeps it in a directory of its own inside,
+// and what earlier builds kept beside the settings is taken over and
+// removed.
+func TestStateIsKeptApart(t *testing.T) {
+	p := PathsIn(filepath.Join(t.TempDir(), "HIDI"))
+	if p.State != filepath.Join(p.Root, ".state") || p.Window() != filepath.Join(p.State, "window.json") {
+		t.Fatalf("the state of a directory named by hand: %q, %q", p.State, p.Window())
+	}
+	if (Paths{}).Window() != "" {
+		t.Error("no directory, and still a file for the window")
+	}
+	profiles := map[string][]byte{"keyboard.toml": []byte("schema = 1\n")}
+
+	// An earlier build: the record and the list of devices beside the
+	// settings, the record with a note in it.
+	os.MkdirAll(p.Root, 0o755)
+	text := Default().Text()
+	os.WriteFile(p.Settings, text, 0o644)
+	old, devices := filepath.Join(p.Root, ".written.json"), filepath.Join(p.Root, ".devices.json")
+	os.WriteFile(old, []byte(`{"note":"x","files":{"settings.toml":"`+fingerprint(text)+`"}}`), 0o644)
+	os.WriteFile(devices, []byte(`[{"name":"Pad","type":"gamepad"}]`), 0o644)
+	if !Managed(p) {
+		t.Fatal("a directory of an earlier build does not count as HIDI's")
+	}
+	report, err := Prepare(p, profiles)
+	if err != nil || !report.Managed || report.Unrecognised != "" {
+		t.Fatalf("Prepare: %+v, %v", report, err)
+	}
+	for _, gone := range []string{old, devices} {
+		if _, err := os.Stat(gone); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s is still there: %v", gone, err)
+		}
+	}
+	data, err := os.ReadFile(p.record())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "note") || !strings.Contains(string(data), fingerprint(text)) {
+		t.Errorf("the record:\n%s", data)
+	}
+	// The settings were written once, the record says: removed, they
+	// stay removed.
+	os.Remove(p.Settings)
+	if _, err := Prepare(p, profiles); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p.Settings); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("settings the user removed were written again")
+	}
+	// Nothing but the settings and the profiles is among what the user
+	// sets, apart from the state of this directory itself.
+	entries, _ := os.ReadDir(p.Root)
+	for _, e := range entries {
+		if n := e.Name(); n != "profiles" && n != ".state" {
+			t.Errorf("%q is in the directory of the settings", n)
+		}
+	}
+
+	// The usual directory keeps its state in the system's place for it.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("AppData", filepath.Join(home, "Roaming"))
+	t.Setenv("LocalAppData", filepath.Join(home, "Local"))
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	usual := PathsIn(root)
+	if strings.HasPrefix(usual.State, usual.Root) || !strings.HasPrefix(usual.State, home) || filepath.Base(usual.State) != DirName {
+		t.Errorf("the usual directory %q keeps its state in %q", usual.Root, usual.State)
+	}
+	if runtime.GOOS != "windows" {
+		if want := filepath.Join(home, ".local", "state", DirName); usual.State != want {
+			t.Errorf("state in %q, want %q", usual.State, want)
+		}
+		t.Setenv("XDG_STATE_HOME", filepath.Join(home, "elsewhere"))
+		if got := PathsIn(root).State; got != filepath.Join(home, "elsewhere", DirName) {
+			t.Errorf("with XDG_STATE_HOME set, state in %q", got)
 		}
 	}
 }

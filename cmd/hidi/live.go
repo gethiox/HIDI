@@ -106,7 +106,6 @@ func (l *liveSettings) fileChanged(s settings.Settings) {
 	defer l.mu.Unlock()
 	was := l.file
 	l.file = s
-	was.Shown, s.Shown = settings.Shown{}, settings.Shown{}
 	if reflect.DeepEqual(was, s) {
 		return
 	}

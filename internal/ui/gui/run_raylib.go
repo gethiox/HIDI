@@ -104,7 +104,7 @@ type window struct {
 	// valueX is how far in the values of the settings begin.
 	valueX float32
 	// shown says what is drawn of which instrument.
-	shown settings.Shown
+	shown State
 	// glow is the picture of a light under a key, cog that of the gear
 	// and icons HIDI's icon while off, on, and in the other half of the
 	// blinking of learning mode.
@@ -229,13 +229,12 @@ func Run(ctx context.Context, hidi Controller, opts Options) error {
 	// running HIDI is what the settings are about; the file is only where
 	// they are kept.
 	w.settings.refresh(opts.Paths, opts.Ports, time.Now(), true)
-	w.shown = w.settings.edit.disk.Shown
+	w.shown = LoadState(opts.Paths.Window())
 	if w.settings.exists {
 		ask, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		if text, err := hidi.Settings(ask); err == nil && text != "" {
 			if s, err := settings.Parse([]byte(text)); err == nil {
 				w.settings.edit.shown = clone(s)
-				w.settings.edit.shown.Shown = clone(w.settings.edit.disk).Shown
 			}
 		}
 		cancel()
@@ -655,10 +654,10 @@ const cardPad = 14
 // below them what the user asked to see of it.
 func (w *window) cardHeight(in ipc.Instrument, inner float32) float32 {
 	h := float32(cardTop)
-	if w.isShown(w.shown.Input, EntryKey(in)) {
+	if w.isShown(w.shown.ShowInput, EntryKey(in)) {
 		h += w.inputHeight(in, inner) + 10
 	}
-	if w.isShown(w.shown.Output, EntryKey(in)) {
+	if w.isShown(w.shown.ShowOutput, EntryKey(in)) {
 		h += pianoH + 12
 	}
 	return h
@@ -690,15 +689,15 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		}
 		right -= 14
 	}
-	showInput, showOutput := w.isShown(w.shown.Input, EntryKey(in)), w.isShown(w.shown.Output, EntryKey(in))
+	showInput, showOutput := w.isShown(w.shown.ShowInput, EntryKey(in)), w.isShown(w.shown.ShowOutput, EntryKey(in))
 	right -= w.chipWidth("output")
 	if w.chip("output", showOutput, right, r.Y+11) {
-		w.shown.Output = flip(w.shown.Output, EntryKey(in))
+		w.shown.ShowOutput = flip(w.shown.ShowOutput, EntryKey(in))
 		w.saveShown()
 	}
 	right -= w.chipWidth("input") + 6
 	if w.chip("input", showInput, right, r.Y+11) {
-		w.shown.Input = flip(w.shown.Input, EntryKey(in))
+		w.shown.ShowInput = flip(w.shown.ShowInput, EntryKey(in))
 		w.saveShown()
 	}
 	right -= width(w.sans, "show", sizeText) + 8
@@ -786,8 +785,8 @@ func (w *window) drawSign(in ipc.Instrument, right, y float32) {
 			name, kind, location, on := in.Name, in.Type, in.Location, !in.Simulated
 			// The lights are shown on the drawn keyboard, so that is
 			// brought into view with them.
-			if key := EntryKey(in); on && !slices.Contains(w.shown.Input, key) {
-				w.shown.Input = append(slices.Clone(w.shown.Input), key)
+			if key := EntryKey(in); on && !slices.Contains(w.shown.ShowInput, key) {
+				w.shown.ShowInput = append(slices.Clone(w.shown.ShowInput), key)
 				w.saveShown()
 			}
 			w.ask(func(ctx context.Context) { w.hidi.Simulate(ctx, name, kind, location, on) })
@@ -812,21 +811,10 @@ func (w *window) unsaved(path string) bool {
 	return e != nil && e.doc.Dirty()
 }
 
-// saveShown keeps what is shown of which instrument in the settings file,
-// where there is one. The file is read first: it may have been changed
-// since the window last looked.
-func (w *window) saveShown() {
-	p := w.opts.Paths
-	if p.Root == "" || !settings.Managed(p) {
-		return
-	}
-	s, err := settings.Load(p.Settings)
-	if err != nil {
-		return // a file with mistakes is the user's to mend, not to overwrite
-	}
-	s.Shown = w.shown
-	settings.Save(p.Settings, s)
-}
+// saveShown notes what is shown of which instrument for the next time the
+// window opens, among what HIDI keeps for itself. It is no setting, and
+// the settings file is not touched.
+func (w *window) saveShown() { w.shown.Save(w.opts.Paths.Window()) }
 
 // drawPiano draws the keyboard of notes, with those that are on lit.
 func (w *window) drawPiano(in ipc.Instrument, r rl.Rectangle) {

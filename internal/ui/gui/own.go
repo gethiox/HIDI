@@ -122,7 +122,6 @@ func (p *pending) load(disk settings.Settings) {
 		p.shown = clone(disk)
 	}
 	p.disk = clone(disk)
-	p.shown.Shown = clone(disk).Shown
 }
 
 // Dirty reports whether something is shown that is not saved.
@@ -137,8 +136,6 @@ func clone(s settings.Settings) settings.Settings {
 	s.Input.Toggle = slices.Clone(s.Input.Toggle)
 	s.Devices.List = slices.Clone(s.Devices.List)
 	s.Output.Connect = slices.Clone(s.Output.Connect)
-	s.Shown.Input = slices.Clone(s.Shown.Input)
-	s.Shown.Output = slices.Clone(s.Shown.Output)
 	return s
 }
 
@@ -146,7 +143,7 @@ func clone(s settings.Settings) settings.Settings {
 // whether it is there or not.
 func normal(s settings.Settings) settings.Settings {
 	s = clone(s)
-	for _, list := range []*[]string{&s.Devices.List, &s.Output.Connect, &s.Shown.Input, &s.Shown.Output} {
+	for _, list := range []*[]string{&s.Devices.List, &s.Output.Connect} {
 		if len(*list) == 0 {
 			*list = nil
 		}

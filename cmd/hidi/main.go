@@ -424,7 +424,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// Profiles the window tries before they are saved take the place of
 	// their files.
 	tried := &previews{profiles: profiles}
-	host := controlHost(manager, logs, &changes, loadSeen(pl.paths.Seen))
+	host := controlHost(manager, logs, &changes, &seenDevices{})
 	// The settings HIDI runs by. The window changes them as the user
 	// does, without writing anything; a changed file changes them too.
 	live := newLiveSettings(o, pl.settings, manager, hub, &address, router, configLog, func(keys []control.Code) { showToggle(keys) }, changes.Notify)

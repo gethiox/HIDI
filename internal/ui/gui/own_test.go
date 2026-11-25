@@ -113,16 +113,14 @@ func TestPendingSettings(t *testing.T) {
 	if len(p.disk.Devices.List) != 0 {
 		t.Error("a change reached what the file has")
 	}
-	// The file changes elsewhere: what is not saved stays, and what the
-	// window keeps for itself follows.
-	disk.Shown.Input = []string{"Some Keyboard"}
-	disk.Input.StartOn = false
+	// The file changes elsewhere: what is not saved stays.
+	disk.Input.StartOn = true
 	p.load(disk)
-	if !p.shown.Input.GrabGamepads || len(p.shown.Shown.Input) != 1 {
+	if !p.shown.Input.GrabGamepads || p.disk.Input.StartOn != true {
 		t.Errorf("after the file changed: %+v", p.shown)
 	}
 	p.drop()
-	if p.Dirty() || p.shown.Input.GrabGamepads || p.shown.Input.StartOn {
+	if p.Dirty() || p.shown.Input.GrabGamepads || !p.shown.Input.StartOn {
 		t.Error("dropping left changes")
 	}
 	// Changed and changed back is not changed.

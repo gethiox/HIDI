@@ -28,7 +28,6 @@ type Settings struct {
 	Output  Output
 	Lights  Lights
 	Window  Window
-	Shown   Shown
 }
 
 // The two ways the list of devices is read.
@@ -56,14 +55,6 @@ func (d Devices) Allowed(name string) bool {
 		}
 	}
 	return listed == (d.Mode == Whitelist)
-}
-
-// Shown says for which instruments the window shows more than the two
-// lines every one of them has, by the names of their devices.
-type Shown struct {
-	// Input lists the devices whose keys, buttons and axes are drawn,
-	// and Output those whose keyboard of notes is.
-	Input, Output []string
 }
 
 // Lights says whether and how HIDI lights the keys of keyboards.
@@ -205,8 +196,10 @@ type file struct {
 		FPS           *int  `toml:"fps"`
 		BackgroundFPS *int  `toml:"background_fps"`
 		Scale         *int  `toml:"scale"`
-		// LogHeight was a setting once. A file that still has it is
-		// read, and the next writing of the file leaves it out.
+		// LogHeight, ShowInput and ShowOutput were settings once: how
+		// the window was left, which is no setting and is kept
+		// elsewhere now. A file that still has them is read, and the
+		// next writing of the file leaves them out.
 		LogHeight    *int      `toml:"log_height"`
 		ShowInput    *[]string `toml:"show_input"`
 		ShowOutput   *[]string `toml:"show_output"`
@@ -308,8 +301,6 @@ func Parse(data []byte) (Settings, error) {
 	}
 	set(&s.Window.CheckUpdates, f.Window.CheckUpdates)
 	set(&s.Window.ControlNames, f.Window.ControlNames)
-	set(&s.Shown.Input, f.Window.ShowInput)
-	set(&s.Shown.Output, f.Window.ShowOutput)
 	if s.Window.FPS < 0 || s.Window.BackgroundFPS < 0 {
 		problems = append(problems, "window: fps and background_fps cannot be negative")
 	}
@@ -496,12 +487,6 @@ background_fps = %d
 # size: 125 makes it a quarter larger.
 scale = %d
 
-# The instruments whose input is drawn in the window, and those whose
-# notes are: each by its name, its kind and where it is plugged in. The
-# window keeps these lists.
-show_input = %s
-show_output = %s
-
 # Ask GitHub now and then whether a newer HIDI has been released, and say
 # so in the corner of the window. Nothing is downloaded or installed, and
 # nothing about you or your devices is sent: it is one request for the
@@ -517,7 +502,7 @@ control_names = %t
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.Scale,
-		list(s.Shown.Input), list(s.Shown.Output), s.Window.CheckUpdates, s.Window.ControlNames)
+		s.Window.CheckUpdates, s.Window.ControlNames)
 	return []byte(b.String())
 }
 

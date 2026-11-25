@@ -30,7 +30,7 @@ func FuzzParse(f *testing.F) {
 
 // norm makes a list without entries the same whether it is there or not.
 func norm(s Settings) Settings {
-	for _, list := range []*[]string{&s.Devices.List, &s.Output.Connect, &s.Shown.Input, &s.Shown.Output} {
+	for _, list := range []*[]string{&s.Devices.List, &s.Output.Connect} {
 		if len(*list) == 0 {
 			*list = nil
 		}

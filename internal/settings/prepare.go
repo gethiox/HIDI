@@ -39,8 +39,29 @@ type Report struct {
 // written is the record of what HIDI wrote: for each file, relative to
 // the root, the fingerprint of the content.
 type written struct {
-	Note  string            `json:"note"`
 	Files map[string]string `json:"files"`
+}
+
+// readRecord reads the record of a directory: from the state directory,
+// or else from the file an earlier build kept in the directory itself.
+// It reports whether there was one. A record that cannot be read as one
+// counts as none: it is a note of HIDI's own, and the directory is looked
+// at instead.
+func readRecord(p Paths) (record written, found bool, err error) {
+	for _, file := range []string{p.record(), filepath.Join(p.Root, oldRecord)} {
+		data, err := os.ReadFile(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return written{}, false, err
+		}
+		var r written
+		if json.Unmarshal(data, &r) == nil && r.Files != nil {
+			return r, true, nil
+		}
+	}
+	return written{Files: map[string]string{}}, false, nil
 }
 
 func fingerprint(data []byte) string {
@@ -70,20 +91,27 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 		return report, err
 	}
 
-	record := written{Files: map[string]string{}}
-	recorded := false
-	if data, err := os.ReadFile(p.record); err == nil {
-		recorded = true
-		if err := json.Unmarshal(data, &record); err != nil || record.Files == nil {
-			return Report{Unrecognised: filepath.Base(p.record) + " is not a record HIDI wrote"}, nil
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	record, recorded, err := readRecord(p)
+	if err != nil {
 		return report, err
-	} else if what := unknown(p, entries); what != "" {
-		// No record, and something is there: not a directory HIDI made.
-		return Report{Unrecognised: what}, nil
+	}
+	if !recorded {
+		if what := unknown(p, entries); what != "" {
+			// No record, and something is there: not a directory HIDI made.
+			return Report{Unrecognised: what}, nil
+		}
 	}
 	report.Managed = true
+	// The record is where it belongs after this, and what earlier builds
+	// kept in the directory itself is gone.
+	_, statErr := os.Stat(p.record())
+	inPlace := statErr == nil
+	defer func() {
+		if _, err := os.Stat(p.record()); err == nil {
+			os.Remove(filepath.Join(p.Root, oldRecord))
+		}
+		os.Remove(filepath.Join(p.Root, oldDevices))
+	}()
 
 	for _, dir := range []string{p.Factory, p.User} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -92,20 +120,22 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 	}
 	changed := false
 	// save writes the record of what HIDI wrote. A directory that is
-	// HIDI's without one, copied without its hidden file for instance,
-	// gets one too: without it the directory would be taken for not in
-	// use at every start, before it is made ready, and its settings
-	// would be passed over.
+	// HIDI's without one, brought along from another machine for
+	// instance, gets one too: without it the directory would be taken
+	// for not in use at every start, before it is made ready, and its
+	// settings would be passed over.
 	save := func() error {
-		if !changed && !report.Created && recorded {
+		if !changed && !report.Created && inPlace {
 			return nil
 		}
-		record.Note = "HIDI notes here which files it wrote, to tell later whether you changed them. Do not edit."
 		data, err := json.MarshalIndent(record, "", "  ")
 		if err != nil {
 			return err
 		}
-		return writeFile(p.record, append(data, '\n'), 0o644)
+		if err := os.MkdirAll(p.State, 0o755); err != nil {
+			return err
+		}
+		return writeFile(p.record(), append(data, '\n'), 0o644)
 	}
 	fail := func(err error) (Report, error) { return report, errors.Join(err, save()) }
 
@@ -220,6 +250,11 @@ func unknown(p Paths, entries []os.DirEntry) string {
 		case strings.HasPrefix(name, ".tmp-") && !entry.IsDir():
 			// What a write of HIDI's left behind when HIDI was ended in
 			// the middle of it.
+		case (name == oldRecord || name == oldDevices) && !entry.IsDir():
+			// What earlier builds of HIDI 2 noted here.
+		case name == ownState && entry.IsDir():
+			// Where a directory that is not the usual one keeps what
+			// HIDI notes.
 		case name == "settings.toml" && !entry.IsDir():
 			if _, err := Load(p.Settings); err != nil {
 				return "settings.toml is not a settings file of this HIDI"
@@ -288,7 +323,7 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 // before the first start for instance. Its settings count from the first
 // start on.
 func Managed(p Paths) bool {
-	if _, err := os.Stat(p.record); err == nil {
+	if _, found, err := readRecord(p); err == nil && found {
 		return true
 	}
 	entries, err := os.ReadDir(p.Root)

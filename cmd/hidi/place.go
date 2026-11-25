@@ -132,6 +132,7 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "HIDI's directory  %s\n", pl.paths.Root)
 	fmt.Fprintf(stdout, "Settings          %s\n", pl.paths.Settings)
 	fmt.Fprintf(stdout, "Profiles          %s\n", pl.paths.Profiles)
+	fmt.Fprintf(stdout, "HIDI's own notes  %s\n", pl.paths.State)
 	switch {
 	case pl.managed:
 		fmt.Fprintln(stdout, "\nThe directory is in use: what is in it is what HIDI does.")

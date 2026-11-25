@@ -152,9 +152,7 @@ func (w *window) useSettings() {
 	if len(s.Check()) > 0 {
 		return
 	}
-	out := clone(s)
-	out.Shown = w.shown
-	w.tried.put(struct{}{}, string(out.Text()))
+	w.tried.put(struct{}{}, string(s.Text()))
 }
 
 // useLocal makes this window go by the settings that are its own.
@@ -175,10 +173,7 @@ func (w *window) saveSettings() {
 	if !v.edit.Dirty() {
 		return
 	}
-	// What the window keeps of its own accord is as the window has it.
-	out := clone(v.edit.shown)
-	out.Shown = w.shown
-	if err := settings.Save(w.opts.Paths.Settings, out); err != nil {
+	if err := settings.Save(w.opts.Paths.Settings, v.edit.shown); err != nil {
 		v.message = strings.ReplaceAll(err.Error(), "\n", " ")
 		return
 	}
@@ -186,7 +181,6 @@ func (w *window) saveSettings() {
 	// keeps them.
 	v.message = "Saved."
 	v.edit.disk = clone(v.edit.shown)
-	v.edit.disk.Shown = clone(out).Shown
 }
 
 // drawOverlay draws the settings as a sheet over the body of the window:
