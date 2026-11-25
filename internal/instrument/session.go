@@ -98,6 +98,9 @@ type session struct {
 	// last recorded what the keys do.
 	rolesFor    *engine.Engine
 	rolesLayout string
+	// sentLayout and sentChannel are those for which sends last looked.
+	sentLayout  string
+	sentChannel uint8
 
 	// learnt is the wish about learning mode the engine has, and
 	// learntFor the engine that has it: a new engine knows of none.
@@ -275,6 +278,34 @@ func (s *session) roles() {
 	s.changed()
 }
 
+// sends records what the instrument sends by the position of controls,
+// its controllers and the pitch bend with their last values, for
+// [Manager.Status]: when one of them was among the messages just sent, and
+// whenever asked to look anyway, after something other than a played
+// event may have changed them.
+func (s *session) sends(look bool, sent []midi.Message) {
+	for _, m := range sent {
+		if look {
+			break
+		}
+		look = m.Kind == midi.KindControlChange || m.Kind == midi.KindPitchBend
+	}
+	if !look {
+		return
+	}
+	var now []engine.Sent
+	if s.eng != nil {
+		now = s.eng.Controllers()
+	}
+	s.mu.Lock()
+	same := slices.Equal(s.status.Controllers, now)
+	s.status.Controllers = now
+	s.mu.Unlock()
+	if !same {
+		s.changed()
+	}
+}
+
 // reassign makes the device what the manager last asked for.
 func (s *session) reassign() {
 	if s.failed {
@@ -368,6 +399,7 @@ func (s *session) reassign() {
 // apply brings the device to the state the manager wants.
 func (s *session) apply() {
 	defer s.show() // whatever changed, the lights follow
+	defer s.sends(true, nil)
 	s.reassign()
 	if wish := s.learn.Load(); s.eng != nil && !s.failed && (wish != s.learnt || s.learntFor != s.eng) {
 		s.learnt, s.learntFor = wish, s.eng
@@ -428,10 +460,14 @@ func (s *session) play(ev control.Event) {
 	if s.eng.LearnRequested() {
 		s.onLearn() // for all instruments; this one follows below
 	}
+	// Another layout or channel sends other things, or to elsewhere.
+	other := s.state.Layout != s.sentLayout || s.state.Channel != s.sentChannel
+	s.sentLayout, s.sentChannel = s.state.Layout, s.state.Channel
 	if s.state.Layout != s.passedLayout {
 		s.regrab() // another layout may leave other keys to the system
 	}
 	s.roles()
+	s.sends(other, s.out)
 	s.show()
 }
 

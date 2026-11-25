@@ -56,6 +56,12 @@ type Source struct {
 	// ignored, from 0 up to but not including 1. The remaining travel is
 	// stretched to cover the full output range.
 	Deadzone float64
+	// Threshold is how far the control has to be moved, as a fraction of
+	// the travel that is left after shaping, for a note, a program
+	// change or a command to trigger: an axis as a button. Zero means
+	// the usual half. A key, which is either down or not, triggers
+	// whatever it says.
+	Threshold float64
 	// Modifiers are keys that must all be held for the binding to apply.
 	// When several bindings match a control, the one with the most
 	// modifiers wins.
@@ -416,6 +422,8 @@ func (b *Binding) validate() error {
 		return fmt.Errorf("%v: dead zone %v is outside 0 to 1", s.Code, s.Deadzone)
 	case s.Centered && s.Range != RangeWhole:
 		return fmt.Errorf("%v: centered applies to the whole range only", s.Code)
+	case !(s.Threshold >= 0 && s.Threshold < 1):
+		return fmt.Errorf("%v: threshold %v is outside 0 to 1", s.Code, s.Threshold)
 	}
 	for _, m := range s.Modifiers {
 		if m.Kind != control.KindKey {

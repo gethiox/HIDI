@@ -58,3 +58,71 @@ func (e *Engine) Passed() []control.Code {
 	slices.SortFunc(out, func(a, b control.Code) int { return cmp.Compare(a.Num, b.Num) })
 	return out
 }
+
+// Sent is something the selected layout sends by the position of a
+// control: a controller, or the pitch bend.
+type Sent struct {
+	// Source, Part and Range say which control drives it, and which
+	// part of its travel.
+	Source control.Code
+	Part   string
+	Range  Range
+	// PitchBend says that it is the pitch bend; otherwise Controller is
+	// the number of the controller. Channel is the channel it goes out
+	// on now, from 0.
+	PitchBend  bool
+	Controller uint8
+	Channel    uint8
+	// Value is what was last sent, in MIDI's own units (see
+	// [midi.To7] and [midi.To14]), if Known; nothing was sent yet
+	// otherwise.
+	Value uint32
+	Known bool
+}
+
+// Controllers returns what the selected layout sends by the position of
+// controls, on the channel that is selected: each controller and the
+// pitch bend once, in the order of the controls that drive them, axes
+// before keys, with the value last sent.
+func (e *Engine) Controllers() []Sent {
+	var out []Sent
+	seen := map[target]bool{}
+	for key, bindings := range e.index[e.layout] {
+		for _, b := range bindings {
+			var t target
+			switch a := b.Action.(type) {
+			case ControlChange:
+				t = target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}
+			case PitchBend:
+				t = target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}
+			default:
+				continue
+			}
+			s := Sent{Source: key.code, Part: key.part, Range: b.Source.Range, PitchBend: t.pitchBend, Controller: t.controller, Channel: t.channel}
+			if ts := e.targets[t]; ts != nil {
+				s.Value, s.Known = ts.value, true
+			}
+			out = append(out, s)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Sent) int {
+		return cmp.Or(
+			-cmp.Compare(a.Source.Kind, b.Source.Kind), // axes before keys
+			cmp.Compare(a.Part, b.Part),
+			cmp.Compare(a.Source.Num, b.Source.Num),
+			cmp.Compare(a.Range, b.Range),
+			cmp.Compare(a.Controller, b.Controller),
+		)
+	})
+	// Two controls may drive one target, the halves of a stick that bend
+	// the pitch up and down for one: it is listed once, by the first.
+	kept := out[:0]
+	for _, s := range out {
+		t := target{pitchBend: s.PitchBend, channel: s.Channel, controller: s.Controller}
+		if !seen[t] {
+			seen[t] = true
+			kept = append(kept, s)
+		}
+	}
+	return kept
+}

@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -147,6 +148,52 @@ func ControlNumber(in *ipc.Instrument, name string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// ControllerLabel names a controller an instrument sends, or its pitch
+// bend, in a few characters: "cc16", "PB". One that goes out on another
+// channel than the instrument's own says which.
+func ControllerLabel(c ipc.Controller, channel int) string {
+	label := "PB"
+	if !c.Bend {
+		label = "cc" + strconv.Itoa(c.Number)
+	}
+	if c.Channel != channel && c.Channel != 0 {
+		label += "/" + strconv.Itoa(c.Channel)
+	}
+	return label
+}
+
+// ControllerValue writes the value a controller last sent as MIDI has
+// it: 0 to 127, and for the pitch bend how far it is bent, from -100% to
+// +100%. Nothing sent yet is a dash.
+func ControllerValue(c ipc.Controller) string {
+	switch {
+	case !c.Known:
+		return "–"
+	case c.Bend:
+		// The way down is one step longer than the way up.
+		span := 8191.0
+		if c.Value < 0 {
+			span = 8192
+		}
+		return fmt.Sprintf("%+d%%", int(math.Round(float64(c.Value)/span*100)))
+	}
+	return strconv.Itoa(c.Value)
+}
+
+// ControllerLevel says which part of a bar the value of a controller
+// fills, as fractions of its width: from its left end for a controller,
+// and from the middle to the side it is bent to for the pitch bend.
+func ControllerLevel(c ipc.Controller) (from, to float64) {
+	switch {
+	case !c.Known:
+		return 0, 0
+	case c.Bend:
+		at := (float64(c.Value) + 8192) / 16383
+		return min(at, 0.5), max(at, 0.5)
+	}
+	return 0, float64(c.Value) / 127
 }
 
 // DeviceControls returns the controls an instrument's device said it has,

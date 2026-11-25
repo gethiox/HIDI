@@ -476,8 +476,10 @@ func TestProfileDocGenerated(t *testing.T) {
 	if r := doc.Role(layout, absY); r.Kind != RoleBend || r.Generated {
 		t.Errorf("ABS_Y: %+v", r)
 	}
-	if r := doc.Role(layout, hatX); !r.Split || r.Generated {
-		t.Errorf("the hat, named by its halves: %+v", r)
+	// The hat has no line either: its directions are the notes after
+	// those of the four buttons.
+	if r := doc.Role(layout, hatX); !r.Split || !r.Generated || r.Lower != "E1" || r.Upper != "F1" {
+		t.Errorf("the hat: %+v", r)
 	}
 
 	// Emptied: the control is told to do nothing, or the rule would

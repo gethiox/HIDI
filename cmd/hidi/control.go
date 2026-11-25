@@ -19,6 +19,7 @@ import (
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
+	"github.com/gethiox/HIDI/internal/midi"
 	"github.com/gethiox/HIDI/internal/settings"
 )
 
@@ -108,6 +109,20 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			role, note := keyRole(k.Action)
 			keys[i] = ipc.Key{Name: k.Code.String(), Role: role, Note: note}
 		}
+		var sends []ipc.Controller
+		for _, c := range st.Controllers {
+			out := ipc.Controller{Bend: c.PitchBend, Number: int(c.Controller), Channel: int(c.Channel) + 1, Known: c.Known, Source: c.Source.String()}
+			if c.Part != "" {
+				out.Source = c.Part + ":" + out.Source
+			}
+			switch {
+			case c.Known && c.PitchBend:
+				out.Value = int(midi.To14(c.Value)) - 8192
+			case c.Known:
+				out.Value = int(midi.To7(c.Value))
+			}
+			sends = append(sends, out)
+		}
 		var lights []ipc.KeyLight
 		rest := ""
 		if st.Lit || st.Simulated {
@@ -147,6 +162,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Learning:    st.State.Learning,
 			Sounding:    st.State.Sounding,
 			Notes:       st.State.NoteNumbers(),
+			Controllers: sends,
 			InputRate:   st.InputRate,
 			MIDIRate:    st.MIDIRate,
 		})

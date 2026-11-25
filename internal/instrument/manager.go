@@ -526,6 +526,10 @@ type Status struct {
 	Trail Trail
 	// Keys is what every bound key does in the selected layout.
 	Keys []engine.KeyRole
+	// Controllers is what the selected layout sends by the position of
+	// controls, in the order of those controls, with the values last
+	// sent. It must not be changed.
+	Controllers []engine.Sent
 	// Lit says that the lights of the keyboard show the instrument. Then
 	// Lights is the colour of every key that has one of its own, and
 	// LightRest the colour of the other keys. Lights must not be changed.

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -946,5 +947,122 @@ func TestNothing(t *testing.T) {
 	}
 	if out := e.Handle(control.Event{Code: x, Value: 1}, nil); len(out) != 1 {
 		t.Errorf("the axis in the layout that does not silence it sent %v", out)
+	}
+}
+
+// An axis as a button triggers where its binding says, and lets go a
+// little below that; a key is down or not, whatever it says.
+func TestThreshold(t *testing.T) {
+	x, z, a := control.Axis(0), control.Axis(2), control.Key(30)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Layouts: []Layout{{Name: "L", Bindings: []Binding{
+			{Source: Source{Code: z, Threshold: 0.2}, Action: Note{Note: 60}},
+			{Source: Source{Code: x, Range: RangeUpper, Threshold: 0.8}, Action: Note{Note: 62}},
+			{Source: Source{Code: x, Range: RangeLower}, Action: Note{Note: 64}},
+			{Source: Source{Code: a, Threshold: 0.9}, Action: Note{Note: 65}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := func(ev control.Event) string {
+		var b strings.Builder
+		for _, m := range e.Handle(ev, nil) {
+			b.WriteString(m.String() + "; ")
+		}
+		return b.String()
+	}
+	for _, step := range []struct {
+		ev   control.Event
+		want string
+	}{
+		{control.Event{Code: z, Value: 0.19}, ""},
+		{control.Event{Code: z, Value: 0.21}, "NoteOn"},
+		{control.Event{Code: z, Value: 0.19}, ""}, // within the gap below the threshold
+		{control.Event{Code: z, Value: 0.17}, "NoteOff"},
+		// The upper half of the stick at four fifths of its way, the
+		// lower at the usual half.
+		{control.Event{Code: x, Value: 0.85}, ""},
+		{control.Event{Code: x, Value: 0.91}, "NoteOn"},
+		{control.Event{Code: x, Value: 0.5}, "NoteOff"},
+		{control.Event{Code: x, Value: 0.24}, "NoteOn"},
+		{control.Event{Code: x, Value: 0.5}, "NoteOff"},
+		{control.Event{Code: a, Value: 1}, "NoteOn"},
+		{control.Event{Code: a, Value: 0}, "NoteOff"},
+	} {
+		got := notes(step.ev)
+		if (step.want == "") != (got == "") || !strings.Contains(got, step.want) {
+			t.Errorf("%v at %v: sent %q, want %q", step.ev.Code, step.ev.Value, got, step.want)
+		}
+	}
+	if _, err := New(Profile{Layouts: []Layout{{Name: "L", Bindings: []Binding{{Source: Source{Code: z, Threshold: 1}, Action: Note{Note: 60}}}}}}); err == nil {
+		t.Error("a threshold of 1 was accepted")
+	}
+	// What a position would do can be asked without an engine.
+	s := Source{Code: z, Threshold: 0.2}
+	if !s.Triggers(s.Shape(0.3)) || s.Triggers(s.Shape(0.1)) || (Source{Code: z}).Triggers(0.3) {
+		t.Error("Triggers does not follow the threshold")
+	}
+	if c := (Source{Code: x, Centered: true}); !c.Bipolar() || c.Shape(0) != -1 || c.Shape(2) != 1 {
+		t.Error("Shape of a control that rests in the middle")
+	}
+}
+
+// What a layout sends by the position of controls is listed in the order
+// of the controls, axes first, each target once, with what was last sent.
+func TestControllers(t *testing.T) {
+	x, y, z, key, next := control.Axis(0), control.Axis(1), control.Axis(2), control.Key(57), control.Key(88)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100, Channel: 2},
+		Global: []Binding{
+			{Source: Source{Code: next}, Action: CommandLayoutNext},
+			{Source: Source{Code: key}, Action: ControlChange{Controller: 64}},
+		},
+		Layouts: []Layout{
+			{Name: "One", Bindings: []Binding{
+				{Source: Source{Code: z}, Action: ControlChange{Controller: 7, ChannelOffset: 1}},
+				{Source: Source{Code: y, Centered: true}, Action: PitchBend{}},
+				{Source: Source{Code: x, Range: RangeUpper}, Action: ControlChange{Controller: 20}},
+				{Source: Source{Code: x, Range: RangeLower}, Action: ControlChange{Controller: 21}},
+				{Source: Source{Code: control.Key(30)}, Action: Note{Note: 60}},
+			}},
+			{Name: "Two", Bindings: []Binding{{Source: Source{Code: z}, Action: PitchBend{}}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := func() string {
+		var b strings.Builder
+		for _, s := range e.Controllers() {
+			name := fmt.Sprintf("cc%d", s.Controller)
+			if s.PitchBend {
+				name = "bend"
+			}
+			value := "?"
+			if s.Known && s.PitchBend {
+				value = fmt.Sprint(int(midi.To14(s.Value)) - 8192)
+			} else if s.Known {
+				value = fmt.Sprint(midi.To7(s.Value))
+			}
+			fmt.Fprintf(&b, "%s ch%d=%s ", name, s.Channel+1, value)
+		}
+		return strings.TrimSpace(b.String())
+	}
+	if got, want := list(), "cc20 ch3=? cc21 ch3=? bend ch3=? cc7 ch4=? cc64 ch3=?"; got != want {
+		t.Errorf("before anything moved:\n %s\nwant\n %s", got, want)
+	}
+	e.Handle(control.Event{Code: z, Value: 1}, nil)
+	e.Handle(control.Event{Code: y, Value: 0.5}, nil)
+	e.Handle(control.Event{Code: x, Value: 0.75}, nil)
+	e.Handle(control.Event{Code: key, Value: 1}, nil)
+	if got, want := list(), "cc20 ch3=64 cc21 ch3=0 bend ch3=0 cc7 ch4=127 cc64 ch3=127"; got != want {
+		t.Errorf("after moving:\n %s\nwant\n %s", got, want)
+	}
+	// Another layout: what it sends, and the pitch bend once.
+	e.Handle(control.Event{Code: next, Value: 1}, nil)
+	if got := list(); !strings.HasPrefix(got, "bend ch3=") || strings.Count(got, "bend") != 1 || !strings.Contains(got, "cc64") || strings.Contains(got, "cc7") {
+		t.Errorf("in the second layout: %s", got)
 	}
 }

@@ -11,6 +11,33 @@ import (
 	"github.com/gethiox/HIDI/internal/midi"
 )
 
+// thresholds returns where a momentary action of the source triggers and
+// where it ends: the usual ones, or those of the source's own threshold,
+// with the same gap in proportion.
+func (s *Source) thresholds() (press, release float64) {
+	if s.Threshold > 0 && s.Code.Kind != control.KindKey {
+		return s.Threshold, s.Threshold * releaseThreshold / pressThreshold
+	}
+	return pressThreshold, releaseThreshold
+}
+
+// Shape reduces a raw position of the control, from 0 to 1, to what the
+// action of the source sees: from -1 to 1 where [Source.Bipolar] says so,
+// from 0 to 1 otherwise. It is what the engine does, for whoever wants to
+// show what a position would send.
+func (s Source) Shape(v float64) float64 { return shape(&s, min(max(v, 0), 1)) }
+
+// Bipolar reports whether the shaped position runs from -1 to 1: the
+// whole of a control that rests in the middle.
+func (s Source) Bipolar() bool { return s.bipolar() }
+
+// Triggers reports whether a shaped position is past the point where a
+// note or a command of the source triggers.
+func (s Source) Triggers(x float64) bool {
+	press, _ := s.thresholds()
+	return x >= press
+}
+
 // A momentary action triggers when its source rises to pressThreshold and
 // ends when the source falls below releaseThreshold. The gap keeps an axis
 // that rests near the threshold from triggering repeatedly.
@@ -340,16 +367,17 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 	}
 	// Follow the way from rest to the trigger point, for notes that take
 	// their velocity from how fast it is covered.
+	press, release := b.Source.thresholds()
 	if !st.pressed {
 		switch {
 		case x <= restLevel:
 			st.leftRest = time.Time{}
-		case st.leftRest.IsZero() && x < pressThreshold:
+		case st.leftRest.IsZero() && x < press:
 			st.leftRest = e.now // on its way, and not there yet
 		}
 	}
 	switch {
-	case !st.pressed && x >= pressThreshold:
+	case !st.pressed && x >= press:
 		st.travel = 0
 		switch {
 		case !st.leftRest.IsZero() && !e.now.IsZero():
@@ -363,7 +391,7 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 		st.leftRest = time.Time{}
 		st.pressed, st.latched = true, b
 		out = e.press(st, out)
-	case st.pressed && x < releaseThreshold:
+	case st.pressed && x < release:
 		out = e.release(st, out)
 	}
 	return out

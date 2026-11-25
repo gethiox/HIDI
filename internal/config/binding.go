@@ -160,6 +160,21 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 	source.Deadzone = t.number("deadzone", 0)
 	offset := uint8(t.integer("channel_offset", 0, 0, 15))
 	allowed := []string{chosen[0], "channel_offset", "centered", "invert", "deadzone"}
+	// Where an axis triggers what a key would: a note, a program change
+	// or a command.
+	threshold := func() {
+		allowed = append(allowed, "threshold")
+		if !t.has("threshold") {
+			return
+		}
+		source.Threshold = t.number("threshold", 0)
+		switch {
+		case source.Code.Kind == control.KindKey:
+			r.failf(at, "threshold is for an axis; %s is a key, which is down or not", source.Code)
+		case !(source.Threshold > 0 && source.Threshold < 1):
+			r.failf(at, "threshold must be above 0 and below 1, not %v", source.Threshold)
+		}
+	}
 
 	var action engine.Action
 	switch chosen[0] {
@@ -169,10 +184,12 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 			r.failf(at, "%v", err)
 		}
 		allowed = append(allowed, "velocity", "touch")
+		threshold()
 		action = engine.Note{Note: note, ChannelOffset: offset, Velocity: uint8(t.integer("velocity", 0, 1, 127)), Touch: t.boolean("touch", false)}
 	case "cc":
 		action = engine.ControlChange{Controller: uint8(t.integer("cc", 0, 0, 127)), ChannelOffset: offset}
 	case "program":
+		threshold()
 		action = engine.ProgramChange{Program: uint8(t.integer("program", 0, 0, 127)), ChannelOffset: offset}
 	case "pitch_bend":
 		bend := engine.PitchBend{ChannelOffset: offset}
@@ -185,6 +202,7 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 		}
 		action = bend
 	case "command":
+		threshold()
 		command, err := engine.ParseCommand(t.str("command", ""))
 		if err != nil {
 			r.failf(at, "%v", err)

@@ -129,3 +129,31 @@ func TestControlLabels(t *testing.T) {
 		t.Error("no device, and a number")
 	}
 }
+
+func TestControllerShown(t *testing.T) {
+	for _, tt := range []struct {
+		c        ipc.Controller
+		label    string
+		value    string
+		from, to float64
+	}{
+		{ipc.Controller{Number: 16, Channel: 1, Value: 64, Known: true}, "cc16", "64", 0, 64.0 / 127},
+		{ipc.Controller{Number: 7, Channel: 3, Value: 127, Known: true}, "cc7/3", "127", 0, 1},
+		{ipc.Controller{Number: 20, Channel: 1}, "cc20", "–", 0, 0},
+		{ipc.Controller{Bend: true, Channel: 1, Value: 0, Known: true}, "PB", "+0%", 0.5, 0.5},
+		{ipc.Controller{Bend: true, Channel: 1, Value: 8191, Known: true}, "PB", "+100%", 0.5, 1},
+		{ipc.Controller{Bend: true, Channel: 1, Value: -8192, Known: true}, "PB", "-100%", 0, 0.5},
+		{ipc.Controller{Bend: true, Channel: 1, Value: -4096, Known: true}, "PB", "-50%", 0.25, 0.5},
+	} {
+		if got := ControllerLabel(tt.c, 1); got != tt.label {
+			t.Errorf("%+v: label %q, want %q", tt.c, got, tt.label)
+		}
+		if got := ControllerValue(tt.c); got != tt.value {
+			t.Errorf("%+v: value %q, want %q", tt.c, got, tt.value)
+		}
+		from, to := ControllerLevel(tt.c)
+		if math.Abs(from-tt.from) > 0.001 || math.Abs(to-tt.to) > 0.001 {
+			t.Errorf("%+v: the bar from %v to %v, want %v to %v", tt.c, from, to, tt.from, tt.to)
+		}
+	}
+}

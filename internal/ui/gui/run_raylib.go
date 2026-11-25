@@ -658,7 +658,7 @@ func (w *window) cardHeight(in ipc.Instrument, inner float32) float32 {
 		h += w.inputHeight(in, inner) + 10
 	}
 	if w.isShown(w.shown.ShowOutput, EntryKey(in)) {
-		h += pianoH + 12
+		h += w.sendsHeight(in, inner) + pianoH + 12
 	}
 	return h
 }
@@ -754,6 +754,8 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 		y += w.inputHeight(in, inner) + 10
 	}
 	if showOutput {
+		w.drawSends(in, r.X+cardPad, y, inner)
+		y += w.sendsHeight(in, inner)
 		w.drawPiano(in, rl.NewRectangle(r.X+cardPad, y, inner, pianoH))
 	}
 }
@@ -878,6 +880,55 @@ func (w *window) axisLayout(in ipc.Instrument, inner float32) (cols int, cell, l
 	least := label + 8 + axisBarMin + 8 + width(w.mono, "0.00", axisSize) + axisGap
 	cols = max(int((inner+axisGap)/least), 1)
 	return cols, (inner + axisGap) / float32(cols), label
+}
+
+// sendsLayout says how the controllers an instrument sends are set out,
+// as axisLayout does for the axes.
+func (w *window) sendsLayout(in ipc.Instrument, inner float32) (cols int, cell, label, value float32) {
+	for _, c := range in.Controllers {
+		label = max(label, width(w.mono, ControllerLabel(c, in.Channel), axisSize))
+	}
+	value = width(w.mono, "+100%", axisSize)
+	least := label + 8 + axisBarMin + 8 + value + axisGap
+	cols = max(int((inner+axisGap)/least), 1)
+	return cols, (inner + axisGap) / float32(cols), label, value
+}
+
+// sendsHeight is the height the controllers an instrument sends take,
+// with the room below them.
+func (w *window) sendsHeight(in ipc.Instrument, inner float32) float32 {
+	n := len(in.Controllers)
+	if n == 0 {
+		return 0
+	}
+	cols, _, _, _ := w.sendsLayout(in, inner)
+	return float32((n+cols-1)/cols)*axisRowH + 6
+}
+
+// drawSends draws what the instrument sends by the position of its
+// controls, as MIDI has it: every controller and the pitch bend with a
+// bar and the value last sent, in the order of the controls that drive
+// them, which is the order of the axes above.
+func (w *window) drawSends(in ipc.Instrument, x, y, inner float32) {
+	cols, cell, labelW, valueW := w.sendsLayout(in, inner)
+	for i, c := range in.Controllers {
+		cx := x + float32(i%cols)*cell
+		cy := y + float32(i/cols)*axisRowH
+		label := ControllerLabel(c, in.Channel)
+		w.text(w.mono, label, cx+labelW-width(w.mono, label, axisSize), cy+3, axisSize, col(colFaint))
+		bar := rl.NewRectangle(float32(int(cx+labelW+8)), cy+(axisRowH-axisBarH)/2, cell-axisGap-labelW-16-valueW, axisBarH)
+		rl.DrawRectangleRounded(bar, 1, 4, col(colBar))
+		from, to := ControllerLevel(c)
+		if filled := bar.Width * float32(to-from); filled >= 1 {
+			rl.DrawRectangleRounded(rl.NewRectangle(bar.X+bar.Width*float32(from), bar.Y, filled, bar.Height), 1, 4, col(colMIDI))
+		}
+		if c.Bend {
+			// No bend is in the middle.
+			rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
+		}
+		value := ControllerValue(c)
+		w.text(w.mono, value, bar.X+bar.Width+8+valueW-width(w.mono, value, axisSize), cy+3, axisSize, col(colText))
+	}
 }
 
 // inputHeight is the height the raw input of a device takes.

@@ -4,8 +4,8 @@ name = "Default gamepad"
 # For every game controller: pads, sticks, throttles, wheels, button boxes.
 # The few lines further down name what nearly all of them have. Everything
 # else a controller has plays by its number, as [generate] says, so a pad
-# of ten buttons and a stick of forty are both instruments from the start,
-# and the same ones every time.
+# of ten buttons and a stick of a hundred are both instruments from the
+# start, and the same ones every time.
 
 [match]
 type = "gamepad"
@@ -44,8 +44,3 @@ name = "Default"
 # The stick, or the left one of two, bends the pitch when pushed forward
 # and pulled back.
 ABS_Y = { pitch_bend = true, centered = true, invert = true, deadzone = 0.1 }
-# The first hat, or the direction pad.
-"ABS_HAT0X+" = "octave_up"
-"ABS_HAT0X-" = "octave_down"
-"ABS_HAT0Y-" = "layout_next"
-"ABS_HAT0Y+" = "layout_previous"

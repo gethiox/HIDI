@@ -59,6 +59,24 @@ type Key struct {
 	Note int `json:"note,omitempty"`
 }
 
+// Controller is a controller, or the pitch bend, that an instrument
+// sends by the position of a control, and the value it last sent.
+type Controller struct {
+	// Bend says that it is the pitch bend; otherwise Number is the
+	// number of the controller, 0 to 127.
+	Bend   bool `json:"bend,omitempty"`
+	Number int  `json:"number"`
+	// Channel is the MIDI channel it is sent on, 1 to 16.
+	Channel int `json:"channel"`
+	// Value is what was last sent, if Known: 0 to 127 for a controller,
+	// -8192 to 8191 for the pitch bend, 0 being no bend.
+	Value int  `json:"value"`
+	Known bool `json:"known,omitempty"`
+	// Source names the control that drives it, as profiles do, with the
+	// part of the device where it is not the main one.
+	Source string `json:"source,omitempty"`
+}
+
 // KeyLight is the colour of the light under a key.
 type KeyLight struct {
 	Name string `json:"name"`
@@ -103,6 +121,10 @@ type Instrument struct {
 	// Notes are the numbers of the notes that are on, lowest first; note
 	// 60 is middle C.
 	Notes []int `json:"notes"`
+	// Controllers is what the instrument sends by the position of its
+	// controls in the layout that is selected: the controllers and the
+	// pitch bend, in the order of the controls that drive them.
+	Controllers []Controller `json:"controllers,omitempty"`
 	// InputRate is how many events the device reported in the last
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate int `json:"input_rate"`
