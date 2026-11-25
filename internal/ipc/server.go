@@ -217,7 +217,7 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 			return
 		}
 		host.Reload()
-		out.Encode(response{})
+		snapshot()
 	case "simulate":
 		if host.Simulate == nil {
 			out.Encode(response{Error: "this HIDI cannot show lights it does not control"})
