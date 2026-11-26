@@ -460,7 +460,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}
 		manager.SetProfiles(now)
 		if text == "" {
-			configLog.Info("a profile is no longer tried; its file counts again", "file", file)
+			configLog.Debug("a profile is no longer tried; its file counts again", "file", file)
 		} else {
 			configLog.Debug("trying a profile that is not saved", "file", file)
 		}
