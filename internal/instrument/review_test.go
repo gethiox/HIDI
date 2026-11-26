@@ -314,3 +314,38 @@ ABS_Y = { pitch_bend = true, centered = true }
 	r.manager.SetActive(false)
 	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191; ControlChange ch=1 controller=7 value=0")
 }
+
+// Reported by the maintainer: a profile of one's own that was made of a
+// factory profile was not used by a device that was playing until HIDI
+// was started again. The copy reads the same as what it was made of, and
+// a device was only given another profile when the content differed.
+func TestCopyOfAProfileTakesOverAtOnce(t *testing.T) {
+	factory := profile(t, "Pads", `type = "gamepad"`, "C3")
+	factory.Source, factory.Kind = "/hidi/profiles/factory/pads.toml", config.KindFactory
+	r := newRigWith(t, Options{Profiles: nil}, factory)
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	r.plug(pad)
+	plays := func(source, kind string) func() bool {
+		return func() bool {
+			st := r.manager.Status()
+			return len(st) == 1 && st[0].ProfileSource == source && st[0].ProfileKind == kind
+		}
+	}
+	eventually(t, "the device to play with the factory profile", plays(factory.Source, config.KindFactory))
+
+	// The user's copy: the same text, another file, and the user's.
+	own := profile(t, "Pads", `type = "gamepad"`, "C3")
+	own.Source, own.Kind = "/hidi/profiles/user/pads.toml", config.KindUser
+	if own.Digest != factory.Digest {
+		t.Fatal("the copy does not read the same as the factory profile")
+	}
+	r.manager.SetProfiles(append(builtin(t), factory, own))
+	eventually(t, "the device to play with the copy", plays(own.Source, config.KindUser))
+	// The same profiles again disturb nothing.
+	before := r.manager.Status()[0].Trail.Seq
+	r.manager.SetProfiles(append(builtin(t), factory, own))
+	time.Sleep(20 * time.Millisecond)
+	if !plays(own.Source, config.KindUser)() || r.manager.Status()[0].Trail.Seq < before {
+		t.Error("the same profiles again changed what the device plays with")
+	}
+}

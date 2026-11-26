@@ -42,7 +42,9 @@ func (p *previews) set(file, text string) ([]*config.Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	profile.Source = file
+	// It stands in for the file in every way: where it is from, and whose
+	// it is.
+	profile.Source, profile.Kind = file, on.Kind
 	if p.tried == nil {
 		p.tried, p.stood = map[string]*config.Profile{}, map[string][32]byte{}
 	}

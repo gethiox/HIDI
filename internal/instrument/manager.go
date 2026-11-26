@@ -306,12 +306,17 @@ func (m *Manager) SetProfiles(profiles []*config.Profile) {
 	}
 }
 
-// sameProfile reports whether two profiles make the same instrument.
+// sameProfile reports whether two profiles are the same profile: the same
+// file with the same content. A copy of a factory profile that the user
+// made and has not changed yet reads the same and is another profile all
+// the same: a device that goes over to it has to be told, or it would be
+// shown, and opened for changing, as playing with the factory one until
+// HIDI starts again.
 func sameProfile(a, b *config.Profile) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.Digest == b.Digest
+	return a.Digest == b.Digest && a.Source == b.Source && a.Kind == b.Kind
 }
 
 // assignment is what a device is to be: an instrument with a profile and
