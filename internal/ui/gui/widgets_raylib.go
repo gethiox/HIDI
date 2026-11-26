@@ -13,19 +13,68 @@ import (
 // frame being drawn. Everything that takes a click lights up while the
 // pointer is on it.
 
-// button draws a button and reports a click on it.
+// colPushed is a button while it is held down: the ground of a button
+// under the pointer, tinted towards the accent.
+var colPushed = Mix(colPanelEdge, colAccent, 0.4)
+
+// button draws a button and reports a click on it. It shows as pressed
+// while the mouse button is held down on it.
 func (k *kit) button(label string, x, y float32) (clickedNow bool, right float32) {
+	return k.pushButton(label, x, y, false)
+}
+
+// repeatButton is a button that goes on clicking while it is held down,
+// for one that steps a number: see [repeatDelay].
+func (k *kit) repeatButton(label string, x, y float32) (clickedNow bool, right float32) {
+	return k.pushButton(label, x, y, true)
+}
+
+func (k *kit) pushButton(label string, x, y float32, repeat bool) (clickedNow bool, right float32) {
 	bw := width(k.sans, label, sizeText) + 20
 	r := rl.NewRectangle(x, y, bw, 24)
-	if k.hovered(r) {
+	fire, lit := k.pushed(pressID{label, x, y}, r, repeat)
+	over := k.hovered(r)
+	if over {
 		k.setCursor(rl.MouseCursorPointingHand)
+	}
+	switch {
+	case lit:
+		rl.DrawRectangleRounded(r, 0.35, 6, col(colPushed))
+	case over:
 		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanelEdge))
-	} else {
+	default:
 		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanel))
 		rl.DrawRectangleRoundedLinesEx(r, 0.35, 6, k.hair(), col(colPanelEdge))
 	}
 	k.text(k.sans, label, x+10, y+5, sizeText, col(colText))
-	return k.clicked(r), x + bw
+	return fire, x + bw
+}
+
+// pushed follows the left mouse button on a button: it reports a click
+// when the mouse button goes down on it, and, for one that repeats, the
+// clicks it goes on making while held there. lit says that the button
+// shows as pressed. A button the pointer slid off of while held does
+// nothing until the pointer comes back.
+func (k *kit) pushed(id pressID, r rl.Rectangle, repeat bool) (fire, lit bool) {
+	if k.clicked(r) {
+		now := time.Now()
+		k.press = &press{id: id, since: now, fired: now}
+		k.moving = true // the next frame shows it pressed, or lets it go
+		return true, true
+	}
+	p := k.press
+	if p == nil || p.id != id {
+		return false, false
+	}
+	if !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+		k.press = nil
+		return false, false
+	}
+	k.moving = true // until it is let go of: the frames show the clicks
+	if !k.hovered(r) {
+		return false, false
+	}
+	return p.step(time.Now(), repeat)
 }
 
 // dimButton draws a button that may have nothing to do at the moment: it
@@ -229,10 +278,10 @@ func (k *kit) hot(r rl.Rectangle, roundness float32) bool {
 func (k *kit) stepper(label, value string, x, y float32) (delta int, right float32) {
 	k.text(k.sans, label, x, y+5, sizeText, col(colFaint))
 	x += width(k.sans, label, sizeText) + 8
-	minus, x2 := k.button("−", x, y)
+	minus, x2 := k.repeatButton("−", x, y)
 	valueW := width(k.mono, "+000", sizeMono)
 	k.text(k.mono, value, x2+8+(valueW-width(k.mono, value, sizeMono))/2, y+6, sizeMono, col(colText))
-	plus, x3 := k.button("+", x2+valueW+16, y)
+	plus, x3 := k.repeatButton("+", x2+valueW+16, y)
 	switch {
 	case minus:
 		delta = -1

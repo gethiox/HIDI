@@ -564,7 +564,7 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 			w.text(w.mono, shown, bx+6, y+6, sizeMono, col(colText))
 			bx += width(w.mono, "C#-2", sizeMono) + 18
 		}
-		hit, end := w.button(step.label, bx, y)
+		hit, end := w.repeatButton(step.label, bx, y)
 		if hit {
 			next := note + step.delta
 			if role.Kind != RoleNote {
@@ -593,7 +593,7 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 			w.text(w.mono, shown, bx+6, y+6, sizeMono, col(colText))
 			bx += width(w.mono, "000", sizeMono) + 18
 		}
-		hit, end := w.button(step.label, bx, y)
+		hit, end := w.repeatButton(step.label, bx, y)
 		if hit {
 			next := int(role.Controller) + step.delta
 			if role.Kind != RoleController {
