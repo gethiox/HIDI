@@ -115,10 +115,35 @@ Fixed, each with a test that fails without the fix:
   with `--profiles`.
 - One half of a stick that stopped bending the pitch took the bend of the
   other half back.
+- A MIDI device that could not be created at first was created twice when
+  another profile came before the next try; the first stayed open, and on
+  Linux a program connected to it heard nothing.
+- Every change of a setting, the hysteresis from the window for one, let
+  go of a keyboard that hid its toggle and took it again.
+- A MIDI device that came back after HIDI was turned off meanwhile took
+  its keyboard for a moment and sent where its axes stood.
+- A profile tried from the window and one loaded from the directory could
+  reach the manager in the wrong order.
+- `hidi toggle` and the window's learn request read the state and set the
+  other, which a toggle from a device at the same moment could undo.
+- A request to the running HIDI could outlast the time the window gave it.
+
+Less work per event: an instrument no longer applies the manager's
+requests before every event, only when there is one.
 
 Made one: what a controller or pitch-bend action drives (three copies in
 the engine), the type of a device, the key of a generated binding, the
-line ending of a new line, the fingerprint of the profile directories.
+line ending of a new line, the fingerprint of the profile directories,
+the setters of the manager, the emptying of a parked device's queue.
+
+Waits for the maintainer: "Pass the toggle key through to the system when
+held" and "The toggle key is HIDI's alone" say the opposite of a toggle
+that is held, and both are on as HIDI comes. HIDI does what the first
+says, and what the table of the configuration reference says: tapped, the
+key is hidden; held, it does what it normally does. The second then only
+makes the key hidden on Linux as well, without `always_grab`. Which of the
+two is meant decides whether the second's description or its effect is
+to change.
 
 ### Twelfth round (26 November 2026): what was reported, and what was done
 
