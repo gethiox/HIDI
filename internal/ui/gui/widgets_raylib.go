@@ -101,9 +101,12 @@ func (k *kit) frozen(r rl.Rectangle, on bool) {
 }
 
 // pill draws the on/off switch of a setting and reports a click on it.
-func (k *kit) pill(on bool, x, y float32) bool {
+func (k *kit) pill(on bool, x, y float32) bool { return k.pillIn(on, colOn, x, y) }
+
+// pillIn is a pill that is lit in a colour of its own while it is on.
+func (k *kit) pillIn(on bool, lit RGB, x, y float32) bool {
 	r := rl.NewRectangle(x, y, 40, 20)
-	return k.toggle(r, on, colOn, r)
+	return k.toggle(r, on, lit, r)
 }
 
 // typing is what a text field keeps between frames.

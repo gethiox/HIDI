@@ -126,3 +126,89 @@ func (e *Engine) Controllers() []Sent {
 	}
 	return kept
 }
+
+// Held reports whether a control, or one half of an axis, counts as
+// pressed right now for what it is bound to: a key that is down, and an
+// axis that has passed its trigger point by what the hysteresis asks and
+// has not come back behind it. It is the state notes and commands go by.
+func (e *Engine) Held(code control.Code, part string, rng Range) bool {
+	st := e.states[sourceKey{control: controlKey{part, code}, rng: rng}]
+	return st != nil && st.pressed
+}
+
+// Sends returns what a control, or one half of an axis, sends by its
+// position in the layout that is selected, with the value last sent:
+// the controller or the pitch bend of the binding that applies to it
+// now. It reports false for a control that sends nothing of the kind.
+func (e *Engine) Sends(code control.Code, part string, rng Range) (Sent, bool) {
+	b := e.resolve(sourceKey{control: controlKey{part, code}, rng: rng})
+	if b == nil {
+		return Sent{}, false
+	}
+	var t target
+	switch a := b.Action.(type) {
+	case ControlChange:
+		t = target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}
+	case PitchBend:
+		t = target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}
+	default:
+		return Sent{}, false
+	}
+	s := Sent{Source: code, Part: part, Range: rng, PitchBend: t.pitchBend, Controller: t.controller, Channel: t.channel}
+	if ts := e.targets[t]; ts != nil {
+		s.Value, s.Known = ts.value, true
+	}
+	return s, true
+}
+
+// Neutral is where an axis rests, as the layout that is selected reads
+// it.
+type Neutral struct {
+	Code control.Code
+	Part string
+	// At is the place, from 0 to 1.
+	At float64
+}
+
+// neutral says where the bindings of a control take it to rest: in the
+// middle where one of them reads a half of it, or the whole and says that
+// it rests there; otherwise at its lower end, or at its upper end where
+// it is read reversed. It reports false where nothing reads the control.
+func neutral(bindings []*Binding) (float64, bool) {
+	at, bound := 0.0, false
+	for _, b := range bindings {
+		s := &b.Source
+		switch {
+		case s.Range != RangeWhole || s.Centered:
+			return 0.5, true
+		case s.Invert:
+			at = 1
+		}
+		bound = true
+	}
+	return at, bound
+}
+
+// Neutral returns where an axis rests as the selected layout reads it,
+// and false for one that nothing reads.
+func (e *Engine) Neutral(code control.Code, part string) (float64, bool) {
+	return neutral(e.index[e.layout][controlKey{part, code}])
+}
+
+// Neutrals returns where every axis rests that the selected layout reads,
+// ordered by part and code.
+func (e *Engine) Neutrals() []Neutral {
+	var out []Neutral
+	for key, bindings := range e.index[e.layout] {
+		if key.code.Kind != control.KindAxis {
+			continue
+		}
+		if at, ok := neutral(bindings); ok {
+			out = append(out, Neutral{Code: key.code, Part: key.part, At: at})
+		}
+	}
+	slices.SortFunc(out, func(a, b Neutral) int {
+		return cmp.Or(cmp.Compare(a.Part, b.Part), cmp.Compare(a.Code.Num, b.Code.Num))
+	})
+	return out
+}

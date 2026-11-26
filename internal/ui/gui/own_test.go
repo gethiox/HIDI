@@ -331,3 +331,46 @@ func TestCustomiseFor(t *testing.T) {
 		t.Error("the general profile counts as one for a product")
 	}
 }
+
+// A profile of the user's that is for a kind of device, as a factory
+// profile is, stands in for that one; a profile for one product does not.
+func TestOverrides(t *testing.T) {
+	profiles, err := config.Builtin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pad *config.Profile
+	for _, p := range profiles {
+		p.Kind = config.KindFactory
+		if p.Match.Type == control.DeviceGamepad {
+			pad = p
+		}
+	}
+	copyOf := *pad
+	copyOf.Kind = config.KindUser
+	files, _ := config.BuiltinFiles()
+	text, err := config.ForDevice(files["gamepad.toml"], "Stick", control.DeviceGamepad, control.HardwareID{Vendor: 0x231d, Product: 0x0200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stick, err := config.Parse(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stick.Kind = config.KindUser
+	all := append(profiles, &copyOf, stick)
+	if !Overrides(&copyOf, all) {
+		t.Error("a copy of the factory profile does not count as standing in for it")
+	}
+	if Overrides(stick, all) || Overrides(pad, all) {
+		t.Error("a profile for one product, or a factory profile, counts as an override")
+	}
+	mouse, err := config.Parse([]byte("schema = 1\nname = \"M\"\n[match]\ntype = \"mouse\"\n[[layout]]\nname = \"L\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mouse.Kind = config.KindUser
+	if Overrides(mouse, append(all, mouse)) {
+		t.Error("a profile for a kind HIDI has no factory profile for counts as an override")
+	}
+}

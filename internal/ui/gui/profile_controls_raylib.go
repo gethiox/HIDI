@@ -51,21 +51,6 @@ func liveOf(device *ipc.Instrument) live {
 	return now
 }
 
-// position is where the control of a spot stands, from 0 to 1: an axis
-// where it is, a key at 1 while it is down.
-func (l live) position(at Spot) float64 {
-	if at.Code.Kind == control.KindAxis {
-		if v, known := l.at[at.Code]; known {
-			return v
-		}
-		return 0.5 // nothing known: as a stick at rest
-	}
-	if l.down[at.Code] {
-		return 1
-	}
-	return 0
-}
-
 // pointAt handles the pointer on one spot of the page: a click chooses
 // it, a press begins carrying it, and the right button empties it, or
 // with Ctrl leaves a key to the system. It lays a light over the spot the
@@ -168,47 +153,57 @@ func target(sign string, role Role) string {
 
 // spotChip draws one spot as a chip that says what it does, in the colour
 // of that, takes the pointer for it, and shows what its control does at
-// this moment: a spot that is held like a key lights up while it is, and
-// one that sends a controller or bends the pitch fills by the value it
-// would send. It returns the width it took.
+// this moment, as the engine has it: a spot that is held like a key lights
+// up while it counts as held, and one that sends a controller or bends the
+// pitch fills by the value it sends. A spot that sends what another
+// control sends too is ringed in yellow. It returns the width it took.
 func (w *window) spotChip(e *editor, at Spot, text string, now live, x, y float32) float32 {
 	role := e.doc.RoleAt(e.layout, at)
 	cw := w.chipWidth(text)
-	if role.Kind == RoleController || role.Kind == RoleBend {
+	follows := role.Kind == RoleController || role.Kind == RoleBend
+	if follows {
 		cw = max(cw, fillChip) // room for the value to show
 	}
 	chip := rl.NewRectangle(x, y, cw, chipH)
 	back := roleColour(role)
-	from, to, held := role.Sends(at, now.position(at))
-	if _, known := now.at[at.Code]; at.Code.Kind == control.KindAxis && !known {
-		from, to, held = 0, 0, false // nobody knows where the axis stands
-	}
+	// A key that is down shows, whatever it does; anything else when
+	// what it does counts as held.
+	held := e.shadow.Held(at) && !follows
 	if at.Code.Kind != control.KindAxis && now.down[at.Code] {
-		held = true // a key that is down shows, whatever it does
+		held = true
 	}
 	ink := col(colText)
 	switch {
 	case held:
 		rl.DrawRectangleRounded(chip, 0.4, 6, col(w.pressed()))
 		ink = col(colBar)
-	case role.Kind == RoleController || role.Kind == RoleBend:
+	case follows:
 		// The value fills the chip, on a ground of the same colour
 		// turned down.
 		rl.DrawRectangleRounded(chip, 0.4, 6, col(Mix(colBar, back, 0.45)))
-		if filled := cw * float32(to-from); filled >= 1 {
-			w.clip(rl.NewRectangle(x+cw*float32(from), y, filled, chipH))
+		if from, to, ok := e.shadow.Level(at); ok && cw*float32(to-from) >= 1 {
+			w.clip(rl.NewRectangle(x+cw*float32(from), y, cw*float32(to-from), chipH))
 			rl.DrawRectangleRounded(chip, 0.4, 6, col(Mix(back, colMIDI, 0.55)))
 			w.unclip()
 		}
 	default:
 		rl.DrawRectangleRounded(chip, 0.4, 6, col(back))
 	}
-	if e.chosen && e.at == at {
+	switch {
+	case e.chosen && e.at == at:
 		rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 2, col(colText))
+	case e.doubled[at]:
+		rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 2, col(colUnsaved))
 	}
 	w.pointAt(e, at, chip, 0.4)
 	w.text(w.mono, text, x+7, y+3, sizeMono, ink)
 	return cw
+}
+
+// neutralMark draws the mark of where an axis rests: a small triangle
+// that points down at a bar, with its tip at x, y.
+func (w *window) neutralMark(x, y float32) {
+	rl.DrawTriangle(rl.NewVector2(x-4, y-6), rl.NewVector2(x, y), rl.NewVector2(x+4, y-6), col(colNeutral))
 }
 
 // heading draws the name of a group of controls and returns where the
@@ -344,25 +339,18 @@ func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y,
 		y += 24
 	}
 
-	// A group says when the profile names none of what is in it, or only
-	// some: those parts are generated for this device by its rule.
-	about := func(name string, codes []control.Code) string {
-		made := 0
-		for _, code := range codes {
-			if e.doc.Role(e.layout, code).Generated {
-				made++
-			}
-		}
-		switch {
-		case made == 0:
-			return name
-		case made == len(codes):
-			return name + "  (generated)"
-		}
-		return name + "  (partly generated)"
+	// What sends the same as something else, of all that is shown.
+	var spots []Spot
+	for _, code := range buttons {
+		spots = append(spots, Whole(code))
 	}
+	for _, code := range slices.Concat(axes, hats) {
+		spots = append(spots, Whole(code), Spot{code, engine.RangeLower}, Spot{code, engine.RangeUpper})
+	}
+	e.doubled = e.doc.Doubled(e.layout, spots)
+
 	if len(buttons) > 0 {
-		y = w.heading(about("Buttons", buttons), x, y)
+		y = w.heading("Buttons", x, y)
 		row := newFlow(x, x+inner, y, chipH+6, 6)
 		for _, code := range buttons {
 			at := Whole(code)
@@ -380,7 +368,7 @@ func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y,
 		if len(group.codes) == 0 {
 			continue
 		}
-		y = w.heading(about(group.name, group.codes), x, y)
+		y = w.heading(group.name, x, y)
 		// The names take the room of the widest of them.
 		var labelW float32
 		for _, code := range group.codes {
@@ -392,8 +380,53 @@ func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y,
 			w.axisLine(e, device, now, code, group.hat, x+float32(i%cols)*cell, y+float32(i/cols)*axisRow, labelW, cell-16)
 		}
 		y += float32((len(group.codes)+cols-1)/cols)*axisRow + 10
+		if !group.hat {
+			y = w.detectResting(e, now, group.codes, x, y, inner)
+		}
+	}
+	if len(e.doubled) > 0 {
+		line := "Ringed in yellow: more than one control sends this controller or bends the pitch. They overwrite each other."
+		w.text(w.sans, fit(w.sans, line, sizeText-1, inner), x, y, sizeText-1, col(colUnsaved))
+		y += 22
 	}
 	return y
+}
+
+// detectResting draws the button that looks at where the axes stand right
+// now and takes those near their middle for axes that rest there, sticks,
+// and the others for axes that do not, levers and triggers: with the
+// controller left alone, that is the difference. "Rests in the middle" of
+// every axis that sends a controller or bends the pitch is set by it, in
+// one change. How near the middle counts is set beside the button.
+func (w *window) detectResting(e *editor, now live, axes []control.Code, x, y, inner float32) float32 {
+	if e.doc.ReadOnly || len(now.at) == 0 {
+		return y // nothing to change, or no device to look at
+	}
+	if e.window == 0 {
+		e.window = 10
+	}
+	hit, end := w.button("Detect axes that rest in the middle", x, y)
+	delta, end := w.stepper("within", percent(e.window), end+14, y)
+	if delta != 0 {
+		e.window = min(max(e.window+delta*5, 5), 45)
+	}
+	note := "of the middle, as they stand now: leave the controller alone, then press"
+	w.text(w.sans, fit(w.sans, note, sizeText-1, x+inner-end-10), end+10, y+5, sizeText-1, col(colFaint))
+	if hit {
+		rests := map[control.Code]bool{}
+		for _, code := range axes {
+			if v, known := now.at[code]; known {
+				d := v - 0.5
+				rests[code] = d <= float64(e.window)/100 && -d <= float64(e.window)/100
+			}
+		}
+		yes, changed, err := e.doc.SetCentered(e.layout, rests)
+		e.try(err)
+		if err == nil {
+			e.message = fmt.Sprintf("%d of %d axes stand near their middle and are taken to rest there; %d changed.", yes, len(rests), changed)
+		}
+	}
+	return y + 34
 }
 
 // axisLine draws one axis: its name, a bar for where it stands, and
@@ -427,7 +460,11 @@ func (w *window) axisLine(e *editor, device *ipc.Instrument, now live, code cont
 			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, filled, bar.Height), 1, 4, col(w.pressed()))
 		}
 	}
-	rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
+	// Where the axis rests, as it is read: in the middle for a stick and
+	// for halves, at an end for a lever.
+	if at, ok := e.shadow.Neutral(code); ok {
+		w.neutralMark(bar.X+bar.Width*float32(at), bar.Y)
+	}
 
 	cx := bar.X + bar.Width + 10
 	w.text(w.mono, "=>", cx, y+3, arrowSize, col(colFaint))
@@ -671,14 +708,14 @@ func (w *window) editShape(e *editor, at Spot, role Role, x, y, inner float32) f
 		// The dead zone is the profile's unless the axis has its own.
 		toggle("own dead zone", &shape.OwnDeadzone)
 		if shape.OwnDeadzone {
-			delta, _ := w.stepper("", fmt.Sprintf("%.2f", shape.Deadzone), px-10, y-2)
+			delta, _ := w.stepper("", percentOf(shape.Deadzone), px-10, y-2)
 			if delta != 0 {
 				hundredths := int(shape.Deadzone*100+0.5) + delta*5
 				shape.Deadzone = float64(min(max(hundredths, 0), 95)) / 100
 				again()
 			}
 		} else {
-			w.text(w.mono, fmt.Sprintf("%.2f, the profile's", shape.Deadzone), px, y+3, sizeMono, col(colFaint))
+			w.text(w.mono, percentOf(shape.Deadzone)+", the profile's", px, y+3, sizeMono, col(colFaint))
 		}
 	} else {
 		// Where the axis counts as pressed, in steps of a twentieth.

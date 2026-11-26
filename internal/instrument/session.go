@@ -272,8 +272,9 @@ func (s *session) roles() {
 	}
 	s.rolesFor, s.rolesLayout = s.eng, s.state.Layout
 	now, _, _ := s.eng.Keys()
+	rests := s.eng.Neutrals()
 	s.mu.Lock()
-	s.status.Keys = now
+	s.status.Keys, s.status.Neutrals = now, rests
 	s.mu.Unlock()
 	s.changed()
 }
@@ -391,7 +392,13 @@ func (s *session) reassign() {
 	s.limit = newLimiter(s.profile.AxisRate)
 	s.steady = newSteadier(s.profile.AxisThreshold)
 	s.state = s.eng.State()
-	s.setStatus(Status{Device: s.info, Profile: s.profile.Name, ProfileSource: s.profile.Source, ProfileKind: s.profile.Kind, State: s.state}, true)
+	s.setStatus(Status{
+		Device: s.info, Profile: s.profile.Name, ProfileSource: s.profile.Source, ProfileKind: s.profile.Kind,
+		// A factory profile with a rule: what the device plays is made
+		// for it, written nowhere.
+		Generated: s.profile.Kind == config.KindFactory && s.profile.Generate.Any(),
+		State:     s.state,
+	}, true)
 	s.roles()
 	s.replay() // where the axes stand, for the new profile
 }

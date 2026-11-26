@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"math"
 	"runtime"
 	"time"
 
@@ -254,6 +255,15 @@ func (k *kit) unclip() {
 
 // scissor tells raylib to draw inside r only. raylib counts in the points
 // of the window before the size of the interface is laid on.
+//
+// Each edge is brought to a whole pixel by itself, and the size is what
+// lies between them. Rounding the corner and the size apart lets the far
+// edge move by a pixel as the near one moves, which shows as a tremble
+// where the far edge is meant to stand still: a bar that fills from its
+// middle outwards, for one.
 func (k *kit) scissor(r rl.Rectangle) {
-	rl.BeginScissorMode(int32(r.X*k.scale), int32(r.Y*k.scale), int32(max(r.Width, 0)*k.scale+0.5), int32(max(r.Height, 0)*k.scale+0.5))
+	edge := func(v float32) int32 { return int32(math.Round(float64(v * k.scale))) }
+	left, top := edge(r.X), edge(r.Y)
+	right, bottom := edge(r.X+max(r.Width, 0)), edge(r.Y+max(r.Height, 0))
+	rl.BeginScissorMode(left, top, right-left, bottom-top)
 }

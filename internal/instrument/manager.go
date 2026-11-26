@@ -580,6 +580,10 @@ type Status struct {
 	// factory profile or one of the user's.
 	ProfileSource string
 	ProfileKind   string
+	// Generated says that the profile is a factory profile with a rule
+	// for what it does not name: most of what the device plays is made
+	// for this device by that rule.
+	Generated bool
 	// State is the current state of the instrument.
 	State engine.State
 	// Input is what the device itself reports, before any profile is
@@ -592,6 +596,9 @@ type Status struct {
 	Trail Trail
 	// Keys is what every bound key does in the selected layout.
 	Keys []engine.KeyRole
+	// Neutrals is where every axis rests that the selected layout reads.
+	// It must not be changed.
+	Neutrals []engine.Neutral
 	// Controllers is what the selected layout sends by the position of
 	// controls, in the order of those controls, with the values last
 	// sent. It must not be changed.

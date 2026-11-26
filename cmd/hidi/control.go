@@ -113,6 +113,11 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 		axes := make([]ipc.Axis, len(st.Input.Axes))
 		for i, a := range st.Input.Axes {
 			axes[i] = ipc.Axis{Name: a.Code.String(), Part: a.Part, Value: a.Value, Hat: a.Hat, Known: a.Said}
+			for _, n := range st.Neutrals {
+				if n.Code == a.Code && n.Part == a.Part {
+					axes[i].Bound, axes[i].Rest = true, n.At
+				}
+			}
 		}
 		keys := make([]ipc.Key, len(st.Keys))
 		for i, k := range st.Keys {
@@ -163,6 +168,7 @@ func snapshot(manager *instrument.Manager) ipc.Snapshot {
 			Profile:     st.Profile,
 			ProfileFile: profileFile(st.ProfileSource),
 			ProfileKind: st.ProfileKind,
+			Generated:   st.Generated,
 			Octave:      st.State.Octave,
 			Transpose:   st.State.Transpose,
 			Channel:     int(st.State.Channel) + 1,

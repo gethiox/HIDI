@@ -103,6 +103,9 @@ type Instrument struct {
 	// ProfileKind is "factory" for a profile HIDI comes with and "user"
 	// for one of the user's own.
 	ProfileKind string `json:"profile_kind,omitempty"`
+	// Generated says that the profile is a factory profile that gives
+	// most controls their parts by a rule, for this device.
+	Generated bool `json:"generated,omitempty"`
 
 	Octave    int `json:"octave"`
 	Transpose int `json:"transpose"`
@@ -183,6 +186,11 @@ type Axis struct {
 	// Known says that the device has reported where the axis stands. An
 	// axis the device only listed has not, and its Value means nothing.
 	Known bool `json:"known,omitempty"`
+	// Bound says that the layout that is selected reads the axis, and
+	// Rest where it then rests, from 0 to 1: in the middle for a stick,
+	// at an end for a lever.
+	Bound bool    `json:"bound,omitempty"`
+	Rest  float64 `json:"rest,omitempty"`
 }
 
 // LogLine is one line of the running HIDI's log.

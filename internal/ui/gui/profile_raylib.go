@@ -55,6 +55,16 @@ type editor struct {
 	// saved says that the file was written in this frame; the running
 	// HIDI is then asked to look at it at once.
 	saved bool
+	// shadow plays what the device does through an engine made of the
+	// profile as it is shown, for what the page shows of it.
+	shadow Shadow
+	// doubled are the spots that send a controller, or bend the pitch,
+	// which another control sends as well, in the frame being drawn.
+	doubled map[Spot]bool
+	// window is how far from its middle an axis may stand to be taken
+	// for one that rests there, in hundredths of its travel; 0 before
+	// it was set.
+	window int
 	// device names the instrument the page was opened for, as
 	// [EntryKey] does: the page shows what that device has and does.
 	// Empty where it was opened for none, from the list of profiles.
@@ -340,6 +350,12 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	}
 	w.text(w.bold, doc.Profile.Name, end+14, y+2, sizeName, col(colText))
 	hx := end + 14 + width(w.bold, doc.Profile.Name, sizeName) + 12
+	if doc.ReadOnly && doc.Profile.Generate.Any() {
+		// A factory profile with a rule: what is shown is made for the
+		// device, not written anywhere.
+		w.text(w.sans, "(generated)", hx-4, y+5, sizeText, col(colFaint))
+		hx += width(w.sans, "(generated)", sizeText) + 8
+	}
 	if device != nil {
 		// The device the page shows the profile for: its controls, what
 		// the rule makes of them, and what it does at this moment.
@@ -436,7 +452,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 			sx, y = x, y+34
 		}
 		zone := doc.Profile.Deadzone
-		if delta, _ := w.stepper("dead zone", fmt.Sprintf("%.2f", zone), sx, y); delta != 0 {
+		if delta, _ := w.stepper("dead zone", percentOf(zone), sx, y); delta != 0 {
 			hundredths := int(zone*100+0.5) + delta*5
 			e.try(doc.SetDeadzone(float64(min(max(hundredths, 0), 95)) / 100))
 		}
@@ -448,6 +464,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	// The controls: a keyboard as a keyboard, anything else as a list.
 	e.overAny = false
 	now := liveOf(device)
+	e.shadow.Follow(doc, e.layout, float64(w.settings.edit.shown.Input.Hysteresis)/100, device)
 	if doc.Profile.Match.Type == control.DeviceKeyboard {
 		y = w.editKeyboard(e, now, x, y, right-x)
 	} else {

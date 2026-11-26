@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -742,37 +741,7 @@ func TestProfileDocSplitAndJoin(t *testing.T) {
 	}
 }
 
-func TestRoleSendsAndLabels(t *testing.T) {
-	x := control.Axis(0)
-	near := func(a, b float64) bool { return math.Abs(a-b) < 0.001 }
-	for _, tt := range []struct {
-		name     string
-		role     Role
-		at       Spot
-		v        float64
-		from, to float64
-		held     bool
-	}{
-		{"a controller", Role{Kind: RoleController}, Whole(x), 0.25, 0, 0.25, false},
-		{"reversed", Role{Kind: RoleController, Shape: Shape{Invert: true}}, Whole(x), 0.25, 0, 0.75, false},
-		{"resting in the middle", Role{Kind: RoleController, Shape: Shape{Centered: true}}, Whole(x), 0.5, 0, 0.5, false},
-		{"the upper half at rest", Role{Kind: RoleController}, Spot{x, engine.RangeUpper}, 0.5, 0, 0, false},
-		{"the upper half pushed", Role{Kind: RoleController}, Spot{x, engine.RangeUpper}, 0.75, 0, 0.5, false},
-		{"the lower half pushed", Role{Kind: RoleController}, Spot{x, engine.RangeLower}, 0, 0, 1, false},
-		{"the pitch at rest", Role{Kind: RoleBend, Shape: Shape{Centered: true}}, Whole(x), 0.5, 0.5, 0.5, false},
-		{"the pitch bent up", Role{Kind: RoleBend, Shape: Shape{Centered: true}}, Whole(x), 1, 0.5, 1, false},
-		{"the pitch bent down by a half", Role{Kind: RoleBend, Down: true}, Spot{x, engine.RangeLower}, 0, 0, 0.5, false},
-		{"a note below its point", Role{Kind: RoleNote, Shape: Shape{Threshold: 0.3}}, Whole(x), 0.2, 0, 0, false},
-		{"a note past its point", Role{Kind: RoleNote, Shape: Shape{Threshold: 0.3}}, Whole(x), 0.4, 0, 0, true},
-		{"a note at the usual half", Role{Kind: RoleNote}, Whole(x), 0.4, 0, 0, false},
-		{"a key that is down", Role{Kind: RoleNote}, Whole(control.Key(30)), 1, 0, 0, true},
-		{"nothing", Role{}, Whole(x), 1, 0, 0, false},
-	} {
-		from, to, held := tt.role.Sends(tt.at, tt.v)
-		if !near(from, tt.from) || !near(to, tt.to) || held != tt.held {
-			t.Errorf("%s: from %v to %v, held %v; want %v to %v, %v", tt.name, from, to, held, tt.from, tt.to, tt.held)
-		}
-	}
+func TestRoleLabels(t *testing.T) {
 	for role, want := range map[Role]string{
 		{Kind: RoleController, Controller: 16}: "cc16", {Kind: RoleBend}: "PB", {Kind: RoleBend, Down: true}: "PB↓",
 		{Kind: RoleNote, Text: "C3"}: "C3", {Silent: true}: "nothing", {}: "",
@@ -912,5 +881,71 @@ func TestProfileDocDeadzone(t *testing.T) {
 		if b.Source.Code.Kind == control.KindAxis && b.Source.Deadzone != 0.2 {
 			t.Errorf("%s plays with a dead zone of %v", b.Source.Code, b.Source.Deadzone)
 		}
+	}
+}
+
+// Axes are told to rest in the middle or not, all in one change: those
+// that send a controller or bend the pitch, as a whole.
+func TestProfileDocSetCentered(t *testing.T) {
+	doc, layout := openPad(t)
+	x, y, hat := control.Axis(0), control.Axis(1), control.Axis(0x10)
+	// X stands near its middle: a stick. Y is at an end: a lever. The
+	// hat is no matter for this.
+	resting, changed, err := doc.SetCentered(layout, map[control.Code]bool{x: true, y: false, hat: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resting != 2 || changed != 2 {
+		t.Errorf("%d resting, %d changed; want 2 and 2", resting, changed)
+	}
+	if r := doc.Role(layout, x); r.Kind != RoleController || !r.Shape.Centered || r.Generated {
+		t.Errorf("ABS_X: %+v", r)
+	}
+	if r := doc.Role(layout, y); r.Kind != RoleBend || r.Shape.Centered {
+		t.Errorf("ABS_Y: %+v", r)
+	}
+	if r := doc.Role(layout, hat); !r.Split || !r.Generated {
+		t.Errorf("the hat was touched: %+v", r)
+	}
+	if got := played(t, doc); got["ABS_X"] != "cc16" || got["ABS_Y"] != "PB" {
+		t.Errorf("what is played: %v", got)
+	}
+	// The same again changes nothing, and one step takes it all back.
+	before := string(doc.Text())
+	if _, changed, err := doc.SetCentered(layout, map[control.Code]bool{x: true, y: false}); err != nil || changed != 0 || string(doc.Text()) != before {
+		t.Errorf("the same again: %d changed, %v", changed, err)
+	}
+	if !doc.Undo() || doc.Dirty() {
+		t.Error("one step back did not take all of it back")
+	}
+}
+
+// Two controls that send the same controller are found, and the two
+// halves of one axis that bend the pitch are not.
+func TestDoubledControllers(t *testing.T) {
+	doc, layout := openPad(t)
+	x, y := control.Axis(0), control.Axis(1)
+	spots := []Spot{Whole(x), Whole(y), {y, engine.RangeLower}, {y, engine.RangeUpper}, Whole(control.Key(0x120))}
+	if got := doc.Doubled(layout, spots); len(got) != 0 {
+		t.Fatalf("doubled in the profile as it comes: %v", got)
+	}
+	// The pitch bend by its halves is one control.
+	if err := doc.Split(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Doubled(layout, spots); len(got) != 0 {
+		t.Errorf("the halves of one axis count as two controls: %v", got)
+	}
+	// A button on the controller of an axis.
+	if err := doc.SetController(layout, control.Key(0x120), 16, Shape{}); err != nil {
+		t.Fatal(err)
+	}
+	got := doc.Doubled(layout, spots)
+	if len(got) != 2 || !got[Whole(x)] || !got[Whole(control.Key(0x120))] {
+		t.Errorf("doubled: %v", got)
+	}
+	// It is no mistake: the profile can be saved and is one.
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -49,20 +49,6 @@ func (e *Engine) SetHysteresis(h float64) {
 	e.hysteresis = h
 }
 
-// Shape reduces a raw position of the control, from 0 to 1, to what the
-// action of the source sees: from -1 to 1 where [Source.Bipolar] says so,
-// from 0 to 1 otherwise. It is what the engine does, for whoever wants to
-// show what a position would send.
-func (s Source) Shape(v float64) float64 { return shape(&s, min(max(v, 0), 1)) }
-
-// Bipolar reports whether the shaped position runs from -1 to 1: the
-// whole of a control that rests in the middle.
-func (s Source) Bipolar() bool { return s.bipolar() }
-
-// Triggers reports whether a shaped position is at or past the point
-// where a note or a command of the source triggers, hysteresis aside.
-func (s Source) Triggers(x float64) bool { return x >= s.point() }
-
 // A momentary action triggers when its source rises to pressThreshold and
 // ends when the source falls below releaseThreshold. The gap keeps an axis
 // that rests near the threshold from triggering repeatedly.

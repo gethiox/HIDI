@@ -83,6 +83,23 @@ func OwnProfile(p *config.Profile) bool {
 	return p.Match.Vendor != nil && p.Match.Product != nil || p.Match.Serial != ""
 }
 
+// Overrides reports whether a profile of the user's stands in for a
+// factory profile: it is for the very devices one of them is for, a kind
+// of device and nothing narrower, so that every device of that kind
+// plays with it in place of what HIDI comes with. A profile for one
+// product is no such thing: it adds to the factory profiles.
+func Overrides(p *config.Profile, all []*config.Profile) bool {
+	if p.Kind != config.KindUser || OwnProfile(p) {
+		return false
+	}
+	for _, other := range all {
+		if other.Kind == config.KindFactory && other.Match.String() == p.Match.String() {
+			return true
+		}
+	}
+	return false
+}
+
 // SetProfileEnabled writes into a profile file of the user's whether the
 // profile is to be used.
 func SetProfileEnabled(file string, on bool) error {

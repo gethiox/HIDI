@@ -56,6 +56,7 @@ var (
 	colAccent     = RGB{0x3d, 0xc9, 0x7b}
 	colInput      = RGB{0x3d, 0xc9, 0x7b} // what comes in from the devices: its curve
 	colMIDI       = RGB{0xe6, 0xc2, 0x3f} // what goes out as MIDI: its curve
+	colNeutral    = RGB{0x6f, 0xa8, 0xdc} // the mark of where an axis rests
 	colInputText  = RGB{0xa5, 0xe8, 0xc0} // a number of what comes in, while it is not zero
 	colMIDIText   = RGB{0xf2, 0xdc, 0x8c} // a number of what goes out, while it is not zero
 	colUnsaved    = RGB{0xf2, 0xc9, 0x4c} // changes that wait to be saved
@@ -722,7 +723,11 @@ func (w *window) drawCard(in ipc.Instrument, r rl.Rectangle) {
 	name := fit(w.bold, in.Name, sizeName, room)
 	w.text(w.bold, name, x, y, sizeName, col(colText))
 	if left := room - width(w.bold, name, sizeName) - 12; left > 40 {
-		about := fit(w.sans, in.Type+" · profile "+in.Profile, sizeText, left)
+		profile := in.Profile
+		if in.Generated {
+			profile += " (generated)"
+		}
+		about := fit(w.sans, in.Type+" · profile "+profile, sizeText, left)
 		ax := x + width(w.bold, name, sizeName) + 12
 		w.text(w.sans, about, ax, y+3, sizeText, col(colFaint))
 		if left -= width(w.sans, about, sizeText) + 12; in.Typing && left > 60 {
@@ -1016,8 +1021,10 @@ func (w *window) drawInput(in ipc.Instrument, x, y, inner float32) {
 		if filled := bar.Width * value; filled >= 1 && a.Known {
 			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, filled, bar.Height), 1, 4, col(w.pressed()))
 		}
-		// A mark in the middle, where a stick rests.
-		rl.DrawRectangleRec(rl.NewRectangle(bar.X+bar.Width/2, bar.Y-2, 1, bar.Height+4), col(colOff))
+		// A mark where the axis rests, as the profile reads it.
+		if a.Bound {
+			w.neutralMark(bar.X+bar.Width*float32(min(max(a.Rest, 0), 1)), bar.Y)
+		}
 		// An axis the device listed and has said nothing of stands
 		// nowhere that is known.
 		shown, ink := fmt.Sprintf("%.2f", a.Value), colText

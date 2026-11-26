@@ -999,14 +999,6 @@ func TestThreshold(t *testing.T) {
 	if _, err := New(Profile{Layouts: []Layout{{Name: "L", Bindings: []Binding{{Source: Source{Code: z, Threshold: 1}, Action: Note{Note: 60}}}}}}); err == nil {
 		t.Error("a threshold of 1 was accepted")
 	}
-	// What a position would do can be asked without an engine.
-	s := Source{Code: z, Threshold: 0.2}
-	if !s.Triggers(s.Shape(0.3)) || s.Triggers(s.Shape(0.1)) || (Source{Code: z}).Triggers(0.3) {
-		t.Error("Triggers does not follow the threshold")
-	}
-	if c := (Source{Code: x, Centered: true}); !c.Bipolar() || c.Shape(0) != -1 || c.Shape(2) != 1 {
-		t.Error("Shape of a control that rests in the middle")
-	}
 }
 
 // What a layout sends by the position of controls is listed in the order
@@ -1175,5 +1167,78 @@ func TestSilence(t *testing.T) {
 		if got := text(on); got != tt.on {
 			t.Errorf("%+v, turned on again:\n got %s\nwant %s", tt.rest, got, tt.on)
 		}
+	}
+}
+
+// What the engine holds and sends can be asked control by control, for
+// whoever shows it, and where each axis rests.
+func TestHeldSendsAndNeutral(t *testing.T) {
+	x, y, z, rz, a := control.Axis(0), control.Axis(1), control.Axis(2), control.Axis(5), control.Key(30)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Layouts: []Layout{{Name: "L", Bindings: []Binding{
+			{Source: Source{Code: z, Threshold: 0.3}, Action: Note{Note: 60}},
+			{Source: Source{Code: x, Range: RangeUpper}, Action: PitchBend{}},
+			{Source: Source{Code: x, Range: RangeLower}, Action: PitchBend{Down: true}},
+			{Source: Source{Code: y, Centered: true}, Action: ControlChange{Controller: 7}},
+			{Source: Source{Code: rz, Invert: true}, Action: ControlChange{Controller: 8}},
+			{Source: Source{Code: a}, Action: Note{Note: 62}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.SetHysteresis(0.2)
+	// Held follows the hysteresis: pressed a tenth past the point, let
+	// go a tenth behind it.
+	for _, step := range []struct {
+		v    float64
+		held bool
+	}{{0.35, false}, {0.41, true}, {0.3, true}, {0.21, true}, {0.19, false}, {0.35, false}} {
+		e.Handle(control.Event{Code: z, Value: step.v}, nil)
+		if got := e.Held(z, "", RangeWhole); got != step.held {
+			t.Errorf("the axis at %v: held %v, want %v", step.v, got, step.held)
+		}
+	}
+	e.Handle(control.Event{Code: a, Value: 1}, nil)
+	if !e.Held(a, "", RangeWhole) || e.Held(a, "", RangeUpper) || e.Held(control.Key(31), "", RangeWhole) {
+		t.Error("Held of a key that is down, of a half of it, and of a key nobody touched")
+	}
+
+	// Sends: nothing known before anything was sent, then the value;
+	// the two halves that bend the pitch send to the same place.
+	if s, ok := e.Sends(y, "", RangeWhole); !ok || s.Known || s.Controller != 7 {
+		t.Errorf("before the axis moved: %+v, %v", s, ok)
+	}
+	e.Handle(control.Event{Code: y, Value: 1}, nil)
+	if s, ok := e.Sends(y, "", RangeWhole); !ok || !s.Known || midi.To7(s.Value) != 127 {
+		t.Errorf("after the axis moved: %+v, %v", s, ok)
+	}
+	e.Handle(control.Event{Code: x, Value: 0}, nil)
+	up, _ := e.Sends(x, "", RangeUpper)
+	down, _ := e.Sends(x, "", RangeLower)
+	if !up.PitchBend || !down.PitchBend || !up.Known || up.Value != down.Value || int(midi.To14(up.Value))-8192 != -8192 {
+		t.Errorf("the halves of the pitch bend: %+v, %+v", up, down)
+	}
+	if _, ok := e.Sends(z, "", RangeWhole); ok {
+		t.Error("an axis that plays a note is said to send a controller")
+	}
+
+	// Where the axes rest.
+	want := map[control.Code]float64{x: 0.5, y: 0.5, z: 0, rz: 1}
+	got := e.Neutrals()
+	if len(got) != len(want) {
+		t.Fatalf("Neutrals: %+v", got)
+	}
+	for _, n := range got {
+		if n.At != want[n.Code] {
+			t.Errorf("%s rests at %v, want %v", n.Code, n.At, want[n.Code])
+		}
+		if at, ok := e.Neutral(n.Code, ""); !ok || at != n.At {
+			t.Errorf("Neutral(%s) = %v, %v", n.Code, at, ok)
+		}
+	}
+	if _, ok := e.Neutral(control.Axis(9), ""); ok {
+		t.Error("an axis nothing reads has a place to rest")
 	}
 }

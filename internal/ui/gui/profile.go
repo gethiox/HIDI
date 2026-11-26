@@ -2,7 +2,9 @@ package gui
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -332,40 +334,6 @@ func (r Role) Short() string {
 	return r.Text
 }
 
-// Sends says what a spot with this role does at a position of its
-// control, from 0 to 1 (a key that is down is at 1): for a controller or
-// the pitch bend the part of a bar that its value fills, as fractions of
-// the bar's width, and for what is held like a key whether it is held.
-// It is the engine's own reckoning, so the page shows what would be
-// sent, with HIDI on or off.
-func (r Role) Sends(at Spot, v float64) (from, to float64, held bool) {
-	src := engine.Source{
-		Code: at.Code, Range: at.Half,
-		Centered: r.Shape.Centered && at.Half == engine.RangeWhole,
-		Invert:   r.Shape.Invert, Deadzone: r.Shape.Deadzone, Threshold: r.Shape.Threshold,
-	}
-	if at.Code.Kind != control.KindAxis {
-		src = engine.Source{Code: at.Code}
-	}
-	x := src.Shape(v)
-	switch r.Kind {
-	case RoleController:
-		if src.Bipolar() {
-			x = (x + 1) / 2
-		}
-		return 0, x, false
-	case RoleBend:
-		if !src.Bipolar() && r.Down {
-			x = -x
-		}
-		at := (x + 1) / 2
-		return min(at, 0.5), max(at, 0.5), false
-	case RoleNote, RoleCommand, RoleOther:
-		return 0, 0, src.Triggers(x)
-	}
-	return 0, 0, false
-}
-
 // become makes the role one of another kind: what only the old kind had
 // is dropped, how the position is read stays.
 func (r *Role) become(kind RoleKind) {
@@ -609,6 +577,77 @@ func (d *ProfileDoc) SetBendAt(layout string, at Spot, shape Shape) error {
 // does already.
 func (d *ProfileDoc) SetShapeAt(layout string, at Spot, shape Shape) error {
 	return d.PutAt(layout, at, func(r *Role) { r.Shape = shape })
+}
+
+// SetCentered says of each axis given whether it rests in the middle, for
+// what it does as a whole in a layout: an axis that sends a controller or
+// bends the pitch is read accordingly from then on. Axes that do
+// something else, or are bound by their halves, are left as they are. It
+// is one change, taken back in one step, and returns how many of the axes
+// rest in the middle and how many bindings were changed.
+func (d *ProfileDoc) SetCentered(layout string, rests map[control.Code]bool) (resting, changed int, err error) {
+	codes := slices.SortedFunc(maps.Keys(rests), func(a, b control.Code) int { return cmp.Compare(a.Num, b.Num) })
+	err = d.change(func(text []byte) ([]byte, error) {
+		resting, changed = 0, 0
+		for _, code := range codes {
+			if rests[code] {
+				resting++
+			}
+			at := Whole(code)
+			role := d.RoleAt(layout, at)
+			if role.Kind != RoleController && role.Kind != RoleBend || role.Shape.Centered == rests[code] {
+				continue
+			}
+			role.Shape.Centered = rests[code]
+			value, err := role.value(at)
+			if err != nil {
+				return nil, err
+			}
+			if text, err = config.Set(text, role.Section, at.Key(), value); err != nil {
+				return nil, err
+			}
+			changed++
+		}
+		return text, nil
+	})
+	return resting, changed, err
+}
+
+// Doubled finds the spots among those given that send a controller, or
+// bend the pitch, which another control among them sends as well, in a
+// layout. Two controls on one controller overwrite each
+// other; that may be meant, so it is shown and not refused. The two
+// halves of one axis that bend the pitch up and down are one control.
+func (d *ProfileDoc) Doubled(layout string, spots []Spot) map[Spot]bool {
+	type sent struct {
+		bend       bool
+		controller uint8
+		offset     uint8
+	}
+	by := map[sent][]Spot{}
+	for _, at := range spots {
+		switch role := d.RoleAt(layout, at); role.Kind {
+		case RoleController:
+			key := sent{controller: role.Controller, offset: role.Offset}
+			by[key] = append(by[key], at)
+		case RoleBend:
+			key := sent{bend: true, offset: role.Offset}
+			by[key] = append(by[key], at)
+		}
+	}
+	out := map[Spot]bool{}
+	for _, same := range by {
+		several := false
+		for _, at := range same {
+			several = several || at.Code != same[0].Code
+		}
+		for _, at := range same {
+			if several {
+				out[at] = true
+			}
+		}
+	}
+	return out
 }
 
 // SetPassthrough leaves a key to the system: it plays nothing and types

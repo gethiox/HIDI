@@ -4,6 +4,7 @@ package gui
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -346,6 +347,9 @@ func (sh *sheet) choices(vx float32, chosen int, values []int, label func(int) s
 
 func percent(n int) string { return fmt.Sprintf("%d%%", n) }
 
+// percentOf writes a part of a whole, from 0 to 1, in hundredths.
+func percentOf(part float64) string { return percent(int(math.Round(part * 100))) }
+
 // drawSettings draws the settings page: sections one below the other,
 // each under a line across the sheet.
 func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
@@ -647,6 +651,16 @@ func (sh *sheet) profiles() {
 		name := fit(w.sans, profile.Name, sizeText, sh.right-from)
 		w.text(w.sans, name, from, sh.y+5, sizeText, col(ink))
 		ax := from + width(w.sans, name, sizeText) + 12
+		if Overrides(profile, v.profiles) {
+			// It takes the place of a factory profile for every
+			// device of a kind, which one for a single product
+			// does not.
+			const mark = "(factory override)"
+			if ax+width(w.sans, mark, sizeText) < sh.right {
+				w.text(w.sans, mark, ax-4, sh.y+5, sizeText, col(colUnsaved))
+				ax += width(w.sans, mark, sizeText) + 8
+			}
+		}
 		most := int((sh.right - ax) / width(w.mono, "0", sizeMono))
 		if most > 3 {
 			w.text(w.mono, CutEnd(profileLine(profile), most), ax, sh.y+6, sizeMono, col(colFaint))
@@ -663,7 +677,11 @@ func (sh *sheet) profiles() {
 	for _, profile := range own {
 		// The switch says whether the profile is used; it is written
 		// into the profile at once.
-		if w.pill(profile.Enabled, sh.x, sh.y+2) {
+		lit := colOn
+		if Overrides(profile, v.profiles) {
+			lit = colUnsaved
+		}
+		if w.pillIn(profile.Enabled, lit, sh.x, sh.y+2) {
 			switch {
 			case w.unsaved(profile.Source):
 				v.message = "This profile has changes that are not saved; save or drop them first."
