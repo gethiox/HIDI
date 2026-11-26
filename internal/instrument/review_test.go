@@ -383,3 +383,25 @@ func TestVelocityStepFromSettings(t *testing.T) {
 	kbd.set(keyX, 0)
 	velocity(120)
 }
+
+// Toggles from several devices at once each count: an even number of
+// them leaves HIDI as it was. Read and flipped in two steps, two toggles
+// at the same moment could both read "on" and turn it off once.
+func TestTogglesAtOnceAllCount(t *testing.T) {
+	m := NewManager(Options{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				m.toggle()
+				m.toggleLearning()
+			}
+		}()
+	}
+	wg.Wait()
+	if !m.Active() || m.Learning() {
+		t.Errorf("after 2000 toggles: active %v, learning %v", m.Active(), m.Learning())
+	}
+}

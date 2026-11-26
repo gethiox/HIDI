@@ -151,6 +151,11 @@ func (m *Manager) Active() bool {
 func (m *Manager) SetActive(active bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.setActive(active)
+}
+
+// setActive is SetActive for a caller that holds m.mu.
+func (m *Manager) setActive(active bool) {
 	if m.active == active {
 		return
 	}
@@ -172,9 +177,12 @@ func (m *Manager) changed() {
 	}
 }
 
-// toggle flips between on and off.
+// toggle flips between on and off, in one step: two devices that toggle
+// at the same moment turn HIDI over twice, not once.
 func (m *Manager) toggle() {
-	m.SetActive(!m.Active())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setActive(!m.active)
 }
 
 // Learning reports whether learning mode is on: see
@@ -188,15 +196,19 @@ func (m *Manager) Learning() bool {
 // SetLearning turns learning mode on or off, for all instruments at once.
 func (m *Manager) SetLearning(on bool) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setLearning(on)
+}
+
+// setLearning is SetLearning for a caller that holds m.mu.
+func (m *Manager) setLearning(on bool) {
 	if m.learning == on {
-		m.mu.Unlock()
 		return
 	}
 	m.learning = on
 	for r := range m.running {
 		r.setLearning(on, m.opts.LearnThreshold)
 	}
-	m.mu.Unlock()
 	if on {
 		m.log.Debug("learning mode is on: axes stand still until they are moved far")
 	} else {
@@ -216,9 +228,12 @@ func (m *Manager) SetLearnThreshold(threshold float64) {
 	}
 }
 
-// toggleLearning is what the learn command of an instrument calls.
+// toggleLearning is what the learn command of an instrument calls. Like
+// toggle, it flips in one step.
 func (m *Manager) toggleLearning() {
-	m.SetLearning(!m.Learning())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setLearning(!m.learning)
 }
 
 // Run starts an instrument for every usable device that arrives on devices.
