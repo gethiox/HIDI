@@ -525,7 +525,7 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 	case role.Generated:
 		does += ", by its number"
 	case role.Kind != RoleNone && role.Section.Layout == "":
-		does += ", in every layout"
+		does += ", in every layout and while HIDI is off"
 	}
 	// The number the window shows it by, and the name profiles write.
 	name := at.Key()

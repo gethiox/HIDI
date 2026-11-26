@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 name = "Default keyboard"
 
 [match]
@@ -13,11 +13,19 @@ layout = "Piano"
 collision = "interrupt"
 
 [global]
-# Caps Lock turns HIDI off and on. Several keys pressed together work too:
+# Caps Lock turns HIDI off and on, in every layout and while HIDI is off.
+# Several keys pressed together work too:
 # "KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT" = "hidi_toggle". A keyboard whose
 # profile has no such line keeps typing while it plays, unless the settings
-# name one toggle for every device.
+# name one toggle for every device. Everything else a key does is written
+# in each layout, which has its own.
 KEY_CAPSLOCK = "hidi_toggle"
+
+[[layout]]
+name = "Piano"
+
+[layout.bindings]
+# commands
 KEY_ESC = "panic"
 KEY_F1 = "octave_down"
 KEY_F2 = "octave_up"
@@ -30,10 +38,6 @@ KEY_F10 = "learn"
 KEY_F11 = "layout_previous"
 KEY_F12 = "layout_next"
 
-[[layout]]
-name = "Piano"
-
-[layout.bindings]
 KEY_LEFTSHIFT = "B-1"
 KEY_Z = "C0"
 KEY_S = "C#0"
@@ -101,6 +105,19 @@ KEY_KPMINUS = "D#1"
 name = "Chromatic"
 
 [layout.bindings]
+# commands
+KEY_ESC = "panic"
+KEY_F1 = "octave_down"
+KEY_F2 = "octave_up"
+KEY_F3 = "transpose_down"
+KEY_F4 = "transpose_up"
+KEY_F5 = "channel_down"
+KEY_F6 = "channel_up"
+KEY_F9 = "chord"
+KEY_F10 = "learn"
+KEY_F11 = "layout_previous"
+KEY_F12 = "layout_next"
+
 KEY_GRAVE = "G#-1"
 KEY_TAB = "A-1"
 KEY_LEFTSHIFT = "B-1"
@@ -176,6 +193,19 @@ KEY_KPMINUS = "D#1"
 name = "Control"
 
 [layout.bindings]
+# commands
+KEY_ESC = "panic"
+KEY_F1 = "octave_down"
+KEY_F2 = "octave_up"
+KEY_F3 = "transpose_down"
+KEY_F4 = "transpose_up"
+KEY_F5 = "channel_down"
+KEY_F6 = "channel_up"
+KEY_F9 = "chord"
+KEY_F10 = "learn"
+KEY_F11 = "layout_previous"
+KEY_F12 = "layout_next"
+
 # main keyboard section
 KEY_1 = 0
 KEY_Q = 1

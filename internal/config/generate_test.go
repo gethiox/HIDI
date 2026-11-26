@@ -13,7 +13,7 @@ import (
 )
 
 const ruleProfile = `
-schema = 1
+schema = 2
 name = "Rule"
 [match]
 type = "gamepad"
@@ -21,7 +21,7 @@ type = "gamepad"
 notes = "C1"
 controllers = 16
 [global]
-BTN_START = "panic"
+BTN_START = "hidi_toggle"
 [[layout]]
 name = "One"
 [layout.bindings]
@@ -366,6 +366,7 @@ KEY_A = { cc = 64 }
 	}{
 		"ABS_Y": {0.05, false}, "ABS_RX": {0.2, true}, "ABS_RY": {0, true}, "ABS_RZ": {0.05, false},
 		"KEY_A": {0, false}, "ABS_X": {0.05, false}, "ABS_HAT0X": {0.05, false},
+		"ABS_Z": {0.05, false}, // of [global] in schema 1, in the layout now
 	}
 	seen := 0
 	for _, b := range made.Layouts[0].Bindings {
@@ -378,11 +379,8 @@ KEY_A = { cc = 64 }
 			t.Errorf("%s: dead zone %v, its own %v; want %v, %v", b.Source.Code, b.Source.Deadzone, p.OwnDeadzone("L", b.Source), w.zone, w.own)
 		}
 	}
-	if seen != 8 { // the hat is two bindings
+	if seen != 9 { // the hat is two bindings
 		t.Errorf("%d of the bindings looked at", seen)
-	}
-	if z := p.Engine.Global[0].Source; z.Deadzone != 0.05 || p.OwnDeadzone("", z) {
-		t.Errorf("a binding for every layout: %+v", z)
 	}
 	// The profiles HIDI comes with have none.
 	profiles, _ := Builtin()

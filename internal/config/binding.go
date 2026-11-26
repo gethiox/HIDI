@@ -111,6 +111,26 @@ func parseSource(key string) (engine.Source, error) {
 	return s, nil
 }
 
+// SourceKey writes a source as the key of its binding, the way
+// parseSource reads it: "KEY_LEFTSHIFT+KEY_F1", "ABS_Y-", "Touchpad:ABS_X".
+func SourceKey(s engine.Source) string {
+	var b strings.Builder
+	if s.Part != "" {
+		b.WriteString(s.Part + ":")
+	}
+	for _, m := range s.Modifiers {
+		b.WriteString(m.String() + "+")
+	}
+	b.WriteString(s.Code.String())
+	switch s.Range {
+	case engine.RangeUpper:
+		b.WriteString("+")
+	case engine.RangeLower:
+		b.WriteString("-")
+	}
+	return b.String()
+}
+
 // actionKeys are the settings that choose what a binding does. Exactly one
 // must be present in a binding written as a table.
 var actionKeys = []string{"note", "cc", "pitch_bend", "program", "command"}
@@ -239,10 +259,11 @@ func (r *reader) toggle(p *engine.Profile) []control.Code {
 		}
 	}
 	for _, b := range p.Global {
+		at := "global, " + b.Source.Code.String()
 		if b.Action != engine.CommandToggle {
+			r.failf(at, "only %s belongs in [global]; every other binding is written in the layouts it works in, each of which has its own", engine.ToggleName)
 			continue
 		}
-		at := "global, " + b.Source.Code.String()
 		switch {
 		case keys != nil:
 			r.failf(at, "a profile has one %s; this is another", engine.ToggleName)

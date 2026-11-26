@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/gethiox/HIDI/internal/engine"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // layoutBlock is the lines of one [[layout]]: its header, its settings
@@ -61,6 +64,72 @@ func inBindings(lines []string, start, at int) bool {
 		}
 	}
 	return seen > 1
+}
+
+// CopyBindings copies the bindings of layout from whose action keep takes
+// into layout to, in the order the file has them, written as they are.
+// A key that layout to binds already keeps its binding there.
+func CopyBindings(text []byte, from, to string, keep func(engine.Action) bool) ([]byte, error) {
+	lines := strings.SplitAfter(string(text), "\n")
+	start, end, err := findSection(lines, Bindings(from))
+	if err != nil {
+		return nil, err
+	}
+	out := text
+	for i := start; i < end; i++ {
+		e, ok, err := parseEntry(lines[i])
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
+		}
+		if !ok {
+			continue
+		}
+		var decoded map[string]any
+		if toml.Unmarshal([]byte("v = "+e.value), &decoded) != nil {
+			continue
+		}
+		source, err := parseSource(e.key)
+		if err != nil {
+			continue
+		}
+		action, ok := (&reader{}).action(e.key, &source, decoded["v"])
+		if !ok || !keep(action) {
+			continue
+		}
+		if _, there, err := Get(out, Bindings(to), e.key); err != nil || there {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if out, err = Set(out, Bindings(to), e.key, e.value); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// addBindings gives a layout written without bindings an empty table
+// for them, at its end.
+func addBindings(text []byte, layout string) ([]byte, error) {
+	lines := strings.SplitAfter(string(text), "\n")
+	for _, b := range layoutBlocks(lines) {
+		if b.name != layout {
+			continue
+		}
+		at := b.end
+		for at > b.start && strings.TrimSpace(lines[at-1]) == "" {
+			at--
+		}
+		ending := lineEnding(text)
+		if at > 0 && !strings.HasSuffix(lines[at-1], "\n") {
+			lines[at-1] += ending
+		}
+		added := []string{ending, "[layout.bindings]" + ending}
+		lines = append(lines[:at], append(added, lines[at:]...)...)
+		return checked(lines)
+	}
+	return nil, fmt.Errorf("there is no layout %q", layout)
 }
 
 func lineEnding(text []byte) string {

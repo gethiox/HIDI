@@ -18,7 +18,7 @@ func mustCode(t *testing.T, name string) control.Code {
 }
 
 const fullProfile = `
-schema = 1
+schema = 2
 name = "Test"
 
 [match]
@@ -36,13 +36,14 @@ layout = "Second"
 collision = "no_repeat"
 
 [global]
-KEY_F1 = "octave_down"
-"KEY_LEFTSHIFT+KEY_F1" = "transpose_down"
+"KEY_LEFTCTRL+KEY_CAPSLOCK" = "hidi_toggle"
 
 [[layout]]
 name = "First"
 
 [layout.bindings]
+KEY_F1 = "octave_down"
+"KEY_LEFTSHIFT+KEY_F1" = "transpose_down"
 KEY_Z = "C1"
 KEY_X = 61
 KEY_Q = { note = "D#3", channel_offset = 1, velocity = 127 }
@@ -64,7 +65,7 @@ func TestParse(t *testing.T) {
 		t.Fatalf("Parse:\n%v", err)
 	}
 
-	if p.Name != "Test" || p.WrittenFor != 1 {
+	if p.Name != "Test" || p.WrittenFor != 2 {
 		t.Errorf("Name = %q, WrittenFor = %d", p.Name, p.WrittenFor)
 	}
 	m := p.Match
@@ -97,6 +98,8 @@ func TestParse(t *testing.T) {
 		"ABS_Y+":    {Source: engine.Source{Code: absY, Range: engine.RangeUpper, Deadzone: 0.25}, Action: engine.ControlChange{Controller: 1}},
 		"ABS_Y-":    {Source: engine.Source{Code: absY, Range: engine.RangeLower}, Action: engine.PitchBend{Down: true}},
 		"Touchpad":  {Source: engine.Source{Code: absX, Part: "Touchpad"}, Action: engine.ControlChange{Controller: 10}},
+		"KEY_F1":    {Source: engine.Source{Code: f1}, Action: engine.CommandOctaveDown},
+		"Shift+F1":  {Source: engine.Source{Code: f1, Modifiers: []control.Code{shift}}, Action: engine.CommandTransposeDown},
 	}
 	got := p.Engine.Layouts[0].Bindings
 	if len(got) != len(want) {
@@ -118,20 +121,15 @@ func TestParse(t *testing.T) {
 		}
 	}
 
-	if len(p.Engine.Global) != 2 {
-		t.Fatalf("Global = %+v", p.Engine.Global)
+	capsLock := mustCode(t, "KEY_CAPSLOCK")
+	if g := p.Engine.Global; len(g) != 1 || g[0].Action != engine.CommandToggle || g[0].Source.Code != capsLock {
+		t.Errorf("Global = %+v", g)
 	}
-	for _, g := range p.Engine.Global {
-		switch len(g.Source.Modifiers) {
-		case 0:
-			if g.Source.Code != f1 || g.Action != engine.CommandOctaveDown {
-				t.Errorf("plain global binding = %+v", g)
-			}
-		case 1:
-			if g.Source.Code != f1 || g.Source.Modifiers[0] != shift || g.Action != engine.CommandTransposeDown {
-				t.Errorf("combination global binding = %+v", g)
-			}
-		}
+	if want := []control.Code{mustCode(t, "KEY_LEFTCTRL"), capsLock}; len(p.Toggle) != 2 || p.Toggle[0] != want[0] || p.Toggle[1] != want[1] {
+		t.Errorf("Toggle = %v, want %v", p.Toggle, want)
+	}
+	if n := len(p.Engine.Layouts[1].Bindings); n != 0 {
+		t.Errorf("the second layout has %d bindings of the first", n)
 	}
 
 	if _, err := engine.New(p.Engine); err != nil {

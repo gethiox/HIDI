@@ -556,7 +556,7 @@ func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
 	switch {
 	case add || key == rl.KeyEnter:
 		name := strings.TrimSpace(e.newName)
-		e.try(doc.AddLayout(name))
+		e.try(doc.AddLayout(name, e.layout))
 		if slices.Contains(doc.Layouts(), name) {
 			e.layout, e.adding = name, false
 		}

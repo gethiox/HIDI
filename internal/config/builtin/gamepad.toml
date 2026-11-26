@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 name = "Default gamepad"
 
 # For every game controller: pads, sticks, throttles, wheels, button boxes.

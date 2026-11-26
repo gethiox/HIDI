@@ -1,9 +1,19 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/gethiox/HIDI/internal/engine"
+)
 
 // Schema is the profile schema version this build writes and understands.
-const Schema = 1
+//
+//   - 1: [global] holds bindings that every layout has, unless the layout
+//     binds the key itself.
+//   - 2: every layout holds all of its bindings, commands included, and
+//     [global] holds only the binding of hidi_toggle, which works the same
+//     in every layout and while HIDI is off.
+const Schema = 2
 
 // migration upgrades the decoded contents of a profile file by one schema
 // version, in place.
@@ -12,7 +22,59 @@ type migration func(doc map[string]any) error
 // migrations maps a schema version to the step that upgrades a file from
 // that version to the next. It must have an entry for every version from 1
 // up to, but not including, Schema.
-var migrations = map[int]migration{}
+var migrations = map[int]migration{1: layoutsOwnTheirBindings}
+
+// layoutsOwnTheirBindings moves the bindings of [global] into every layout,
+// except that of hidi_toggle. A layout that binds a key itself keeps its
+// own binding, as it did when [global] was shared: a binding of [global]
+// only applied where the layout had none of the same key. A file shaped
+// in some other way is left as it is, for the reader to say what is wrong.
+func layoutsOwnTheirBindings(doc map[string]any) error {
+	global, ok := doc["global"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	layouts, ok := doc["layout"].([]any)
+	if !ok || len(layouts) == 0 {
+		return nil
+	}
+	for key, value := range global {
+		if isToggle(value) {
+			continue
+		}
+		for _, raw := range layouts {
+			layout, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			bindings, ok := layout["bindings"].(map[string]any)
+			if !ok {
+				if _, there := layout["bindings"]; there {
+					continue // not a table: the reader says so
+				}
+				bindings = map[string]any{}
+				layout["bindings"] = bindings
+			}
+			if _, own := bindings[key]; !own {
+				bindings[key] = value
+			}
+		}
+		delete(global, key)
+	}
+	return nil
+}
+
+// isToggle reports whether a decoded binding runs hidi_toggle, written
+// either way a command can be.
+func isToggle(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return v == engine.ToggleName
+	case map[string]any:
+		return v["command"] == engine.ToggleName
+	}
+	return false
+}
 
 // migrate brings a decoded profile file up to the current schema and returns
 // the version the file was written for.

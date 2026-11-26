@@ -131,6 +131,68 @@ func TestStateChangesWhileHolding(t *testing.T) {
 	r.release(keyA, "NoteOff ch=2 note=C#4 velocity=0")
 }
 
+// Every layout has its own commands. A key that changes the layout does
+// nothing in the new one when it is let go of, whatever the key does
+// there; a key that plays a note turns it off when let go of, in whatever
+// layout that happens.
+func TestLayoutsHaveTheirOwnCommands(t *testing.T) {
+	p := Profile{
+		Layouts: []Layout{
+			{Name: "main", Bindings: []Binding{
+				key(keyA, CommandLayoutNext),
+				key(keyB, Note{Note: 60}),
+				key(keyC, CommandLayoutNext, keyShift),
+			}},
+			{Name: "other", Bindings: []Binding{
+				key(keyA, Note{Note: 62}),
+				key(keyB, CommandLayoutPrevious),
+				key(keyC, Note{Note: 64}),
+				key(keyShift, CommandOctaveUp),
+			}},
+		},
+		Defaults: Defaults{Velocity: 100},
+	}
+	r := newRig(t, p)
+	layout := func(want string) {
+		t.Helper()
+		if got := r.e.State().Layout; got != want {
+			t.Errorf("layout %q, want %q", got, want)
+		}
+	}
+
+	r.press(keyA, "") // to the other layout, where the key plays a note
+	layout("other")
+	r.release(keyA, "")
+	r.press(keyA, "NoteOn ch=1 note=D3 velocity=100")
+	r.release(keyA, "NoteOff ch=1 note=D3 velocity=0")
+
+	r.press(keyB, "") // back, where the key plays a note
+	layout("main")
+	r.release(keyB, "")
+
+	// A note held across a change of layout ends when its key is let go.
+	r.press(keyB, "NoteOn ch=1 note=C3 velocity=100")
+	r.press(keyA, "")
+	layout("other")
+	r.release(keyB, "NoteOff ch=1 note=C3 velocity=0")
+	r.release(keyA, "")
+
+	// With a modifier: Shift does nothing in the first layout by itself,
+	// raises the octave in the other, and C changes the layout with it.
+	r.press(keyB, "") // back to main
+	r.release(keyB, "")
+	r.press(keyShift, "")
+	r.press(keyC, "")
+	layout("other")
+	r.release(keyShift, "") // pressed in main, where it did nothing
+	r.release(keyC, "")     // no note to turn off
+	if got := r.e.State().Octave; got != 0 {
+		t.Errorf("octave %d: a key let go of in another layout ran that layout's command", got)
+	}
+	r.press(keyC, "NoteOn ch=1 note=E3 velocity=100")
+	r.release(keyC, "NoteOff ch=1 note=E3 velocity=0")
+}
+
 func TestNoteOutOfRangeIsSilent(t *testing.T) {
 	p := baseProfile(key(keyA, Note{Note: 120}), key(keyUp, CommandOctaveUp), key(keyDown, CommandOctaveDown))
 	r := newRig(t, p)

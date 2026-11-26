@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 name = "Steam Controller"
 
 # For Valve's controllers as the Linux kernel presents them: the Steam
@@ -21,15 +21,14 @@ velocity = 64
 layout = "Default"
 collision = "interrupt"
 
-[global]
-BTN_SELECT = "channel_down"
-BTN_START = "channel_up"
-BTN_MODE = "panic"
-
 [[layout]]
 name = "Default"
 
 [layout.bindings]
+BTN_SELECT = "channel_down"
+BTN_START = "channel_up"
+BTN_MODE = "panic"
+
 BTN_A = 0
 BTN_B = 1
 BTN_X = 2

@@ -343,7 +343,7 @@ with status 1, which makes it usable as a check.
 ## Example
 
 ```toml
-schema = 1
+schema = 2
 name = "My keyboard"
 
 [match]
@@ -355,15 +355,16 @@ velocity = 100
 layout = "Piano"
 
 [global]
-KEY_F1 = "octave_down"
-KEY_F2 = "octave_up"
-"KEY_LEFTSHIFT+KEY_F1" = "transpose_down"
-KEY_ESC = "panic"
+KEY_CAPSLOCK = "hidi_toggle"
 
 [[layout]]
 name = "Piano"
 
 [layout.bindings]
+KEY_F1 = "octave_down"
+KEY_F2 = "octave_up"
+"KEY_LEFTSHIFT+KEY_F1" = "transpose_down"
+KEY_ESC = "panic"
 KEY_Z = "C1"
 KEY_S = "C#1"
 KEY_X = "D1"
@@ -374,7 +375,7 @@ KEY_SPACE = { cc = 64 }
 
 | Setting | Meaning |
 |---|---|
-| `schema` | Required. The version of this format the file is written for. The current version is `1`. HIDI reads files written for older versions and upgrades them as it loads them. |
+| `schema` | Required. The version of this format the file is written for. The current version is `2`. HIDI reads files written for older versions and upgrades them as it loads them; the window writes a file in the current version with the first change made to it there. |
 | `name` | A name for the profile, shown in logs and the user interface. |
 | `enabled` | `false` switches a profile of your own off: HIDI reads it and does not use it. Left out, the profile is used. A factory profile is always used. |
 
@@ -464,7 +465,7 @@ device that has no line gets a part by its number:
 - Controllers that mean something of their own are stepped over: 0 and 6,
   32 to 69, 96 to 101, and 120 to 127. From 16 that is room for sixty axes.
 - In each layout, a control is filled in if it has no line in that layout
-  and none in `[global]`. A line for one half of an axis, or for a
+  and is not the toggle in `[global]`. A line for one half of an axis, or for a
   combination that ends in the control, counts as a line.
 - Only the main part of a device is filled in, not a touchpad or motion
   sensors, which would send all the time. Name those to use them.
@@ -481,14 +482,31 @@ The factory profile for game controllers is this rule and one line, the
 pitch bend on the stick. Every button and every direction of a hat plays a
 note, and every other axis sends a controller.
 
-## Layouts and global bindings
+## Layouts and `[global]`
 
 A profile has one or more `[[layout]]` sections. Each has a `name` and a
 `[layout.bindings]` table. One layout is selected at a time, and the
 `layout_next` and `layout_previous` commands switch between them.
 
-Bindings in `[global]` apply in every layout. If a layout binds the same
-control, the layout's binding is used.
+Every layout has all of its bindings, commands included: a key can change
+the octave in one layout and play a note in another, and each layout that
+should lead to the next says so itself. A key holds on to what it did when
+it was pressed: the key that changes the layout does nothing in the new
+layout when it is let go of, whatever it does there, and a note held while
+the layout changes ends when its key is let go of. The window gives a new
+layout the commands of the one it is made from, and the keys that one
+leaves to the system or keeps silent; they can be changed apart from then
+on.
+
+`[global]` holds one binding, if any: that of `hidi_toggle`, which turns
+HIDI off and on the same way in every layout and while HIDI is off. Nothing
+else may stand there.
+
+Profiles written for schema 1 shared the rest of `[global]` among the
+layouts as well. HIDI still reads them so: every layout gets the bindings
+of `[global]` it does not replace with its own. The window writes such a
+file in the current form with the first change made to it there, and that
+change can be taken back.
 
 ## Bindings
 
@@ -525,8 +543,7 @@ KEY_F7 = "nothing"      # do nothing
 ```
 
 **`"nothing"`** makes a control do nothing where something else would give
-it a part: in a layout, for a control that `[global]` binds, and in a
-profile with a `[generate]` rule. A control without any line needs no such
+it a part: in a profile with a `[generate]` rule. A control without any line needs no such
 line.
 
 **`"passthrough"`** leaves a key to the rest of the system. It plays nothing,

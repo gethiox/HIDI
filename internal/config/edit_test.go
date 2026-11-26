@@ -121,8 +121,10 @@ func TestSetAddsAtTheEndOfItsSection(t *testing.T) {
 	if !strings.HasSuffix(out, "KEY_Z = \"C1\"\n\"ABS_RX+\" = { cc = 1, deadzone = 0.1 }\n") {
 		t.Errorf("the end of the file:\n%q", out[len(out)-80:])
 	}
+	// Its two, and the three of [global], which a file of schema 1
+	// shares with every layout.
 	p, err := Parse([]byte(out))
-	if err != nil || len(p.Engine.Layouts[1].Bindings) != 2 {
+	if err != nil || len(p.Engine.Layouts[1].Bindings) != 2+3 {
 		t.Errorf("the result: %v", err)
 	}
 }

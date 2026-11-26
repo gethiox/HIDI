@@ -400,7 +400,7 @@ The same list is what a profile's `[generate]` rule works on. The engine
 knows nothing of rules: `config.Profile.For` takes the controls of a device
 and returns an engine profile in which every layout has, beside the
 bindings the file names, one for each control that neither the layout nor
-`[global]` names. The manager builds a device's engine from that. Since the
+the toggle of `[global]` names. The manager builds a device's engine from that. Since the
 rule sees nothing but the device's own list, in the order of its codes, the
 same device gets the same instrument on every start, and the window can
 work out for itself what the running HIDI plays.

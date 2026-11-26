@@ -27,8 +27,11 @@ func ForDevice(text []byte, name string, kind control.DeviceType, hardware contr
 	if kind == control.DeviceUnknown {
 		return nil, errors.New("the kind of the device is not known")
 	}
-	out, err := setTop(text, "name", quote(name), "schema")
+	out, err := Upgrade(text)
 	if err != nil {
+		return nil, err
+	}
+	if out, err = setTop(out, "name", quote(name), "schema"); err != nil {
 		return nil, err
 	}
 	if _, _, err := findSection(strings.SplitAfter(string(out), "\n"), Matching); err != nil {

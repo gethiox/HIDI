@@ -36,7 +36,7 @@ func TestProfileDoc(t *testing.T) {
 	if r := doc.Role(layout, keyZ); r.Kind != RoleNote || r.Section != config.Bindings(layout) {
 		t.Errorf("Z: %+v", r)
 	}
-	if r := doc.Role(layout, keyF1); r.Kind != RoleCommand || r.Command != engine.CommandOctaveDown || r.Section != config.Global {
+	if r := doc.Role(layout, keyF1); r.Kind != RoleCommand || r.Command != engine.CommandOctaveDown || r.Section != config.Bindings(layout) {
 		t.Errorf("F1: %+v", r)
 	}
 	if r := doc.Role(layout, keyF24); r.Kind != RoleNone || r.Section != config.Bindings(layout) {
@@ -76,8 +76,17 @@ func TestProfileDoc(t *testing.T) {
 	if r := again.Role(layout, keyF24); r.Kind != RoleNote || r.Note != 60 {
 		t.Errorf("F24: %+v", r)
 	}
-	if r := again.Role(layout, keyF1); r.Command != engine.CommandPanic || r.Section != config.Global {
+	if r := again.Role(layout, keyF1); r.Command != engine.CommandPanic || r.Section != config.Bindings(layout) {
 		t.Errorf("F1: %+v", r)
+	}
+	// Every layout has its own commands: the others keep theirs.
+	for _, other := range again.Layouts()[1:] {
+		if r := again.Role(other, keyF1); r.Command != engine.CommandOctaveDown {
+			t.Errorf("F1 in %s: %+v", other, r)
+		}
+		if r := again.Role(other, control.Key(60)); r.Command != engine.CommandOctaveUp {
+			t.Errorf("F2 in %s: %+v", other, r)
+		}
 	}
 	if r := again.Role(layout, control.Key(60)); r.Kind != RoleNone {
 		t.Errorf("F2 still does %+v", r)
@@ -397,10 +406,10 @@ func TestProfileDocLayouts(t *testing.T) {
 	if doc.DefaultLayout() != "L" {
 		t.Fatalf("the profile starts with %q", doc.DefaultLayout())
 	}
-	if err := doc.AddLayout("Second"); err != nil {
+	if err := doc.AddLayout("Second", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := doc.AddLayout("Third"); err != nil {
+	if err := doc.AddLayout("Third", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(doc.Layouts(), ","); got != "L,Second,Third" {
@@ -947,5 +956,148 @@ func TestDoubledControllers(t *testing.T) {
 	// It is no mistake: the profile can be saved and is one.
 	if err := doc.Save(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// oldShared is a profile of schema 1, whose [global] every layout shared.
+const oldShared = `schema = 1
+name = "Old"
+
+[global]
+KEY_CAPSLOCK = "hidi_toggle"
+KEY_F1 = "octave_down"
+KEY_F2 = "layout_next"
+
+[[layout]]
+name = "A"
+
+[layout.bindings]
+KEY_Z = "C3"
+
+[[layout]]
+name = "B"
+
+[layout.bindings]
+KEY_Z = "D3"
+`
+
+// A profile of schema 1 is shown as HIDI reads it, every layout with the
+// commands of [global] its own, and its first change writes it in the
+// new form: a command changed in one layout stays in the others. Taking
+// the change back brings the old text back.
+func TestProfileDocOldSchema(t *testing.T) {
+	doc := openText(t, oldShared)
+	keyF1, keyF2 := control.Key(59), control.Key(60)
+	for _, l := range []string{"A", "B"} {
+		if r := doc.Role(l, keyF1); r.Command != engine.CommandOctaveDown || r.Section != config.Bindings(l) {
+			t.Errorf("F1 in %s: %+v", l, r)
+		}
+	}
+	if doc.Dirty() {
+		t.Error("opening the profile changed it")
+	}
+	if err := doc.SetCommand("A", keyF1, engine.CommandPanic); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doc.Text()), "schema = 2\n") {
+		t.Errorf("not in the new form:\n%s", doc.Text())
+	}
+	if r := doc.Role("A", keyF1); r.Command != engine.CommandPanic {
+		t.Errorf("F1 in A: %+v", r)
+	}
+	if r := doc.Role("B", keyF1); r.Command != engine.CommandOctaveDown {
+		t.Errorf("F1 in B: %+v", r)
+	}
+	if r := doc.Role("B", keyF2); r.Command != engine.CommandLayoutNext {
+		t.Errorf("F2 in B: %+v", r)
+	}
+	if !doc.Undo() || string(doc.Text()) != oldShared || doc.Dirty() {
+		t.Errorf("taken back:\n%s", doc.Text())
+	}
+}
+
+// The toggle is one for the profile, in [global]. A key that was the
+// toggle and gets something else to do in a layout gets it there, and is
+// the toggle in no layout any more; the toggle moves to another key, and
+// cannot be copied.
+func TestProfileDocToggleInLayouts(t *testing.T) {
+	text := strings.Replace(oldShared, "schema = 1", "schema = 2", 1)
+	text = strings.Replace(text, "KEY_F1 = \"octave_down\"\nKEY_F2 = \"layout_next\"\n", "", 1)
+	caps, keyX, keyQ := control.Key(58), control.Key(45), control.Key(16)
+
+	doc := openText(t, text)
+	if r := doc.Role("B", caps); r.Command != engine.CommandToggle || r.Section != config.Global {
+		t.Fatalf("Caps Lock: %+v", r)
+	}
+	if err := doc.CarryAt("A", Whole(caps), Whole(keyX), false); err == nil {
+		t.Error("the toggle was copied")
+	}
+	if err := doc.CarryAt("A", Whole(caps), Whole(keyX), true); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role("B", keyX); r.Command != engine.CommandToggle || doc.Role("B", caps).Kind != RoleNone {
+		t.Errorf("after the move, X: %+v", r)
+	}
+	if err := doc.SetNote("A", keyX, 60); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role("A", keyX); r.Kind != RoleNote || r.Section != config.Bindings("A") {
+		t.Errorf("X in A: %+v", r)
+	}
+	if r := doc.Role("B", keyX); r.Kind != RoleNone {
+		t.Errorf("X in B is still %+v", r)
+	}
+	if len(doc.Profile.Toggle) != 0 || strings.Contains(string(doc.Text()), "hidi_toggle") {
+		t.Errorf("a toggle is left:\n%s", doc.Text())
+	}
+	// A note carried onto the toggle takes its place in the layout.
+	if err := doc.SetCommand("B", keyQ, engine.CommandToggle); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.CarryAt("A", Whole(keyX), Whole(keyQ), false); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role("A", keyQ); r.Kind != RoleNote || doc.Role("B", keyQ).Kind != RoleNone {
+		t.Errorf("Q in A: %+v, in B: %+v", r, doc.Role("B", keyQ))
+	}
+}
+
+// A new layout begins with what the layout it is made from does besides
+// playing, in the order of the file, and can change it apart from that
+// layout.
+func TestProfileDocNewLayoutCopiesCommands(t *testing.T) {
+	doc := openText(t, `schema = 2
+name = "Mine"
+
+[global]
+KEY_CAPSLOCK = "hidi_toggle"
+
+[[layout]]
+name = "A"
+
+[layout.bindings]
+KEY_F2 = "octave_up"
+KEY_Z = "C3"
+KEY_LEFTSHIFT = "passthrough"
+KEY_F1 = { command = "octave_down" }  # by hand
+KEY_X = { cc = 7 }
+KEY_TAB = "nothing"
+`)
+	if err := doc.AddLayout("B", "A"); err != nil {
+		t.Fatal(err)
+	}
+	want := "[layout.bindings]\nKEY_F2 = \"octave_up\"\nKEY_LEFTSHIFT = \"passthrough\"\nKEY_F1 = { command = \"octave_down\" }\nKEY_TAB = \"nothing\"\n"
+	if text := string(doc.Text()); !strings.HasSuffix(text, "name = \"B\"\n\n"+want) {
+		t.Errorf("the new layout:\n%s", text)
+	}
+	if err := doc.SetCommand("B", control.Key(60), engine.CommandPanic); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role("A", control.Key(60)); r.Command != engine.CommandOctaveUp {
+		t.Errorf("F2 in A: %+v", r)
+	}
+	// From a layout that is not there: an empty one.
+	if err := doc.AddLayout("C", "nowhere"); err != nil || doc.Role("C", control.Key(60)).Kind != RoleNone {
+		t.Errorf("a layout made from nothing: %v", err)
 	}
 }

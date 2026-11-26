@@ -52,7 +52,7 @@ func TestFactoryProfileIsNotChanged(t *testing.T) {
 	if err := doc.SetNote(layout, control.Key(44), midi.Note(61)); !errors.Is(err, ErrFactory) {
 		t.Errorf("a change to a factory profile: %v", err)
 	}
-	if err := doc.AddLayout("More"); !errors.Is(err, ErrFactory) {
+	if err := doc.AddLayout("More", ""); !errors.Is(err, ErrFactory) {
 		t.Errorf("a layout added to a factory profile: %v", err)
 	}
 	if doc.Dirty() || doc.CanUndo() {
@@ -271,7 +271,7 @@ func TestCarriedAndPutBackIsNotAChange(t *testing.T) {
 
 	// Revert: the saved profile, and nothing to take back.
 	doc.Carry(layout, keyZ, f24, true)
-	doc.AddLayout("More")
+	doc.AddLayout("More", "")
 	doc.Revert()
 	if doc.Dirty() || doc.CanUndo() || doc.CanRedo() || string(doc.Text()) != saved {
 		t.Errorf("after Revert: dirty %v, undo %v, redo %v", doc.Dirty(), doc.CanUndo(), doc.CanRedo())

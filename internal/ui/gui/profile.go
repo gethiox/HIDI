@@ -394,10 +394,10 @@ func (r Role) value(at Spot) (string, error) {
 	return "", fmt.Errorf("what %s does is changed in the file; %w", at.Key(), config.ErrNotEditable)
 }
 
-// find looks for the binding of a spot: the layout's own, or else one
-// that applies in every layout, or else what the profile's rule makes of
-// the control, which it does as long as no line of the layout or for
-// every layout names the control in any way.
+// find looks for the binding of a spot: the layout's own, or else the one
+// of [global], which only the toggle has, or else what the profile's rule
+// makes of the control, which it does as long as no line of the layout or
+// of [global] names the control in any way.
 func (d *ProfileDoc) find(layout string, at Spot) (b engine.Binding, section config.Section, generated, found bool) {
 	named := false
 	in := func(bindings []engine.Binding) bool {
@@ -415,8 +415,8 @@ func (d *ProfileDoc) find(layout string, at Spot) (b engine.Binding, section con
 	section = config.Bindings(layout)
 	for _, l := range d.Profile.Engine.Layouts {
 		if l.Name == layout && in(l.Bindings) {
-			// What applies in every layout still says whether the
-			// control is named, which nothing asks once it is found.
+			// [global] still says whether the control is named,
+			// which nothing asks once it is found.
 			return b, section, false, true
 		}
 	}
@@ -461,7 +461,7 @@ func (d *ProfileDoc) RoleAt(layout string, at Spot) Role {
 }
 
 // Role returns what a control of the main part does in a layout: by the
-// layout's own binding, or else by one that applies in every layout.
+// layout's own binding, or else as the toggle of [global].
 func (d *ProfileDoc) Role(layout string, code control.Code) Role {
 	return d.RoleAt(layout, Whole(code))
 }
@@ -500,14 +500,18 @@ func (d *ProfileDoc) keepOther(text []byte, layout string, at Spot) ([]byte, err
 }
 
 // PutAt changes what a spot does in a layout: change is given what it does
-// now and makes of it what it is to do. The binding is written where it
-// is, or into the layout if the spot has none of its own.
+// now and makes of it what it is to do. The binding is written into the
+// layout. A key that was the toggle is the toggle no more, in no layout:
+// a profile has one toggle, which works the same everywhere.
 func (d *ProfileDoc) PutAt(layout string, at Spot, change func(*Role)) error {
 	return d.change(func(text []byte) ([]byte, error) {
 		role := d.RoleAt(layout, at)
 		change(&role)
 		value, err := role.value(at)
 		if err != nil {
+			return nil, err
+		}
+		if text, role.Section, err = d.ownLine(text, layout, role.Section, at); err != nil {
 			return nil, err
 		}
 		if text, err = d.keepOther(text, layout, at); err != nil {
@@ -517,16 +521,27 @@ func (d *ProfileDoc) PutAt(layout string, at Spot, change func(*Role)) error {
 	})
 }
 
+// ownLine makes the line of a spot one of the layout: where the spot is
+// the toggle, the line of [global] goes, and the layout is where the
+// spot's new line belongs.
+func (d *ProfileDoc) ownLine(text []byte, layout string, section config.Section, at Spot) ([]byte, config.Section, error) {
+	if section != config.Global {
+		return text, section, nil
+	}
+	out, err := config.Remove(text, config.Global, at.Key())
+	return out, config.Bindings(layout), err
+}
+
 // SetNoteAt makes a spot play a note. One that plays a note already
 // keeps what else its line says about the note.
 func (d *ProfileDoc) SetNoteAt(layout string, at Spot, note midi.Note) error {
 	return d.PutAt(layout, at, func(r *Role) { r.become(RoleNote); r.Note = note })
 }
 
-// SetCommandAt makes a spot run a command. The command that turns HIDI
-// off and on is for every layout and one of its kind, so it is written
-// among the bindings for every layout, in place of the one that was
-// there, and what the spot did in the layout goes.
+// SetCommandAt makes a spot run a command in a layout. The command that
+// turns HIDI off and on is one of its kind and works the same in every
+// layout and while HIDI is off, so it is written in [global], in place of
+// the one that was there, and what the spot did in the layout goes.
 func (d *ProfileDoc) SetCommandAt(layout string, at Spot, command engine.Command) error {
 	if command != engine.CommandToggle {
 		return d.PutAt(layout, at, func(r *Role) { r.become(RoleCommand); r.Command = command })
@@ -541,11 +556,7 @@ func (d *ProfileDoc) SetCommandAt(layout string, at Spot, command engine.Command
 			if b.Action != engine.CommandToggle {
 				continue
 			}
-			key := b.Source.Code.String()
-			for i := len(b.Source.Modifiers) - 1; i >= 0; i-- {
-				key = b.Source.Modifiers[i].String() + "+" + key
-			}
-			if out, err = config.Remove(out, config.Global, key); err != nil {
+			if out, err = config.Remove(out, config.Global, config.SourceKey(b.Source)); err != nil {
 				return nil, err
 			}
 		}
@@ -680,22 +691,26 @@ func (d *ProfileDoc) Carry(layout string, from, to control.Code, move bool) erro
 }
 
 // silence takes the line of a spot out of a section. Where the profile's
-// rule would give the control a part once no line names it, the line
-// stays and says that the spot does nothing.
+// rule would give the control a part once no line names it, the spot is
+// told to do nothing instead: in the layout, also where it was the toggle,
+// which is the toggle no more.
 func (d *ProfileDoc) silence(text []byte, layout string, section config.Section, at Spot) ([]byte, error) {
 	if len(d.generated(at.Code)) == 0 {
 		return config.Remove(text, section, at.Key())
 	}
-	text, err := d.keepOther(text, layout, at)
+	text, section, err := d.ownLine(text, layout, section, at)
 	if err != nil {
+		return nil, err
+	}
+	if text, err = d.keepOther(text, layout, at); err != nil {
 		return nil, err
 	}
 	return config.Set(text, section, at.Key(), strconv.Quote(engine.NothingName))
 }
 
 // ClearAt makes a spot do nothing: it removes the binding the spot has
-// in the layout, or the one that applies in every layout. A control the
-// profile's rule would then give a part is told to do nothing instead.
+// in the layout, or the toggle of [global]. A control the profile's rule
+// would then give a part is told to do nothing instead.
 func (d *ProfileDoc) ClearAt(layout string, at Spot) error {
 	return d.change(func(text []byte) ([]byte, error) {
 		role := d.RoleAt(layout, at)
@@ -710,9 +725,19 @@ func (d *ProfileDoc) ClearAt(layout string, at Spot) error {
 // CarryAt gives one spot what another does in a layout, exactly as the
 // profile writes it. With move the first does nothing afterwards;
 // without, both do the same. It is one change, taken back in one step.
+//
+// The toggle is one for the profile and works in every layout: it can be
+// moved to another key, and is then the toggle of that key everywhere,
+// but not copied.
 func (d *ProfileDoc) CarryAt(layout string, from, to Spot, move bool) error {
 	if from == to {
 		return nil
+	}
+	if d.RoleAt(layout, from).Section == config.Global {
+		if !move {
+			return fmt.Errorf("a profile has one %s; it can be moved to another key, not copied", engine.ToggleName)
+		}
+		return d.SetCommandAt(layout, to, engine.CommandToggle)
 	}
 	return d.change(func(text []byte) ([]byte, error) {
 		source, target := d.RoleAt(layout, from), d.RoleAt(layout, to)
@@ -731,14 +756,13 @@ func (d *ProfileDoc) CarryAt(layout string, from, to Spot, move bool) error {
 			}
 			return nil, fmt.Errorf("the line of %s was not found; %w", from.Key(), config.ErrNotEditable)
 		}
-		// Where the target is bound already, it is bound anew there;
-		// a target that does nothing gets its line beside the source's.
-		section := target.Section
-		if target.Kind == RoleNone && !target.Silent {
-			section = source.Section
-		}
-		out, err := d.keepOther(text, layout, to)
+		// The target gets its line in the layout; where it was the
+		// toggle, it is the toggle no more.
+		out, section, err := d.ownLine(text, layout, target.Section, to)
 		if err != nil {
+			return nil, err
+		}
+		if out, err = d.keepOther(out, layout, to); err != nil {
 			return nil, err
 		}
 		if out, err = config.Set(out, section, to.Key(), value); err != nil {
@@ -880,9 +904,29 @@ func (d *ProfileDoc) Reload() (bool, error) {
 	return true, nil
 }
 
-// AddLayout adds an empty layout behind the others.
-func (d *ProfileDoc) AddLayout(name string) error {
-	return d.change(func(text []byte) ([]byte, error) { return config.AddLayout(text, name) })
+// AddLayout adds a layout behind the others. It begins with what layout
+// from does besides playing: its commands, among them those that lead
+// from layout to layout, and the keys it leaves to the system or keeps
+// silent. Every layout has its own of these, which can be changed apart
+// from the others' afterwards; the notes and controllers are left for
+// the new layout to get.
+func (d *ProfileDoc) AddLayout(name, from string) error {
+	return d.change(func(text []byte) ([]byte, error) {
+		out, err := config.AddLayout(text, name)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(d.Layouts(), from) {
+			return out, nil
+		}
+		return config.CopyBindings(out, from, name, func(a engine.Action) bool {
+			switch a.(type) {
+			case engine.Command, engine.Passthrough, engine.Nothing:
+				return a != engine.CommandToggle
+			}
+			return false
+		})
+	})
 }
 
 // RemoveLayout takes a layout out, with its bindings. If the profile
@@ -966,11 +1010,22 @@ func (d *ProfileDoc) change(edit func([]byte) ([]byte, error)) error {
 	if _, err := d.Reload(); err != nil {
 		return err
 	}
-	text, err := edit(d.text)
+	// A profile in an older form is written in the new one with its
+	// first change, so that the change lands where the new form has it:
+	// the profile is shown as HIDI reads it, which is in the new form
+	// already. The upgrade alone is no change.
+	base := d.text
+	if d.Profile.WrittenFor < config.Schema {
+		var err error
+		if base, err = config.Upgrade(d.text); err != nil {
+			return err
+		}
+	}
+	text, err := edit(base)
 	if err != nil {
 		return err
 	}
-	if bytes.Equal(text, d.text) {
+	if bytes.Equal(text, base) {
 		return nil
 	}
 	p, err := config.Parse(text)
