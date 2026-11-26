@@ -512,7 +512,7 @@ func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
 			e.layout = name
 		}
 		bx := lx + w.chipWidth(name) + 6
-		if w.checkbox(name == first, bx, y+1, 16) && name != first {
+		if w.checkbox(name == first, bx, y+1, 16) && name != first && !doc.ReadOnly {
 			e.try(doc.SetDefaultLayout(name))
 		}
 		if note != "" {
@@ -521,26 +521,26 @@ func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
 	}
 	y = row.y + chipH + 12
 
-	// What can be done with the layout that is shown.
+	// What can be done with the layout that is shown. Every button
+	// takes its place whether it was clicked or not: one drawn where
+	// the clicked one is would take the same click.
 	lx := start
 	at := slices.Index(layouts, e.layout)
-	if hit, end := w.dimButton("← Earlier", at > 0, lx, y); hit {
+	can := !doc.ReadOnly // a factory profile is only looked at
+	moveLeft, end := w.dimButton("← Move left", can && at > 0, lx, y)
+	moveRight, end := w.dimButton("Move right →", can && at >= 0 && at < len(layouts)-1, end+6, y)
+	remove, end := w.dimButton("Remove \""+e.layout+"\"", can && len(layouts) > 1, end+6, y)
+	lx = end + 18
+	switch {
+	case moveLeft:
 		e.try(doc.MoveLayout(e.layout, -1))
-	} else {
-		lx = end + 6
-	}
-	if hit, end := w.dimButton("Later →", at >= 0 && at < len(layouts)-1, lx, y); hit {
+	case moveRight:
 		e.try(doc.MoveLayout(e.layout, 1))
-	} else {
-		lx = end + 6
-	}
-	if hit, end := w.dimButton("Remove \""+e.layout+"\"", len(layouts) > 1, lx, y); hit {
+	case remove:
 		e.try(doc.RemoveLayout(e.layout))
-	} else {
-		lx = end + 18
 	}
 	if !e.adding {
-		if hit, _ := w.button("+ Add a layout", lx, y); hit {
+		if hit, _ := w.dimButton("+ Add a layout", can, lx, y); hit {
 			e.adding, e.newName = true, freeLayoutName(doc)
 		}
 		return y + 38
