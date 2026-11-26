@@ -21,8 +21,8 @@ type runOptions struct {
 	noStatus, noColour bool
 
 	// toggle are the keys that turn HIDI off and on.
-	toggle                []control.Code
-	toggleTap, alwaysGrab bool
+	toggle    []control.Code
+	toggleTap bool
 	// grabKeyboards and grabGamepads say what is kept from the system
 	// while HIDI is on, and startOff that HIDI starts turned off.
 	grabKeyboards, grabGamepads bool
@@ -63,8 +63,7 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 	fs.BoolVar(&o.noStatus, "no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
 	toggle := fs.String("toggle", "",
 		"keys that, pressed together, turn HIDI off and on from every device, such as KEY_SCROLLLOCK\nor KEY_LEFTCTRL+KEY_RIGHTCTRL; empty leaves it to the profiles (hidi_toggle)")
-	fs.BoolVar(&o.toggleTap, "toggle-tap", false, "a toggle of one key works by a tap; held for longer than half a second,\nthe key does what it normally does")
-	fs.BoolVar(&o.alwaysGrab, "always-grab", false, "on Linux, keep keyboards grabbed while HIDI is off too and pass their keys on,\nso that the tapped toggle key is hidden from the system")
+	fs.BoolVar(&o.toggleTap, "toggle-tap", false, "a toggle of one key works by a tap and is passed through to the system when held\nfor longer than half a second; otherwise it toggles as it is pressed and is HIDI's alone")
 	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
 	fs.BoolVar(&o.grabGamepads, "grab-gamepads", false, "also take game controllers away from the rest of the system")
 	fs.BoolVar(&o.noColour, "no-color", false, "write the log without colours")
@@ -108,7 +107,6 @@ func parseRunOptions(args []string, stderr io.Writer, app bool) (o runOptions, c
 		{"grab-gamepads", &o.grabGamepads, s.Input.GrabGamepads},
 		{"off", &o.startOff, !s.Input.StartOn},
 		{"toggle-tap", &o.toggleTap, s.Input.ToggleTap},
-		{"always-grab", &o.alwaysGrab, s.Input.AlwaysGrab},
 	} {
 		if !o.given[from.option] {
 			*from.value = from.is

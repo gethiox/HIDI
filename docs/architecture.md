@@ -192,7 +192,7 @@ A profile can leave single keys to the system while the others play
 (`"passthrough"`). The device is then shared instead of grabbed
 (`input.Passer.Share`): on Windows the hook lets those keys through; on
 Linux, where a device is grabbed whole or not at all, HIDI types them again
-on a keyboard of its own, as it does for `always_grab`. Which keys are open
+on a keyboard of its own, as it does to hide the toggle key. Which keys are open
 follows the selected layout.
 
 Game controllers on Windows are read in two ways, because no single

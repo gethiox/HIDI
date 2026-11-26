@@ -103,7 +103,7 @@ func TestTapAcrossABrokenDevice(t *testing.T) {
 	t.Cleanup(func() { TapHold = old })
 	keyX := control.Key(45)
 
-	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true})
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true})
 	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
 	r.devices <- kbd
 	name := EndpointPrefix + "Test Keyboard"
@@ -440,7 +440,7 @@ func TestNoSecondEndpointAfterAWaitingTry(t *testing.T) {
 // as the hysteresis, leaves a device as it is held: a keyboard that hides
 // its toggle while HIDI is off is not let go of and taken again.
 func TestPlayingSettingsLeaveTheGrab(t *testing.T) {
-	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true, StartInactive: true})
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, StartInactive: true})
 	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
 	r.devices <- kbd
 	eventually(t, "the keyboard to be passed on", kbd.isPassing)
@@ -450,7 +450,7 @@ func TestPlayingSettingsLeaveTheGrab(t *testing.T) {
 	for i := range 5 {
 		r.manager.SetPlaying(Playing{Hysteresis: float64(i) / 10, VelocityStep: i + 1})
 	}
-	r.manager.SetOwnToggle(false) // a toggle hidden by the tap already: the same hold
+	r.manager.SetToggleTap(true) // as it was: the same hold
 	time.Sleep(100 * time.Millisecond)
 	kbd.pmu.Lock()
 	after := kbd.passes

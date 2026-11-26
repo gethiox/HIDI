@@ -22,12 +22,12 @@ func TestDefaultRoundTrip(t *testing.T) {
 	}
 	want := Default()
 	if !slices.Equal(got.Input.Toggle, want.Input.Toggle) || got.Input.GrabKeyboards != want.Input.GrabKeyboards ||
-		got.Input.GrabGamepads || got.Input.StartOn || !got.Input.ToggleTap || !got.Input.ToggleExclusive ||
+		got.Input.GrabGamepads || got.Input.StartOn || !got.Input.ToggleTap ||
 		len(got.Output.Connect) != 0 || got.Window != want.Window || !got.Window.ShowAtStart {
 		t.Errorf("the default file reads as %+v", got)
 	}
 	// No toggle of the settings' own: each profile has its.
-	if len(want.Input.Toggle) != 0 || len(got.Input.Toggle) != 0 || !got.Input.ToggleTap || !got.Input.ToggleExclusive {
+	if len(want.Input.Toggle) != 0 || len(got.Input.Toggle) != 0 || !got.Input.ToggleTap {
 		t.Errorf("the default toggle: %v, read back %+v", want.Input.Toggle, got.Input)
 	}
 
@@ -63,7 +63,7 @@ func TestParse(t *testing.T) {
 	// A combination of keys for every device. What is said about a
 	// toggle of one key stays as it is and does not apply.
 	s, err = Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_LEFTCTRL\", \"KEY_F1\"]\n"))
-	if err != nil || len(s.Input.Toggle) != 2 || !s.Input.ToggleTap || !s.Input.ToggleExclusive {
+	if err != nil || len(s.Input.Toggle) != 2 || !s.Input.ToggleTap {
 		t.Errorf("a combination: %+v, %v", s.Input, err)
 	}
 
@@ -379,13 +379,22 @@ func TestLightsSettings(t *testing.T) {
 }
 
 func TestToggleTapSettings(t *testing.T) {
-	s, err := Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_CAPSLOCK\"]\ntoggle_tap = true\nalways_grab = true\n"))
-	if err != nil || !s.Input.ToggleTap || !s.Input.AlwaysGrab {
+	s, err := Parse([]byte("schema = 1\n[input]\ntoggle = [\"KEY_CAPSLOCK\"]\ntoggle_tap = false\n"))
+	if err != nil || s.Input.ToggleTap {
 		t.Fatalf("parsed %+v, %v", s.Input, err)
 	}
 	again, err := Parse(s.Text())
-	if err != nil || !again.Input.ToggleTap || !again.Input.AlwaysGrab || len(again.Input.Toggle) != 1 {
+	if err != nil || again.Input.ToggleTap || len(again.Input.Toggle) != 1 {
 		t.Errorf("written and read again: %+v, %v", again.Input, err)
+	}
+	// always_grab and toggle_exclusive were settings once: read without
+	// complaint, and gone when the file is written again.
+	old, err := Parse([]byte("schema = 1\n[input]\ntoggle_tap = true\nalways_grab = true\ntoggle_exclusive = false\n"))
+	if err != nil || !old.Input.ToggleTap {
+		t.Errorf("a file with the old settings: %+v, %v", old.Input, err)
+	}
+	if text := string(old.Text()); strings.Contains(text, "always_grab =") || strings.Contains(text, "toggle_exclusive =") {
+		t.Errorf("the old settings were written again:\n%s", text)
 	}
 	// A tap is for a toggle of one key. With three it says nothing,
 	// and is no mistake: the toggle may be one key by another profile.

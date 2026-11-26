@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -381,8 +380,6 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		Grab:           grab,
 		Toggle:         o.toggle,
 		ToggleTap:      o.toggleTap,
-		HideToggle:     hidesToggle(o.alwaysGrab),
-		OwnToggle:      pl.settings.Input.ToggleExclusive,
 		StartInactive:  o.startOff,
 		Lights:         lights,
 		LogMIDI:        o.logMIDI,
@@ -517,14 +514,6 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	log.Info("HIDI stopped")
 	return 0
-}
-
-// hidesToggle reports whether a tapped toggle key is kept from the system.
-// Windows can do that for single keys. Linux can only by holding the whole
-// keyboard and typing everything else again, which the user has to ask
-// for.
-func hidesToggle(alwaysGrab bool) bool {
-	return runtime.GOOS == "windows" || alwaysGrab
 }
 
 // footerPause is the least time between two drawings of the lines at the

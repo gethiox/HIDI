@@ -86,8 +86,6 @@ grab_keyboards = true
 grab_gamepads = false
 start_on = false
 toggle_tap = true
-always_grab = false
-toggle_exclusive = true
 learn_threshold = 50
 hysteresis = 2
 velocity_step = 16
@@ -137,9 +135,7 @@ control_names = false
 | `input.grab_keyboards` | Keep keyboards from typing while HIDI is on. A keyboard that has no toggle, by its profile or by the setting above, is left typing all the same: nothing on it could turn HIDI off again. HIDI says so in its log and on the instrument's card. | `--no-grab` |
 | `input.grab_gamepads` | Also keep game controllers from other programs. | `--grab-gamepads` |
 | `input.start_on` | Whether HIDI is on when it starts. | `--on`, `--off` |
-| `input.toggle_tap` | A toggle of one key works by a tap, and held longer the key does what it normally does. See below. | `--toggle-tap` |
-| `input.always_grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden. See below. | `--always-grab` |
-| `input.toggle_exclusive` | A toggle of one key is HIDI's alone: the key never reaches the rest of the system, held or tapped, while HIDI is on or off. For a key such as Caps Lock that should only toggle. On Linux keyboards are then kept grabbed as with `always_grab`. | |
+| `input.toggle_tap` | Pass a toggle of one key through to the system when it is held: a tap toggles and is hidden, held longer the key does what it normally does. Off, the key toggles as it is pressed and is HIDI's alone. See below. | `--toggle-tap` |
 | `input.learn_threshold` | How far an axis has to move to get through in learning mode, in hundredths of its range, 1 to 100. See the `learn` command. | |
 | `devices.mode` | How `devices.list` is read: with `"blacklist"` every keyboard and game controller plays except the listed ones, with `"whitelist"` only the listed ones do. | |
 | `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
@@ -163,11 +159,16 @@ to `hidi_toggle`, turns it off and on with a tap and does nothing else any
 more, and HIDI starts turned off with its window open, so that the keyboard
 types until it is asked to play.
 
-`toggle_tap` and `toggle_exclusive` are about a toggle of one key, wherever
-it comes from. A toggle of several keys is pressed, and neither applies.
+`toggle_tap` is about a toggle of one key, wherever it comes from. A
+toggle of several keys is pressed, and it does not apply.
 
-A setting that only one system has, `always_grab` for one, is shown on the
-sheet of the other system too, greyed out and not to be changed there.
+A setting that only one system has, `grab_gamepads` for one, is shown on
+the sheet of the other system too, greyed out and not to be changed there.
+
+`always_grab` and `toggle_exclusive` were settings of earlier HIDI 2
+builds, about how a toggle of one key is kept from the system, which
+`toggle_tap` alone says now. A file that still has them is read without
+complaint, and the lines are gone the next time the file is saved.
 
 `window.log_height`, `window.show_input` and `window.show_output` were
 settings of earlier HIDI 2 builds. A file that still has them is read
@@ -211,11 +212,17 @@ and the settings say
 ```toml
 toggle = []
 toggle_tap = true
-toggle_exclusive = true
 ```
 
 Tap the key, pressed and let go within half a second, and HIDI turns off or
-on. The key plays nothing any more. Hold it longer and it does not toggle.
+on. The key plays nothing, and the tap is hidden from the rest of the
+system: Caps Lock does not switch capitals. Hold it longer and it does not
+toggle; it is passed through to the system and does what it normally does.
+
+With `toggle_tap = false` ("Pass the toggle key through to the system when
+held" off in the window) the key turns HIDI off and on as it is pressed,
+and is HIDI's alone: the system never sees it, tapped or held, with HIDI on
+or off.
 
 Another key is another line in a profile of your own, and several keys
 pressed together are written as a combination:
@@ -223,35 +230,25 @@ pressed together are written as a combination:
 such line, in `[global]`, since the toggle has to work in every layout and
 while HIDI is off. `toggle = ["KEY_SCROLLLOCK"]` in the settings names one
 toggle for every device instead, and the profiles' are then not looked at.
+A combination is never kept from the system.
 
-What the rest of the system sees of that key differs:
+The key is kept from the system only where keyboards are grabbed
+(`grab_keyboards`, as HIDI comes); otherwise the keyboard is the system's,
+and so is the key. On Windows a key is hidden whichever keyboard it is
+pressed on.
 
-| | The tap | Held longer |
-|---|---|---|
-| Windows | hidden | the key does what it normally does |
-| Linux with `always_grab = true` | hidden | the key does what it normally does |
-| Linux otherwise | hidden while HIDI is on; the tap that turns HIDI **on** also reaches the system, so Caps Lock would switch | reaches the system only while HIDI is off |
-
-On Windows a key is hidden whichever keyboard it is pressed on.
-
-`always_grab` is how Linux gets the behaviour of Windows, at a price. Linux
-cannot keep one key of a keyboard from the system: a keyboard is grabbed
-whole or not at all. So with `always_grab` HIDI keeps keyboards grabbed while
-it is off as well, and types every key but the hidden one again on a keyboard
-of its own, named after yours with "(through HIDI)". Everything you type then
-passes through HIDI for as long as it runs. If HIDI were ever to hang, the
-keyboard would do nothing until HIDI is ended from elsewhere; when HIDI ends
-or is killed, the keyboard is yours again at once. It needs write access to
-`/dev/uinput`, which the udev rule that comes with HIDI gives. A part of a keyboard that has a wheel or a pointer stays with
-the system and is not held.
-
-Without `toggle_tap`, `always_grab` does nothing.
-
-With `toggle_exclusive = true`, as it is by default, the key does nothing
-but toggle, also when held: it is kept from the system altogether. With Caps
-Lock that means no more switching of capitals by accident, whether HIDI is
-on or off. Set it to `false` and the table above applies: a tap is still
-hidden, and the key held longer does what it normally does.
+Linux cannot keep one key of a keyboard from the system: a keyboard is
+grabbed whole or not at all. So to hide the toggle while HIDI is off, HIDI
+keeps the keyboard grabbed then as well, and types every key but the
+toggle again on a keyboard of its own, named after yours with "(through
+HIDI)". Everything you type then passes through HIDI for as long as it
+runs. If HIDI were ever to hang, the keyboard would do nothing until HIDI
+is ended from elsewhere; when HIDI ends or is killed, the keyboard is yours
+again at once. It needs write access to `/dev/uinput`, which the udev rule
+that comes with HIDI gives; without it the keyboard is the system's while
+HIDI is off, toggle key and all, and HIDI says so in its log. A part of a
+keyboard that has a wheel or a pointer stays with the system and is not
+held.
 
 # Profile files
 

@@ -68,7 +68,6 @@ type liveSettings struct {
 	lights  settings.Lights
 	connect []string
 	learn   int
-	own     bool
 	playing instrument.Playing
 }
 
@@ -76,12 +75,11 @@ func newLiveSettings(o runOptions, s settings.Settings, manager *instrument.Mana
 	return &liveSettings{
 		started: o, manager: manager, hub: hub, address: address, router: router, log: log, showToggle: showToggle, changed: changed,
 		current: s, file: s,
-		input:   fmt.Sprint(o.toggle, o.grabKeyboards, o.grabGamepads, o.toggleTap, o.alwaysGrab),
+		input:   fmt.Sprint(o.toggle, o.grabKeyboards, o.grabGamepads, o.toggleTap),
 		devices: s.Devices,
 		lights:  s.Lights,
 		connect: o.connect,
 		learn:   s.Input.LearnThreshold,
-		own:     s.Input.ToggleExclusive,
 		playing: playingOf(s),
 	}
 }
@@ -131,7 +129,7 @@ func (l *liveSettings) fileChanged(s settings.Settings) {
 // l.mu.
 func (l *liveSettings) apply(s settings.Settings) {
 	o := l.started
-	toggle, keyboards, gamepads, tap, always := o.toggle, o.grabKeyboards, o.grabGamepads, o.toggleTap, o.alwaysGrab
+	toggle, keyboards, gamepads, tap := o.toggle, o.grabKeyboards, o.grabGamepads, o.toggleTap
 	if !o.given["toggle"] {
 		toggle = s.Input.Toggle
 	}
@@ -143,15 +141,14 @@ func (l *liveSettings) apply(s settings.Settings) {
 		{"no-grab", &keyboards, s.Input.GrabKeyboards},
 		{"grab-gamepads", &gamepads, s.Input.GrabGamepads},
 		{"toggle-tap", &tap, s.Input.ToggleTap},
-		{"always-grab", &always, s.Input.AlwaysGrab},
 	} {
 		if !o.given[from.option] {
 			*from.value = from.is
 		}
 	}
-	if input := fmt.Sprint(toggle, keyboards, gamepads, tap, always); input != l.input {
+	if input := fmt.Sprint(toggle, keyboards, gamepads, tap); input != l.input {
 		l.input = input
-		l.manager.SetToggleAndGrab(toggle, grabPolicy(keyboards, gamepads), tap, hidesToggle(always))
+		l.manager.SetToggleAndGrab(toggle, grabPolicy(keyboards, gamepads), tap)
 		l.showToggle(toggle)
 		l.log.Info("settings changed", "toggle", formatToggle(toggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
 	}
@@ -171,11 +168,6 @@ func (l *liveSettings) apply(s settings.Settings) {
 		l.manager.SetPlaying(playing)
 		l.log.Info("settings changed", "hysteresis", s.Input.Hysteresis, "velocity_step", s.Input.VelocityStep,
 			"reset_pitch_bend", s.Output.ResetPitchBend, "reset_controllers", s.Output.ResetControllers)
-	}
-	if s.Input.ToggleExclusive != l.own {
-		l.own = s.Input.ToggleExclusive
-		l.manager.SetOwnToggle(l.own)
-		l.log.Info("settings changed", "toggle_exclusive", l.own)
 	}
 	// The lights follow at once, unless the command line said where the
 	// server is.

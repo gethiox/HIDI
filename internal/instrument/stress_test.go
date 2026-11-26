@@ -86,12 +86,12 @@ func TestStress(t *testing.T) {
 		switch rng.Intn(3) {
 		case 0:
 			r.manager.SetInput(toggleKeys, func(control.DeviceInfo) bool { return true })
-			r.manager.SetToggleTap(false, false)
+			r.manager.SetToggleTap(false)
 		case 1:
 			r.manager.SetInput([]control.Code{keyZ}, func(control.DeviceInfo) bool { return true })
-			r.manager.SetToggleTap(true, true)
+			r.manager.SetToggleTap(true)
 		case 2:
-			r.manager.SetToggleTap(true, false)
+			r.manager.SetToggleTap(true)
 		}
 		time.Sleep(2 * time.Millisecond)
 	})
@@ -131,7 +131,7 @@ func TestStress(t *testing.T) {
 	}
 	r.mu.Unlock()
 	r.manager.SetInput(toggleKeys, func(control.DeviceInfo) bool { return true })
-	r.manager.SetToggleTap(false, false)
+	r.manager.SetToggleTap(false)
 	r.manager.SetProfiles(append(builtin(t), profile(t, "Pedal", "vendor = 0x1234\nproduct = 1", "D3")))
 	for _, d := range devs {
 		for len(d.events) > 0 {

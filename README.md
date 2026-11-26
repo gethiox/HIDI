@@ -176,10 +176,12 @@ and puts the pitch bend back to no bend; controllers stay as they were last
 sent, a volume for one, and both can be set otherwise. Game controllers are not taken
 away, so they keep working in other programs.
 
-Caps Lock is HIDI's alone from then on: it no longer switches capitals,
-whether HIDI is on or off. The settings can give the key back to the system
-when it is held. What the rest of the system sees of a tapped key differs
-between Windows and Linux; see "One key that turns HIDI off and on" in the
+A tap of Caps Lock no longer switches capitals, whether HIDI is on or off;
+held for longer than half a second, the key is passed through to the
+system and does what it normally does. With "Pass the toggle key through
+to the system when held" turned off in the settings, the key is HIDI's
+alone, tapped or held. On Linux this needs the udev rule that comes with
+HIDI; see "One key that turns HIDI off and on" in the
 [configuration reference](docs/configuration.md).
 
 The toggle belongs to the profile: the keyboard profile HIDI comes with
@@ -290,8 +292,9 @@ greyed out.
 - "Size of the interface" draws everything in the window smaller or larger,
   from 85 % to 200 %. The window follows at once, and keeps the size when
   you save.
-- "The toggle key is HIDI's alone" keeps a toggle of one key, such as Caps
-  Lock, from the rest of the system altogether, held or tapped.
+- "Pass the toggle key through to the system when held" lets a toggle of
+  one key, such as Caps Lock, do what it normally does when it is held;
+  turned off, the key is HIDI's alone, held or tapped.
 - "Look for a newer HIDI" lets the window ask GitHub once a day whether
   there is a newer release. It is off unless you turn it on. The answer is
   in the lower right corner of the window, grey while HIDI is up to date
@@ -465,8 +468,7 @@ same for `hidi` and `hidi --headless`, and each overrides its setting in
 | `--headless` | Run the instruments only, without the icon and the window. |
 | `--window` | Open the window at once. |
 | `--toggle KEYS` | One toggle for every device, in place of the profiles' own: `--toggle KEY_SCROLLLOCK`, or `--toggle KEY_LEFTCTRL+KEY_RIGHTCTRL` for keys pressed together. |
-| `--toggle-tap` | A toggle of one key works by a tap, as it does unless the settings say otherwise. |
-| `--always-grab` | Linux: keep keyboards grabbed while HIDI is off too, so that the tapped key is hidden from the system. |
+| `--toggle-tap` | A toggle of one key works by a tap and is passed through to the system when held, as it is unless the settings say otherwise. |
 | `--no-grab` | Leave keyboards usable by the system; they type while you play. |
 | `--grab-gamepads` | Also take game controllers away from other programs. |
 | `--on` | Start turned on, whatever the settings say. |

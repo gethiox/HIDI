@@ -98,18 +98,13 @@ type Input struct {
 	GrabGamepads bool
 	// StartOn says whether HIDI is on when it starts.
 	StartOn bool
-	// ToggleTap makes a toggle of one key work by a tap: pressed and let
-	// go within half a second it turns HIDI off or on, and held for
-	// longer it does what the key normally does. On Windows the tap is
-	// hidden from the system.
+	// ToggleTap passes a toggle of one key through to the system when it
+	// is held: tapped, pressed and let go within half a second, it turns
+	// HIDI off or on and is hidden from the system; held for longer, it
+	// does what the key normally does. Without it the key turns HIDI off
+	// or on as it is pressed and is HIDI's alone. Either way the key is
+	// kept from the system only where keyboards are grabbed.
 	ToggleTap bool
-	// AlwaysGrab, on Linux, keeps keyboards grabbed while HIDI is off as
-	// well and types their keys again on a keyboard of HIDI's own, so
-	// that the tapped key can be hidden from the system there too.
-	AlwaysGrab bool
-	// ToggleExclusive keeps a toggle of one key from the rest of the
-	// system altogether: the key is HIDI's alone, also while HIDI is off.
-	ToggleExclusive bool
 	// LearnThreshold is how far an axis has to be moved to get through
 	// in learning mode, in hundredths of its range.
 	LearnThreshold int
@@ -161,17 +156,15 @@ type Window struct {
 func Default() Settings {
 	return Settings{
 		Input: Input{
-			// Caps Lock, tapped, and HIDI's alone: one key that does
-			// nothing else any more. HIDI starts turned off, with its
-			// window open, so that a keyboard types until it is asked
-			// to play.
-			ToggleTap:       true,
-			ToggleExclusive: true,
-			GrabKeyboards:   true,
-			StartOn:         false,
-			LearnThreshold:  50,
-			Hysteresis:      2,
-			VelocityStep:    16,
+			// Caps Lock, tapped, and passed through to the system
+			// when held. HIDI starts turned off, with its window open,
+			// so that a keyboard types until it is asked to play.
+			ToggleTap:      true,
+			GrabKeyboards:  true,
+			StartOn:        false,
+			LearnThreshold: 50,
+			Hysteresis:     2,
+			VelocityStep:   16,
 		},
 		Output:  Output{ResetPitchBend: true},
 		Devices: Devices{Mode: Blacklist},
@@ -185,16 +178,20 @@ func Default() Settings {
 type file struct {
 	Schema int `toml:"schema"`
 	Input  struct {
-		Toggle          *[]string `toml:"toggle"`
-		GrabKeyboards   *bool     `toml:"grab_keyboards"`
-		GrabGamepads    *bool     `toml:"grab_gamepads"`
-		StartOn         *bool     `toml:"start_on"`
-		ToggleTap       *bool     `toml:"toggle_tap"`
-		AlwaysGrab      *bool     `toml:"always_grab"`
-		LearnThreshold  *int      `toml:"learn_threshold"`
-		Hysteresis      *int      `toml:"hysteresis"`
-		VelocityStep    *int      `toml:"velocity_step"`
-		ToggleExclusive *bool     `toml:"toggle_exclusive"`
+		Toggle         *[]string `toml:"toggle"`
+		GrabKeyboards  *bool     `toml:"grab_keyboards"`
+		GrabGamepads   *bool     `toml:"grab_gamepads"`
+		StartOn        *bool     `toml:"start_on"`
+		ToggleTap      *bool     `toml:"toggle_tap"`
+		LearnThreshold *int      `toml:"learn_threshold"`
+		Hysteresis     *int      `toml:"hysteresis"`
+		VelocityStep   *int      `toml:"velocity_step"`
+		// AlwaysGrab and ToggleExclusive were settings once, of how a
+		// toggle of one key is kept from the system, which toggle_tap
+		// alone says now. A file that still has them is read, and the
+		// next writing of the file leaves them out.
+		AlwaysGrab      *bool `toml:"always_grab"`
+		ToggleExclusive *bool `toml:"toggle_exclusive"`
 	} `toml:"input"`
 	Devices struct {
 		Mode *string   `toml:"mode"`
@@ -266,9 +263,7 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.GrabGamepads, f.Input.GrabGamepads)
 	set(&s.Input.StartOn, f.Input.StartOn)
 	set(&s.Input.ToggleTap, f.Input.ToggleTap)
-	set(&s.Input.AlwaysGrab, f.Input.AlwaysGrab)
 	set(&s.Input.LearnThreshold, f.Input.LearnThreshold)
-	set(&s.Input.ToggleExclusive, f.Input.ToggleExclusive)
 	if s.Input.LearnThreshold < 1 || s.Input.LearnThreshold > 100 {
 		problems = append(problems, fmt.Sprintf("input.learn_threshold: %d is not a number of hundredths from 1 to 100", s.Input.LearnThreshold))
 	}
@@ -420,27 +415,16 @@ grab_gamepads = %t
 # Whether HIDI is on when it starts.
 start_on = %t
 
-# A toggle of one key, such as Caps Lock, works by a tap, and the key
-# plays nothing. Held for longer than half a second it does not toggle,
-# and does what it normally does instead. On Windows the tap is hidden
-# from the system. On Linux it is hidden only with always_grab; without
-# it, the tap that turns HIDI on also reaches the system. A toggle of
-# several keys is pressed, whatever this says.
+# Pass a toggle of one key, such as Caps Lock, through to the system when
+# it is held. Tapped, pressed and let go within half a second, the key
+# turns HIDI off or on and is hidden from the system; held for longer, it
+# does not toggle and does what it normally does. Turned off, the key turns
+# HIDI off or on as it is pressed, and is HIDI's alone: Caps Lock then
+# never switches capitals. Either way the key is kept from the system
+# only while keyboards are grabbed (grab_keyboards), on Linux by typing
+# every other key again on a keyboard of HIDI's own, which needs access
+# to /dev/uinput. A toggle of several keys is pressed, whatever this says.
 toggle_tap = %t
-
-# Linux only, and only of use with toggle_tap. Keep keyboards grabbed
-# while HIDI is off too, and type their keys again on a keyboard of HIDI's
-# own, so that the tapped key never reaches the system. This puts HIDI
-# between your keyboard and everything you type for as long as it runs:
-# should HIDI ever hang, the keyboard does nothing until HIDI is ended.
-# It needs access to /dev/uinput.
-always_grab = %t
-
-# Keep a toggle of one key from the rest of the system altogether: the
-# key is HIDI's alone and never does what it normally does, also while
-# HIDI is off. On Linux HIDI then keeps keyboards grabbed all the time,
-# as with always_grab.
-toggle_exclusive = %t
 
 # Learning mode makes every axis stand still until it is moved by more
 # than this many hundredths of its range. It is for teaching a program
@@ -528,7 +512,7 @@ check_updates = %t
 # is plugged in. With this the names profiles use for them, such as
 # BTN_SOUTH and ABS_X, stand beside the numbers.
 control_names = %t
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold, s.Input.Hysteresis, s.Input.VelocityStep,
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.LearnThreshold, s.Input.Hysteresis, s.Input.VelocityStep,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Output.ResetPitchBend, s.Output.ResetControllers, s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.Scale,

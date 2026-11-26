@@ -484,8 +484,7 @@ func (sh *sheet) onOff(state *ipc.Snapshot) {
 	}
 	sh.y += 48
 	sh.switches(
-		toggleItem{"Pass the toggle key through to the system when held", "one key: a tap toggles; held longer, it acts as usual", &sh.s.Input.ToggleTap, ""},
-		toggleItem{"The toggle key is HIDI's alone", "one key: it never reaches the system, tapped or held", &sh.s.Input.ToggleExclusive, ""},
+		toggleItem{"Pass the toggle key through to the system when held", "one key: a tap toggles; otherwise the key is HIDI's alone", &sh.s.Input.ToggleTap, ""},
 		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn, ""},
 		toggleItem{"Reset the pitch bend when HIDI is turned off", "otherwise it stays bent as it was", &sh.s.Output.ResetPitchBend, ""},
 		toggleItem{"Reset controllers when HIDI is turned off", "otherwise every controller keeps its last value", &sh.s.Output.ResetControllers, ""},
@@ -499,7 +498,6 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 	sh.switches(
 		toggleItem{"Keyboards do not type while HIDI is on", "one without a toggle is left typing", &sh.s.Input.GrabKeyboards, ""},
 		toggleItem{"Game controllers are kept from other programs", "Linux only: Windows cannot", &sh.s.Input.GrabGamepads, "linux"},
-		toggleItem{"Keyboards stay grabbed while HIDI is off", "Linux only: hides the tapped key from the system", &sh.s.Input.AlwaysGrab, "linux"},
 	)
 	sh.y = w.drawDeviceList(state, sh.s, sh.editable, sh.x, sh.y, sh.right)
 	// How far an axis has to move in learning mode.

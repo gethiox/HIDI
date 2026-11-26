@@ -48,20 +48,16 @@ type Options struct {
 	// its own ([config.Profile.Toggle]), and one whose profile has none
 	// cannot turn HIDI off or on.
 	Toggle []control.Code
-	// ToggleTap makes a Toggle of one key work by tapping it: pressed and
-	// let go within [TapHold], it turns HIDI off or on. The key plays
-	// nothing. Held for longer it does not toggle.
+	// ToggleTap passes a toggle of one key through to the system when it
+	// is held. A toggle of one key is kept from the rest of the system,
+	// while HIDI is off too, on a device that is grabbed and can do that
+	// (see [input.Passer]). With ToggleTap it works by tapping: pressed
+	// and let go within [TapHold], it turns HIDI off or on; held for
+	// longer, it does not toggle and is passed on to the system, so that
+	// it still does what it normally does. Without, it turns HIDI off or
+	// on as it is pressed and is HIDI's alone: Caps Lock as the toggle
+	// then never changes the keyboard's state.
 	ToggleTap bool
-	// HideToggle keeps the tapped key from the rest of the system, also
-	// while HIDI is off, on devices that can do that (see [input.Passer]).
-	// Held for longer than [TapHold], the key is passed on to the system,
-	// so that it can still do what it normally does.
-	HideToggle bool
-	// OwnToggle keeps a Toggle of one key from the rest of the system
-	// altogether, tapped or not, on devices that can do that: the key is
-	// HIDI's alone. Caps Lock as the toggle then never changes the
-	// keyboard's state.
-	OwnToggle bool
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
 	// Allow decides whether a device may become an instrument at all.
@@ -473,8 +469,9 @@ var TapHold = 500 * time.Millisecond
 type inputRules struct {
 	grab   bool
 	toggle []control.Code
-	// tap says that the toggle is one key and works by a tap, and hide
-	// that the key is kept from the system.
+	// tap says that the toggle is one key and works by a tap, and is
+	// passed on when held; hide that the toggle is one key, which is
+	// kept from the system.
 	tap, hide bool
 	// left says that the device would be kept from the system and is
 	// not, because nothing on it turns HIDI off again.
@@ -501,7 +498,7 @@ func (m *Manager) rulesFor(info control.DeviceInfo, profile *config.Profile) *in
 	tap := m.opts.ToggleTap && len(toggle) == 1
 	r := &inputRules{
 		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: toggle,
-		tap: tap, hide: len(toggle) == 1 && (tap && m.opts.HideToggle || m.opts.OwnToggle),
+		tap: tap, hide: len(toggle) == 1,
 		playing: m.opts.Playing,
 	}
 	if r.grab && len(toggle) == 0 && info.Type == control.DeviceKeyboard {
@@ -541,17 +538,11 @@ func (m *Manager) reconfigure(change func(*Options)) {
 	}
 }
 
-// SetToggleTap changes whether the toggle works by a tap and whether its
-// key is hidden from the system, while the manager runs. See
-// [Options.ToggleTap] and [Options.HideToggle].
-func (m *Manager) SetToggleTap(tap, hide bool) {
-	m.reconfigure(func(o *Options) { o.ToggleTap, o.HideToggle = tap, hide })
-}
-
-// SetOwnToggle changes whether a toggle of one key is kept from the rest
-// of the system; see [Options.OwnToggle].
-func (m *Manager) SetOwnToggle(own bool) {
-	m.reconfigure(func(o *Options) { o.OwnToggle = own })
+// SetToggleTap changes whether a toggle of one key works by a tap and is
+// passed through to the system when held, while the manager runs; see
+// [Options.ToggleTap].
+func (m *Manager) SetToggleTap(tap bool) {
+	m.reconfigure(func(o *Options) { o.ToggleTap = tap })
 }
 
 // SetPlaying changes how every instrument plays beside what its profile
@@ -570,8 +561,8 @@ func (m *Manager) SetInput(toggle []control.Code, grab func(control.DeviceInfo) 
 // SetToggleAndGrab is SetInput and SetToggleTap at once: a device never
 // goes by the new toggle with the old way of tapping it, nor the other
 // way round.
-func (m *Manager) SetToggleAndGrab(toggle []control.Code, grab func(control.DeviceInfo) bool, tap, hide bool) {
-	m.reconfigure(func(o *Options) { o.Toggle, o.Grab, o.ToggleTap, o.HideToggle = toggle, grab, tap, hide })
+func (m *Manager) SetToggleAndGrab(toggle []control.Code, grab func(control.DeviceInfo) bool, tap bool) {
+	m.reconfigure(func(o *Options) { o.Toggle, o.Grab, o.ToggleTap = toggle, grab, tap })
 }
 
 // takeName returns a name for a MIDI device that no other device of this

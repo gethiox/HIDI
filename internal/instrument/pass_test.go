@@ -247,10 +247,11 @@ func sentText(e *fakeEndpoint) string {
 	return sent
 }
 
-// A toggle of one key can be HIDI's alone: the system never sees it,
-// tapped or not, while HIDI is off as well.
+// A toggle of one key that is not passed through when held is HIDI's
+// alone: it turns HIDI off and on as it is pressed, and the system never
+// sees it, while HIDI is off as well.
 func TestOwnToggle(t *testing.T) {
-	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, OwnToggle: true, StartInactive: true})
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, StartInactive: true})
 	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
 	r.devices <- kbd
 	eventually(t, "the keyboard to be passed on without the toggle key", func() bool {
@@ -271,8 +272,8 @@ func TestOwnToggle(t *testing.T) {
 	}
 
 	// A combination of keys is never kept from the system, and the
-	// setting follows a change.
-	r.manager.SetOwnToggle(false)
+	// device follows a change of the toggle.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
 	eventually(t, "the keyboard to be released", func() bool { return !kbd.isPassing() && !kbd.isGrabbed() })
 }
 

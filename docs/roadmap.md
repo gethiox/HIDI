@@ -100,6 +100,7 @@ the sixth round.
 | Holding + and − should repeat, 500 ms then every 100 ms | Every stepper and the note and controller steps on the profile page. |
 | Buttons show no click | Every button is tinted green while held; a repeating one blinks with every click, half on, half off. |
 | Keys that do nothing slightly red, as the lights show them | A dark red hint on the profile page and the main page. |
+| "Pass the toggle key through when held" and "HIDI's alone" contradict each other for a held key; one switch is enough, passing through the default | One switch, `toggle_tap`, on as HIDI comes: tapped, the key toggles and is hidden; held, it does what it normally does; off, the key toggles as it is pressed and is HIDI's alone. A toggle of one key is hidden wherever keyboards are grabbed, on Linux through uinput. `toggle_exclusive`, `always_grab` and `--always-grab` are gone; old files read without complaint. |
 | A review of the code | See "Review of the code, third pass". |
 
 ### Review of the code, third pass (26 November 2026)
@@ -154,14 +155,6 @@ colours of the lights are changed straight in the settings being edited,
 the rest of the sheet through a copy; a click that asks HIDI for
 something while another request is on its way does nothing.
 
-Waits for the maintainer: "Pass the toggle key through to the system when
-held" and "The toggle key is HIDI's alone" say the opposite of a toggle
-that is held, and both are on as HIDI comes. HIDI does what the first
-says, and what the table of the configuration reference says: tapped, the
-key is hidden; held, it does what it normally does. The second then only
-makes the key hidden on Linux as well, without `always_grab`. Which of the
-two is meant decides whether the second's description or its effect is
-to change.
 
 ### Twelfth round (26 November 2026): what was reported, and what was done
 
