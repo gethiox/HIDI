@@ -178,8 +178,8 @@ func Parse(data []byte) (*Profile, error) {
 	p.Generate = r.generate(top.sub("generate"))
 	p.Engine.Global = r.bindings("global", "", top.sub("global").values)
 
-	layouts, _ := top.values["layout"].([]any)
-	if _, isList := top.values["layout"].([]any); top.has("layout") && !isList {
+	layouts, isList := top.values["layout"].([]any)
+	if top.has("layout") && !isList {
 		r.failf("layout", "must be written as [[layout]] sections")
 	}
 	for i, raw := range layouts {
@@ -216,16 +216,10 @@ func Parse(data []byte) (*Profile, error) {
 
 func (r *reader) match(t *table) Match {
 	var m Match
-	switch typ := t.str("type", ""); typ {
-	case "":
-	case "keyboard":
-		m.Type = control.DeviceKeyboard
-	case "gamepad":
-		m.Type = control.DeviceGamepad
-	case "mouse":
-		m.Type = control.DeviceMouse
-	default:
-		r.failf(t.where, "type %q is not one of keyboard, gamepad, mouse", typ)
+	if typ := t.str("type", ""); typ != "" {
+		if m.Type = control.ParseDeviceType(typ); m.Type == control.DeviceUnknown {
+			r.failf(t.where, "type %q is not one of keyboard, gamepad, mouse", typ)
+		}
 	}
 	m.Bus = t.id("bus")
 	m.Vendor = t.id("vendor")

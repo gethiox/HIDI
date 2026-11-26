@@ -55,13 +55,26 @@ func layoutsOwnTheirBindings(doc map[string]any) error {
 				bindings = map[string]any{}
 				layout["bindings"] = bindings
 			}
-			if _, own := bindings[key]; !own {
+			if !bindsAlready(bindings, key) {
 				bindings[key] = value
 			}
 		}
 		delete(global, key)
 	}
 	return nil
+}
+
+// bindsAlready reports whether a table of bindings names the control of
+// key, in whatever spelling: BTN_A and BTN_SOUTH are one control, as are
+// key_a and KEY_A, and a combination in either order. That is what a
+// layout's own binding had to name to win over one of [global].
+func bindsAlready(bindings map[string]any, key string) bool {
+	for own := range bindings {
+		if sameKey(Bindings(""), own, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // isToggle reports whether a decoded binding runs hidi_toggle, written

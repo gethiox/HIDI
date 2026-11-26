@@ -89,20 +89,9 @@ func (e *Engine) Controllers() []Sent {
 	seen := map[target]bool{}
 	for key, bindings := range e.index[e.layout] {
 		for _, b := range bindings {
-			var t target
-			switch a := b.Action.(type) {
-			case ControlChange:
-				t = target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}
-			case PitchBend:
-				t = target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}
-			default:
-				continue
+			if t, ok := e.targetOf(b.Action); ok {
+				out = append(out, e.sent(t, key, b.Source.Range))
 			}
-			s := Sent{Source: key.code, Part: key.part, Range: b.Source.Range, PitchBend: t.pitchBend, Controller: t.controller, Channel: t.channel}
-			if ts := e.targets[t]; ts != nil {
-				s.Value, s.Known = ts.value, true
-			}
-			out = append(out, s)
 		}
 	}
 	slices.SortStableFunc(out, func(a, b Sent) int {
@@ -141,24 +130,25 @@ func (e *Engine) Held(code control.Code, part string, rng Range) bool {
 // the controller or the pitch bend of the binding that applies to it
 // now. It reports false for a control that sends nothing of the kind.
 func (e *Engine) Sends(code control.Code, part string, rng Range) (Sent, bool) {
-	b := e.resolve(sourceKey{control: controlKey{part, code}, rng: rng})
+	key := controlKey{part, code}
+	b := e.resolve(sourceKey{control: key, rng: rng})
 	if b == nil {
 		return Sent{}, false
 	}
-	var t target
-	switch a := b.Action.(type) {
-	case ControlChange:
-		t = target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}
-	case PitchBend:
-		t = target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}
-	default:
+	t, ok := e.targetOf(b.Action)
+	if !ok {
 		return Sent{}, false
 	}
-	s := Sent{Source: code, Part: part, Range: rng, PitchBend: t.pitchBend, Controller: t.controller, Channel: t.channel}
+	return e.sent(t, key, rng), true
+}
+
+// sent describes what a control drives, with the value last sent there.
+func (e *Engine) sent(t target, key controlKey, rng Range) Sent {
+	s := Sent{Source: key.code, Part: key.part, Range: rng, PitchBend: t.pitchBend, Controller: t.controller, Channel: t.channel}
 	if ts := e.targets[t]; ts != nil {
 		s.Value, s.Known = ts.value, true
 	}
-	return s, true
+	return s
 }
 
 // Neutral is where an axis rests, as the layout that is selected reads

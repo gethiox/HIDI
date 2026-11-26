@@ -349,7 +349,9 @@ type Profile struct {
 	// Layouts are the switchable binding sets. There must be at least one.
 	Layouts []Layout
 	// Global bindings apply in every layout. When a layout binding and a
-	// global binding match equally well, the layout binding wins.
+	// global binding match equally well, the layout binding wins. The
+	// profiles HIDI reads put the binding of [CommandToggle] here and
+	// nothing else; every layout holds the rest of its bindings itself.
 	Global []Binding
 	// Defaults is the initial state.
 	Defaults Defaults

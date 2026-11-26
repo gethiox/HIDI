@@ -958,6 +958,22 @@ func TestHalvesShareATarget(t *testing.T) {
 	r.reset("")
 }
 
+// One half of a stick that stops bending the pitch, because a held key
+// gives it another part, leaves the bend of the other half alone.
+func TestHalfLettingGoKeepsTheOtherHalfsBend(t *testing.T) {
+	r := newRig(t, baseProfile(
+		Binding{Source: Source{Code: stickX, Range: RangeUpper}, Action: PitchBend{}},
+		Binding{Source: Source{Code: stickX, Range: RangeLower}, Action: PitchBend{Down: true}},
+		Binding{Source: Source{Code: stickX, Range: RangeLower, Modifiers: []control.Code{keyShift}}, Action: Note{Note: 60}},
+	))
+	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
+	r.press(keyShift, "")
+	r.set(stickX, 1, "") // still pushed right: the bend stays
+	r.set(stickX, 0.75, "PitchBend ch=1 bend=+4096")
+	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
+	r.set(stickX, 0, "NoteOn ch=1 note=C3 velocity=100")
+}
+
 // A stick that was pushed out during learning and let go of ends at rest,
 // and what stands still does so through turning HIDI off and on.
 func TestLearnAtRestAndThroughReset(t *testing.T) {

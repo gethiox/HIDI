@@ -121,16 +121,10 @@ func (p *Profile) Generated(controls []control.Input) []Generated {
 			return
 		}
 		pitch := g.FirstNote + midi.Note(n)
-		key := code.String()
-		switch half {
-		case engine.RangeLower:
-			key += "-"
-		case engine.RangeUpper:
-			key += "+"
-		}
+		source := engine.Source{Code: code, Range: half, Deadzone: deadzone(code)}
 		out = append(out, Generated{
-			Binding: engine.Binding{Source: engine.Source{Code: code, Range: half, Deadzone: deadzone(code)}, Action: engine.Note{Note: pitch}},
-			Key:     key, Value: strconv.Quote(pitch.String()),
+			Binding: engine.Binding{Source: source, Action: engine.Note{Note: pitch}},
+			Key:     SourceKey(source), Value: strconv.Quote(pitch.String()),
 		})
 	}
 	for n, b := range buttons {

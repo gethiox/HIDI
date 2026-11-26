@@ -81,7 +81,8 @@ func isProfileFile(name string) bool {
 
 // Load returns the built-in profiles followed by those in dir, the order
 // in which [Select] gives the user's profiles precedence. An empty dir
-// means built-in profiles only.
+// means built-in profiles only. Those of dir are the user's, and those
+// that say "enabled = false" are left out, as [Enabled] does.
 func Load(dir string) ([]*Profile, []Problem, error) {
 	profiles, err := Builtin()
 	if err != nil {
@@ -91,7 +92,10 @@ func Load(dir string) ([]*Profile, []Problem, error) {
 		return profiles, nil, nil
 	}
 	user, problems := LoadDir(dir)
-	return append(profiles, user...), problems, nil
+	for _, p := range user {
+		p.Kind = KindUser
+	}
+	return Enabled(append(profiles, user...)), problems, nil
 }
 
 // WriteBuiltin writes the built-in profiles into dir as files to start
@@ -211,40 +215,24 @@ func Enabled(profiles []*Profile) []*Profile {
 	return out
 }
 
-// fingerprintFlat is fingerprint for a directory whose own directories
-// are of no interest.
-func fingerprintFlat(dir string) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "unreadable: " + err.Error()
-	}
-	var b strings.Builder
-	for _, entry := range entries {
-		if entry.IsDir() || !isProfileFile(entry.Name()) {
-			continue
-		}
-		info, err := os.Stat(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(&b, "  %q %d %d\n", entry.Name(), info.Size(), info.ModTime().UnixNano())
-	}
-	return b.String()
-}
-
 // fingerprint describes the profile files of a directory by name, size and
 // modification time. It changes whenever one is added, removed or written.
-func fingerprint(dir string) string {
+func fingerprint(dir string) string { return fingerprintIn(dir, true) }
+
+// fingerprintIn is fingerprint, with the profiles one level down or not:
+// HIDI keeps the factory profiles and the user's in two directories of
+// one, and nothing deeper.
+func fingerprintIn(dir string, deeper bool) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "unreadable: " + err.Error()
 	}
 	var b strings.Builder
 	for _, entry := range entries {
-		// The profiles one level down count too: HIDI keeps the factory
-		// profiles and the user's in two directories of one.
 		if entry.IsDir() {
-			fmt.Fprintf(&b, "%q:\n%s", entry.Name(), fingerprintFlat(filepath.Join(dir, entry.Name())))
+			if deeper {
+				fmt.Fprintf(&b, "%q:\n%s", entry.Name(), fingerprintIn(filepath.Join(dir, entry.Name()), false))
+			}
 			continue
 		}
 		if !isProfileFile(entry.Name()) {

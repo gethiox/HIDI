@@ -49,9 +49,10 @@ func (e *Engine) SetHysteresis(h float64) {
 	e.hysteresis = h
 }
 
-// A momentary action triggers when its source rises to pressThreshold and
-// ends when the source falls below releaseThreshold. The gap keeps an axis
-// that rests near the threshold from triggering repeatedly.
+// A key triggers its momentary action when it rises to pressThreshold and
+// ends it when it falls below releaseThreshold. A key reports only 0 and 1;
+// an axis acting as a button goes by its trigger point and the hysteresis
+// instead (see thresholds).
 const (
 	pressThreshold   = 0.5
 	releaseThreshold = 0.45
@@ -598,18 +599,16 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 			x = st.base
 		}
 	}
-	var t target
+	t, _ := e.targetOf(b.Action)
 	var value, rest uint32
 	switch a := b.Action.(type) {
 	case ControlChange:
-		t = target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}
 		if b.Source.bipolar() {
 			value, rest = midi.Unit((x+1)/2), midi.Unit(0.5)
 		} else {
 			value = midi.Unit(x)
 		}
 	case PitchBend:
-		t = target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}
 		if a.Down && !b.Source.bipolar() {
 			x = -x
 		}
@@ -621,10 +620,8 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 	}
 	st.driving, st.target, st.centering = true, t, b.Source.selfCentering()
 	atRest := t.sameOnWire(value, rest)
-	if ts := e.targets[t]; ts != nil && atRest {
-		if o := ts.owner; o != nil && o != st && o.driving && o.target == t {
-			return out // another source holds the target away from rest
-		}
+	if atRest && e.heldElsewhere(t, st) {
+		return out // another source holds the target away from rest
 	}
 	out = e.send(t, value, rest, out)
 	switch ts := e.targets[t]; {
@@ -634,6 +631,19 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 		ts.owner = nil
 	}
 	return out
+}
+
+// targetOf returns what an action that follows a position drives, on the
+// channel selected now: its controller, or the pitch bend. It reports
+// false for any other action.
+func (e *Engine) targetOf(a Action) (target, bool) {
+	switch a := a.(type) {
+	case ControlChange:
+		return target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}, true
+	case PitchBend:
+		return target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}, true
+	}
+	return target{}, false
 }
 
 // send emits a new value for a target unless it would encode the same as the
@@ -668,12 +678,27 @@ func (t target) sameOnWire(a, b uint32) bool {
 // controllers driven by a self-centering source, are returned to rest; a
 // controller driven by a control that stays where it is put, such as a
 // throttle lever, keeps its value unless the profile asks for rest.
+//
+// A target another source holds away from rest stays where that source
+// holds it: the two halves of a stick bend the pitch both ways, and the
+// half that lets go must not undo what the other does.
 func (e *Engine) abandon(st *sourceState, out []midi.Message) []midi.Message {
 	st.driving = false
-	if st.centering || st.target.pitchBend || e.profile.RestAxes {
+	if (st.centering || st.target.pitchBend || e.profile.RestAxes) && !e.heldElsewhere(st.target, st) {
 		out = e.rest(st.target, out)
 	}
 	return out
+}
+
+// heldElsewhere reports whether a source other than st holds a target
+// away from rest.
+func (e *Engine) heldElsewhere(t target, st *sourceState) bool {
+	ts := e.targets[t]
+	if ts == nil {
+		return false
+	}
+	o := ts.owner
+	return o != nil && o != st && o.driving && o.target == t
 }
 
 // rest returns a target to its rest value.

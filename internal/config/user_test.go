@@ -102,6 +102,16 @@ func TestLoadGivesUserProfilesPrecedence(t *testing.T) {
 	if err != nil || len(builtin) != len(profiles)-1 {
 		t.Errorf("Load without a directory: %d profiles, %v", len(builtin), err)
 	}
+
+	// A profile of the directory that is turned off is left out, as it
+	// is from HIDI's own directory; it is the user's.
+	write(t, dir, "mine.toml", strings.Replace(validProfile, "name = \"Mine\"", "name = \"Mine\"\nenabled = false\n[match]\ntype = \"keyboard\"", 1))
+	if profiles, _, _ = Load(dir); len(profiles) != len(builtin) {
+		t.Errorf("a profile turned off was loaded: %d profiles", len(profiles))
+	}
+	if got := Select(profiles, control.DeviceInfo{Type: control.DeviceKeyboard}); got == nil || !got.IsBuiltin() {
+		t.Errorf("the keyboard got %+v", got)
+	}
 }
 
 func TestDigestFollowsContent(t *testing.T) {

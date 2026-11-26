@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 // The functions in this file change one thing in the text of a profile
@@ -120,11 +122,7 @@ func edit(text []byte, section Section, key string, value *string) ([]byte, erro
 				at = i + 1
 			}
 		}
-		// The line ends as the lines of the file do.
-		ending := "\n"
-		if strings.Contains(string(text), "\r\n") {
-			ending = "\r\n"
-		}
+		ending := lineEnding(text) // as the lines of the file do
 		if at > 0 && !strings.HasSuffix(lines[at-1], "\n") {
 			lines[at-1] += ending // the file ended without a line break
 		}
@@ -285,12 +283,17 @@ func closingQuote(s string, i int) int {
 	return -1
 }
 
-// unquote returns what a quoted string says; other text as it is.
+// unquote returns what a quoted string says, as TOML reads it, escapes
+// and all; other text as it is.
 func unquote(s string) string {
 	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
 		return s[1 : len(s)-1]
 	}
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var v struct{ V string }
+		if toml.Unmarshal([]byte("V = "+s), &v) == nil {
+			return v.V
+		}
 		return strings.NewReplacer(`\"`, `"`, `\\`, `\`).Replace(s[1 : len(s)-1])
 	}
 	return s

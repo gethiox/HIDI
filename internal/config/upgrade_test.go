@@ -141,3 +141,51 @@ func TestForDeviceUpgrades(t *testing.T) {
 		t.Fatalf("%v, written for %d:\n%s", err, p.WrittenFor, out)
 	}
 }
+
+// A layout of schema 1 that bound a control of [global] in another
+// spelling had its own binding win; it still does, and the file loads
+// and upgrades.
+func TestSharedGlobalOtherSpelling(t *testing.T) {
+	text := `schema = 1
+name = "Spelled"
+
+[global]
+BTN_SOUTH = "C4"
+"KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_A" = "panic"
+
+[[layout]]
+name = "A"
+
+[layout.bindings]
+BTN_A = "D4"
+"KEY_LEFTSHIFT+KEY_LEFTCTRL+KEY_A" = "octave_up"
+`
+	p, err := Parse([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := bindingIn(t, p, "A", "BTN_SOUTH"); !ok || b.Action != (engine.Note{Note: 74}) {
+		t.Errorf("BTN_A: %+v", b)
+	}
+	if len(p.Engine.Layouts[0].Bindings) != 2 {
+		t.Errorf("bindings: %+v", p.Engine.Layouts[0].Bindings)
+	}
+	if _, err := Upgrade([]byte(text)); err != nil {
+		t.Errorf("Upgrade: %v", err)
+	}
+}
+
+// A layout whose name has an escape in it can be changed like any other.
+func TestLayoutNameWithEscape(t *testing.T) {
+	text := []byte("schema = 2\nname = \"P\"\n\n[[layout]]\nname = \"Caf\\u00e9\\tbar\"\n\n[layout.bindings]\nKEY_Z = \"C3\"\n\n[[layout]]\nname = \"Other\"\n")
+	out, err := Set(text, Bindings("Café\tbar"), "KEY_X", `"D3"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err = RemoveLayout(out, "Café\tbar"); err != nil {
+		t.Fatalf("RemoveLayout: %v", err)
+	}
+	if p, err := Parse(out); err != nil || len(p.Engine.Layouts) != 1 || p.Engine.Layouts[0].Name != "Other" {
+		t.Errorf("after removing: %v\n%s", err, out)
+	}
+}

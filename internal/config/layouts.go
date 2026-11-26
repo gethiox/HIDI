@@ -32,7 +32,7 @@ func layoutBlocks(lines []string) []layoutBlock {
 			}
 			continue
 		}
-		own := !array && (header == "layout.bindings" || strings.HasPrefix(header, "layout."))
+		own := !array && strings.HasPrefix(header, "layout.")
 		if open && !own {
 			blocks[len(blocks)-1].end = i
 			open = false
