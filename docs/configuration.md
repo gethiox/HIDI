@@ -114,6 +114,9 @@ playing = "#ffffff"
 external = "#ffffff"
 command = "#ffffff"
 panic = "#ff0000"
+learn = "#ffd000"
+chord = "#a030ff"
+velocity = "#00e0ff"
 other = "#003030"
 passthrough = "#400040"
 idle = "#181818"
@@ -182,6 +185,9 @@ show their input and output is kept with HIDI's state.
 | `external` | A key whose note another program sent on the instrument's channel. |
 | `command` | The keys that run commands. They show state in three steps of brightness, of which this colour is the brightest. |
 | `panic` | The panic key. |
+| `learn` | The key of learning mode: dim while the mode is off, this colour while it is on. Yellow as HIDI comes. |
+| `chord` | The key that remembers a chord: dim while none is remembered, this colour while one is. Purple as HIDI comes. |
+| `velocity` | The keys that move the velocity, both alike: dim at velocity 1, this colour at 127, and in proportion between. Cyan as HIDI comes. |
 | `other` | Keys that send something else: a controller, a program change, a pitch bend. |
 | `passthrough` | Keys that are left to the system. |
 | `idle` | Every key while HIDI is off. |

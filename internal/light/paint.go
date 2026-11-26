@@ -51,6 +51,11 @@ type Colours struct {
 	Command RGB
 	// Panic colours the key that silences the instrument.
 	Panic RGB
+	// Learn colours the key of learning mode, Chord the key that
+	// remembers a chord: dim while the mode is off or no chord is
+	// remembered, at full brightness otherwise. Velocity colours the
+	// keys that move the velocity, the brighter the higher it is.
+	Learn, Chord, Velocity RGB
 	// Other colours a key that sends something else, a controller for
 	// one.
 	Other RGB
@@ -66,6 +71,7 @@ func DefaultColours() Colours {
 		Playing: RGB{0xff, 0xff, 0xff}, External: RGB{0xff, 0xff, 0xff},
 		Idle: RGB{0x18, 0x18, 0x18}, Pressed: RGB{0xff, 0xff, 0xff},
 		Command: RGB{0xff, 0xff, 0xff}, Panic: RGB{0xff, 0x00, 0x00},
+		Learn: RGB{0xff, 0xd0, 0x00}, Chord: RGB{0xa0, 0x30, 0xff}, Velocity: RGB{0x00, 0xe0, 0xff},
 		Other: RGB{0x00, 0x30, 0x30}, Passthrough: RGB{0x40, 0x00, 0x40},
 	}
 }
@@ -88,6 +94,9 @@ func (c *Colours) Named() []struct {
 		{"external", "a note another program sent", &c.External},
 		{"command", "command keys, at their brightest", &c.Command},
 		{"panic", "the panic key", &c.Panic},
+		{"learn", "the learning key, at its brightest", &c.Learn},
+		{"chord", "the chord key, at its brightest", &c.Chord},
+		{"velocity", "the velocity keys, at their brightest", &c.Velocity},
 		{"other", "keys that send something else", &c.Other},
 		{"passthrough", "keys left to the system", &c.Passthrough},
 		{"idle", "every key while HIDI is off", &c.Idle},
@@ -251,15 +260,19 @@ func paintCommand(s Scene, c Colours, command engine.Command, channelColour RGB)
 		}
 		return channelColour
 	case engine.CommandChord:
-		level = dim
 		if s.State.Chord != "" {
-			level = bright
+			return c.Chord
 		}
+		return scale(c.Chord, dim)
 	case engine.CommandLearn:
-		level = dim
 		if s.State.Learning {
-			level = bright
+			return c.Learn
 		}
+		return scale(c.Learn, dim)
+	case engine.CommandVelocityUp, engine.CommandVelocityDown:
+		// Both keys show the velocity: dim at 1, full at 127.
+		v := max(int(s.State.Velocity), 1)
+		return scale(c.Velocity, dim+(bright-dim)*(v-1)/126)
 	}
 	return scale(c.Command, level)
 }
