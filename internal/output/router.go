@@ -166,18 +166,22 @@ func (r *Router) Sync() {
 			if _, still := chosen[id]; still {
 				continue
 			}
-			delete(e.connected, id)
 			if !there[id] {
+				delete(e.connected, id)
 				r.log.Info("MIDI port is gone", "instrument", e.name, "port", name)
 				continue
 			}
-			// The port is there and no longer chosen.
+			// The port is there and no longer chosen. One that cannot be
+			// let go of stays connected, and is tried again the next
+			// time: forgotten, the instrument would go on sending to it
+			// with nobody to know.
 			if d, ok := e.Connector.(Disconnector); ok {
 				if err := d.Disconnect(id); err != nil {
-					r.log.Warn("disconnecting from the MIDI port failed", "instrument", e.name, "port", name, "error", err)
+					r.log.Warn("disconnecting from the MIDI port failed; trying again", "instrument", e.name, "port", name, "error", err)
 					continue
 				}
 			}
+			delete(e.connected, id)
 			r.log.Info("disconnected from MIDI port", "instrument", e.name, "port", name)
 		}
 		for id := range e.failed {

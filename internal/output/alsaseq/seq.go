@@ -229,6 +229,14 @@ func (c *client) write(events []event) error {
 			return fmt.Errorf("writing to the ALSA sequencer: %w", err)
 		}
 		buf = buf[n:]
+		if len(buf) > 0 {
+			// A short write stopped at an event that a listener had no
+			// room for. The other listeners have it, and the kernel
+			// does not count it: sent again, they would get it twice,
+			// a note played twice. It is dropped, as a refused one is.
+			c.dropped.Add(1)
+			buf = buf[min(eventSize, len(buf)):]
+		}
 	}
 	return nil
 }

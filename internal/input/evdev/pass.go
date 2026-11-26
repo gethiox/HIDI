@@ -44,7 +44,8 @@ type passing struct {
 // Pass keeps the hidden keys from the rest of the system and passes every
 // other key on. It fails if the keys cannot be typed again, for lack of
 // access to /dev/uinput, or if a hidden key is on a node that cannot be
-// held; the device is then left as it was.
+// held; the device is then left as it was. A node that cannot be held
+// when it comes to it lets go of the whole device.
 //
 // As with [Node.Grab], hiding begins once no key of a node is down.
 func (d *Device) Pass(hidden []control.Code) error {
@@ -139,7 +140,8 @@ func (d *Device) passKeyboard(keys []uint16) error {
 // Share keeps the device from the rest of the system like [Device.Grab],
 // except for the open keys, which are typed again on a keyboard of HIDI's
 // own. It fails if that keyboard cannot be made, for lack of access to
-// /dev/uinput; the device is then left as it was.
+// /dev/uinput; the device is then left as it was. A node that cannot be
+// held lets go of the whole device.
 func (d *Device) Share(open []control.Code) error {
 	p := &d.pass
 	p.mu.Lock()

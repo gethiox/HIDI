@@ -1371,7 +1371,8 @@ const (
 
 // Pass lets the keys of every keyboard through to other programs except
 // for the hidden ones. Like a grab, hiding cannot tell keyboards apart on
-// Windows: the keys are hidden whichever keyboard they are pressed on.
+// Windows: the keys are hidden whichever keyboard they are pressed on, and
+// the keys every passed keyboard hides are hidden together.
 func (d *Device) Pass(hidden []control.Code) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1387,7 +1388,7 @@ func (d *Device) Pass(hidden []control.Code) error {
 			set[code.Num] = true
 		}
 	}
-	d.watcher.gate.hidden.Store(&set)
+	d.watcher.gate.hide(d, set)
 	if !d.passing {
 		d.passing = true
 		d.watcher.gate.hides.Add(1)
@@ -1403,7 +1404,7 @@ func (d *Device) Pass(hidden []control.Code) error {
 // Share keeps the keys from other programs like [Device.Grab], except for
 // the open ones. As with a grab, Windows cannot tell keyboards apart here:
 // the open keys are let through whichever keyboard they are pressed on,
-// and the last keyboard to ask decides which they are.
+// and the keys every sharing keyboard opens are open together.
 func (d *Device) Share(open []control.Code) error {
 	if err := d.Grab(); err != nil {
 		return err
@@ -1420,7 +1421,7 @@ func (d *Device) Share(open []control.Code) error {
 	d.mu.Lock()
 	d.sharing = true
 	d.mu.Unlock()
-	d.watcher.gate.open.Store(&set)
+	d.watcher.gate.letThrough(d, set)
 	return nil
 }
 
@@ -1428,7 +1429,7 @@ func (d *Device) Share(open []control.Code) error {
 func (d *Device) unshare() {
 	if d.sharing {
 		d.sharing = false
-		d.watcher.gate.open.Store(nil)
+		d.watcher.gate.letThrough(d, nil)
 	}
 }
 
@@ -1499,6 +1500,7 @@ func (d *Device) unpass() {
 	if d.passing {
 		d.passing = false
 		d.watcher.gate.hides.Add(-1)
+		d.watcher.gate.hide(d, nil)
 	}
 }
 

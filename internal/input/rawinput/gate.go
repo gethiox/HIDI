@@ -1,6 +1,9 @@
 package rawinput
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // gate decides which keys the keyboard hook keeps from other programs.
 //
@@ -23,11 +26,58 @@ type gate struct {
 	// open holds the keys that are let through although a keyboard is
 	// grabbed, by their Linux code; nil when there are none.
 	open atomic.Pointer[map[uint16]bool]
+	// keys holds the hidden and the open keys each keyboard asked for, by
+	// the keyboard: Windows cannot tell keyboards apart in the hook, so
+	// hidden and open are what all of them ask for together, and one
+	// keyboard that stops asking takes nothing from the others.
+	keys struct {
+		sync.Mutex
+		hidden, open map[any]map[uint16]bool
+	}
 	// passed holds the keys whose press was let through and whose release
 	// is still to come, by what the hook tells them apart by.
 	passed map[uint32]bool
 	// held holds the keys whose press was swallowed.
 	held map[uint32]bool
+}
+
+// hide sets the keys a keyboard keeps from other programs while it is
+// passed on, and open those it lets through while it is grabbed; nil
+// ends that for the keyboard. The hook goes by what every keyboard asks
+// for together.
+func (g *gate) hide(keyboard any, keys map[uint16]bool) {
+	g.keys.Lock()
+	defer g.keys.Unlock()
+	g.hidden.Store(merge(&g.keys.hidden, keyboard, keys))
+}
+
+func (g *gate) letThrough(keyboard any, keys map[uint16]bool) {
+	g.keys.Lock()
+	defer g.keys.Unlock()
+	g.open.Store(merge(&g.keys.open, keyboard, keys))
+}
+
+// merge puts the keys of one keyboard among those of the others and
+// returns all of them together, or nil for none.
+func merge(by *map[any]map[uint16]bool, keyboard any, keys map[uint16]bool) *map[uint16]bool {
+	if *by == nil {
+		*by = map[any]map[uint16]bool{}
+	}
+	if keys == nil {
+		delete(*by, keyboard)
+	} else {
+		(*by)[keyboard] = keys
+	}
+	if len(*by) == 0 {
+		return nil
+	}
+	all := map[uint16]bool{}
+	for _, set := range *by {
+		for code := range set {
+			all[code] = true
+		}
+	}
+	return &all
 }
 
 // swallow reports whether a key event is kept from other programs. It

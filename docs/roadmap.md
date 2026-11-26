@@ -138,6 +138,15 @@ Fixed, each with a test that fails without the fix:
   upside down.
 - The warning that the file was changed elsewhere stayed after the change
   was taken back there.
+- On the 32-bit ARM builds no MIDI device could be made and no port was
+  listed: the requests about ALSA ports had the size of a 64-bit pointer.
+  CI runs the tests as 386 now.
+- On Windows a keyboard let go of took the keys another keyboard left to
+  the system, or hid, from that one too.
+- An ALSA listener with a full queue made the other listeners get one
+  event twice.
+- A MIDI port that could not be disconnected was forgotten while the
+  instrument went on sending to it.
 
 Less work per event: an instrument no longer applies the manager's
 requests before every event, only when there is one.
@@ -154,6 +163,24 @@ main page names an axis "6 · X" and the profile page "6 · ABS_X"; the
 colours of the lights are changed straight in the settings being edited,
 the rest of the sheet through a copy; a click that asks HIDI for
 something while another request is on its way does nothing.
+
+Found in the input and the MIDI devices, not changed without a device to
+try them on:
+
+- Linux: while a keyboard is passed on, which is how it is held while
+  HIDI is off and the toggle hidden, the lights of Caps Lock and Num Lock
+  on it no longer change. The kernel takes lights only from whoever holds
+  the keyboard, and the keyboard HIDI types on through uinput has none
+  to pass the state back. It wants that keyboard to have lights and HIDI
+  to hand what they are told on to the real one.
+- Windows: the media keys a laptop sends as extended scan codes may be
+  swallowed while the keyboard is grabbed, and then lost: whether they
+  are depends on the virtual key Windows gives them.
+- Windows: a send to Windows MIDI Services does not ask how much it takes
+  at once; a large burst, a panic for one, might be refused whole.
+- Windows: closing a device does not stop the reading of a game
+  controller until it is unplugged, and closing the source of devices
+  ends the devices on Windows but not on Linux.
 
 
 ### Twelfth round (26 November 2026): what was reported, and what was done

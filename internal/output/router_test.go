@@ -218,11 +218,17 @@ func TestRouterRun(t *testing.T) {
 type fakeDisconnector struct {
 	fakeConnector
 	ended []string
+	// refuse is how many disconnections fail before they work.
+	refuse int
 }
 
 func (c *fakeDisconnector) Disconnect(id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.refuse > 0 {
+		c.refuse--
+		return errors.New("busy")
+	}
 	c.ended = append(c.ended, id)
 	delete(c.connected, id)
 	return nil
@@ -250,5 +256,22 @@ func TestRouterChangesItsPorts(t *testing.T) {
 	r.Sync()
 	if len(c.ended) != 2 || c.ended[1] != synth.ID {
 		t.Errorf("after choosing none: ended %v", c.ended)
+	}
+}
+
+// A port that cannot be let go of is tried again, not forgotten while the
+// instrument still sends to it.
+func TestRouterTriesAgainToDisconnect(t *testing.T) {
+	s := &system{ports: []Port{usb}}
+	r, log := newTestRouter(s, "usb")
+	c := &fakeDisconnector{refuse: 1}
+	r.Add("Keyboard", c)
+	r.SetMatch(MatchPorts(nil))
+	if len(c.ended) != 0 || !strings.Contains(log.String(), "disconnecting from the MIDI port failed") {
+		t.Fatalf("the first try: ended %v\n%s", c.ended, log)
+	}
+	r.Sync()
+	if len(c.ended) != 1 || c.ended[0] != usb.ID {
+		t.Errorf("the second try: ended %v", c.ended)
 	}
 }
