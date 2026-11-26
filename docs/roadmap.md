@@ -86,6 +86,21 @@ is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
 
+### Twelfth round (26 November 2026): what was reported, and what was done
+
+| Reported or asked for | Done |
+|---|---|
+| A customised profile needed a restart to be used by devices that were playing | "Customise Default" makes a copy that reads exactly like the factory profile, and a device was only given another profile when the content differed. Two profiles are the same now if they are the same file, kind and content. |
+| "(generated)" is not seen; it belongs behind the name, and not on customised profiles | "Default gamepad (generated)" on the card and at the head of the page, for a factory profile with a rule. The marks on the groups are gone. |
+| 127 buttons, the mapping stops at button 91 | As meant: from C1 the notes end at G8, note 127, which is button 91. The buttons after it are there to be bound and play nothing by the rule. |
+| A button that detects axes which rest in the middle, with a range | "Detect axes that rest in the middle", within 10 % of the middle unless changed, on profiles that can be changed. Hats are not asked. |
+| Warn about two controls on one controller | Ringed in yellow, with a line of explanation; saving and using are not refused. |
+| The pitch bend's fill trembles | The clip it is drawn through rounded its corner and its size apart. Each edge is rounded by itself now. |
+| The line in the middle of the input bars | Replaced by a blue triangle above the bar at where the axis rests as the profile reads it, on the profile page and the main page. |
+| The page shows activation without the hysteresis | The page asks an engine of its own, the same code HIDI plays with, what is held and sent. |
+| Dead zones in percent | Done. |
+| Customised factory profiles distinct in the settings | "(factory override)" in yellow, and a yellow switch. |
+
 ### Eleventh round (26 November 2026): what was reported, and what was done
 
 | Reported or asked for | Done |

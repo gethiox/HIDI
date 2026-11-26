@@ -445,9 +445,15 @@ back by hand leaves nothing to save.
 
 The page names what it changes by a `Spot`: a control, or one half of an
 axis. One function writes a role out as the right side of a binding, and
-every change goes through it. What a position of an axis would send is
-reckoned with the engine's own shaping (`engine.Source.Shape`), which is
-how the page shows values while HIDI is off.
+every change goes through it.
+
+What the page shows of the device at work comes from an engine of its own
+(`gui.Shadow`): the same `engine.Engine`, made of the profile as it is
+shown and the one layout that is shown, fed with the buttons and axes of
+the snapshot. The page asks it what is held, what each control sends and
+where each axis rests. There is no second reckoning of dead zones, trigger
+points or hysteresis for the eye, and what is shown is right while HIDI is
+off as well.
 
 The window's own widgets are a small kit over raylib (`kit` in `ui/gui`):
 buttons, switches, fields and steppers that take the pointer and the scale

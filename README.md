@@ -294,7 +294,10 @@ Below them is HIDI's directory, with a button that opens it in the file
 manager, and every profile, also those of devices that are not connected,
 in two groups. "Yours" are your own: each has a switch that turns it off
 without removing it, "Edit", "Show in folder", and "Delete", which asks
-before it removes the file. "Factory" are the ones
+before it removes the file. One that stands in for a factory profile, for
+every device of a kind, says "(factory override)" in yellow and has a
+yellow switch; one for a single product looks like any other. "Factory"
+are the ones
 HIDI comes with, which it keeps as they are: "View" shows one, and
 "Customise" makes a copy of your own, used in its place, and opens it.
 
@@ -315,8 +318,10 @@ it.
 Opened from an instrument's card, the page is for that device, and says so
 beside the name of the profile: "for" and the name of the device. It shows
 what that device has and what the profile's rule makes of it, also where
-several controllers play with the same profile. A group of controls is
-marked "(generated)" where the profile names none of them.
+several controllers play with the same profile. A factory profile that
+gives most controls their parts by its rule says "(generated)" behind its
+name, here and on the card of an instrument that plays with it; a profile
+of your own does not.
 
 A keyboard's profile is drawn as a keyboard, coloured by what the keys do,
 and the keys that are down are marked. Keys the drawing has no place for,
@@ -328,14 +333,31 @@ A game controller's profile has three groups:
 - **Buttons** are chips, lit while pressed: the number of the button,
   "=>", and what it does ("12 => C2").
 - **Axes** are lines: the number, a bar for where the axis stands, "=>",
-  and what it is mapped to. A controller ("cc16") or the pitch bend
-  ("PB") is a chip that fills by the value it would send; a note or a
-  command lights up once the axis is past its trigger point.
+  and what it is mapped to. A small blue triangle above the bar points at
+  where the axis rests as the profile reads it: in the middle for a
+  stick, at an end for a lever. A controller ("cc16") or the pitch bend
+  ("PB") is a chip that fills by the value it sends; a note or a command
+  lights up while it counts as held.
 - **Hats** are lines with their two directions as two chips, each a
   button of its own.
 
 Numbers are the ones the main page shows. With "Name the controls of game
 controllers" the names profiles use stand beside them.
+
+What lights up and fills is not an estimate: the page runs the profile as
+it is shown through the same engine HIDI plays with, fed with what the
+device does, so dead zones, trigger points and the hysteresis show as they
+work, also while HIDI is off.
+
+Mappings ringed in yellow send a controller, or bend the pitch, that
+another control sends too. That is allowed, and the two overwrite each
+other.
+
+"Detect axes that rest in the middle", below the axes of a profile of your
+own, looks at where the axes stand at that moment: one within the given
+distance of its middle (10 % as it comes) is taken for a stick, the others
+for levers, and "rests in the middle" is set for all of them at once.
+Leave the controller alone when you press it.
 
 Click a control, or press it on the device, and make it play a note, send a
 controller, run a command, or do nothing. Drag one onto another to move
@@ -350,7 +372,7 @@ An axis can be anything a button can, and more:
   (a dead zone is then around the middle, the pitch bends both ways from
   there, and a controller counts 64 as its rest) and "reversed". The dead
   zone is the profile's, which is among the starting values at the top of
-  the page and 0 unless set; "own dead zone" gives the axis one of its
+  the page and 0 % unless set; "own dead zone" gives the axis one of its
   own;
 - a note or a command, triggered when the axis passes a point you set
   ("triggers at", half of its way unless changed). How far past the point
