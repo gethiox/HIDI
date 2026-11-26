@@ -657,4 +657,17 @@ func TestPlayingSettings(t *testing.T) {
 			t.Errorf("hysteresis = %s: %v", bad, err)
 		}
 	}
+	// The step of the velocity commands.
+	if d := Default(); d.Input.VelocityStep != 16 {
+		t.Errorf("velocity step as HIDI comes: %d", d.Input.VelocityStep)
+	}
+	d.Input.VelocityStep = 5
+	if got, err := Parse(d.Text()); err != nil || got.Input.VelocityStep != 5 {
+		t.Errorf("velocity step written and read again: %+v, %v", got.Input, err)
+	}
+	for _, bad := range []string{"0", "128"} {
+		if _, err := Parse([]byte("schema = 1\n[input]\nvelocity_step = " + bad + "\n")); err == nil || !strings.Contains(err.Error(), "velocity_step") {
+			t.Errorf("velocity_step = %s: %v", bad, err)
+		}
+	}
 }

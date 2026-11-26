@@ -376,8 +376,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	manager := instrument.NewManager(instrument.Options{
 		Allow:          allowed(pl.settings.Devices),
 		LearnThreshold: float64(pl.settings.Input.LearnThreshold) / 100,
-		Hysteresis:     float64(pl.settings.Input.Hysteresis) / 100,
-		Rest:           restOf(pl.settings.Output),
+		Playing:        playingOf(pl.settings),
 		Profiles:       profiles,
 		OpenEndpoint:   openEndpoint,
 		Logger:         logs.Logger("instrument"),

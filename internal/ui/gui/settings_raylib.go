@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -513,6 +514,13 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 	vx = sh.row("Hysteresis of axes that act as buttons", "pressed half of this past the trigger point, let go half of it before")
 	if picked, hit := sh.choices(vx, sh.s.Input.Hysteresis, []int{0, 2, 5, 10, 20, 50, 100}, percent); hit {
 		sh.s.Input.Hysteresis = picked
+		sh.changed()
+	}
+	sh.y += 46
+	// How far the velocity commands move the velocity.
+	vx = sh.row("Velocity up and down move by", "from the profile's velocity, stopping at 1 and 127")
+	if picked, hit := sh.choices(vx, sh.s.Input.VelocityStep, []int{1, 4, 8, 10, 16, 20, 32}, strconv.Itoa); hit {
+		sh.s.Input.VelocityStep = picked
 		sh.changed()
 	}
 	sh.y += 46

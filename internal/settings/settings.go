@@ -118,6 +118,10 @@ type Input struct {
 	// by half of it to count as pressed, and to come back behind the
 	// point by half of it to count as let go.
 	Hysteresis int
+	// VelocityStep is how far velocity_up and velocity_down move the
+	// velocity, from 1 to 127. The velocity moves along the values that
+	// many apart from the profile's own, and stops at 1 and 127.
+	VelocityStep int
 }
 
 // Output says where the instruments send, besides their own MIDI devices.
@@ -167,6 +171,7 @@ func Default() Settings {
 			StartOn:         false,
 			LearnThreshold:  50,
 			Hysteresis:      2,
+			VelocityStep:    16,
 		},
 		Output:  Output{ResetPitchBend: true},
 		Devices: Devices{Mode: Blacklist},
@@ -188,6 +193,7 @@ type file struct {
 		AlwaysGrab      *bool     `toml:"always_grab"`
 		LearnThreshold  *int      `toml:"learn_threshold"`
 		Hysteresis      *int      `toml:"hysteresis"`
+		VelocityStep    *int      `toml:"velocity_step"`
 		ToggleExclusive *bool     `toml:"toggle_exclusive"`
 	} `toml:"input"`
 	Devices struct {
@@ -277,6 +283,10 @@ func Parse(data []byte) (Settings, error) {
 	set(&s.Input.Hysteresis, f.Input.Hysteresis)
 	if s.Input.Hysteresis < 0 || s.Input.Hysteresis > 100 {
 		problems = append(problems, fmt.Sprintf("input.hysteresis: %d is not a number of hundredths from 0 to 100", s.Input.Hysteresis))
+	}
+	set(&s.Input.VelocityStep, f.Input.VelocityStep)
+	if s.Input.VelocityStep < 1 || s.Input.VelocityStep > 127 {
+		problems = append(problems, fmt.Sprintf("input.velocity_step: %d is not a step from 1 to 127", s.Input.VelocityStep))
 	}
 	set(&s.Lights.OpenRGB, f.Lights.OpenRGB)
 	set(&s.Lights.Address, f.Lights.Address)
@@ -448,6 +458,13 @@ learn_threshold = %d
 # the far end and let go at rest, wherever the point is. 0 turns it off.
 hysteresis = %d
 
+# How far velocity_up and velocity_down move the velocity of the notes.
+# The velocity goes along the values this far apart from the velocity the
+# profile starts with, and stops at 127 and 1; the step back from either
+# end goes to the value before, so the profile's velocity is always
+# reached again.
+velocity_step = %d
+
 [devices]
 # Which devices become instruments, by their names as HIDI shows them.
 # With "blacklist" every keyboard and game controller plays except the
@@ -511,7 +528,7 @@ check_updates = %t
 # is plugged in. With this the names profiles use for them, such as
 # BTN_SOUTH and ABS_X, stand beside the numbers.
 control_names = %t
-`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold, s.Input.Hysteresis,
+`, Schema, list(toggle), s.Input.GrabKeyboards, s.Input.GrabGamepads, s.Input.StartOn, s.Input.ToggleTap, s.Input.AlwaysGrab, s.Input.ToggleExclusive, s.Input.LearnThreshold, s.Input.Hysteresis, s.Input.VelocityStep,
 		tomlString(s.Devices.Mode), list(s.Devices.List),
 		list(s.Output.Connect), s.Output.ResetPitchBend, s.Output.ResetControllers, s.Lights.OpenRGB, tomlString(s.Lights.Address), colours.String(),
 		s.Window.ShowAtStart, s.Window.FPS, s.Window.BackgroundFPS, s.Window.Scale,

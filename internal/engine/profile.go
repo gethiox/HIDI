@@ -180,7 +180,8 @@ const (
 	CommandLayoutNext
 	CommandLayoutPrevious
 	// CommandVelocityUp and CommandVelocityDown change the velocity of
-	// notes that do not set their own.
+	// notes that do not set their own, a step at a time: see
+	// [Engine.SetVelocityStep].
 	CommandVelocityUp
 	CommandVelocityDown
 	// CommandPanic silences the instrument: it releases every held note and
@@ -324,8 +325,6 @@ const (
 	MaxOctave = 10
 	// MaxTranspose bounds the transposition in both directions.
 	MaxTranspose = 127
-	// velocityStep is how far the velocity commands move the velocity.
-	velocityStep = 8
 )
 
 // Defaults is the state an instrument starts in and the state the reset

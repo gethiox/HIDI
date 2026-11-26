@@ -445,7 +445,12 @@ func (s *session) apply() {
 		s.regrab()
 	}
 	if s.eng != nil {
-		s.eng.SetHysteresis(s.rule.hysteresis) // a new engine has none of its own
+		// A new engine has none of these of its own. Another step can
+		// move the velocity to the nearest value of its own, which is
+		// then shown.
+		s.eng.SetHysteresis(s.rule.playing.Hysteresis)
+		s.eng.SetVelocityStep(s.rule.playing.VelocityStep)
+		s.publish(s.eng, &s.state)
 	}
 	want := s.wanted.Load()
 	if s.eng == nil || want == s.active || s.failed {
@@ -465,7 +470,7 @@ func (s *session) apply() {
 	// what stays is as it was last sent.
 	s.limit.drop() // a position from before must not arrive after
 	s.regrab()
-	if !s.send(s.endpoint, s.eng.Silence(s.rule.rest, s.out[:0])) {
+	if !s.send(s.endpoint, s.eng.Silence(s.rule.playing.Rest, s.out[:0])) {
 		s.fail()
 	}
 	s.publish(s.eng, &s.state)

@@ -68,13 +68,9 @@ type Options struct {
 	// Nil allows every device. [Manager.SetAllow] replaces it while the
 	// manager runs.
 	Allow func(control.DeviceInfo) bool
-	// Hysteresis is the hysteresis of axes that act as buttons, as a
-	// part of their travel; see [engine.Engine.SetHysteresis]. Rest is
-	// what turning HIDI off returns to rest beside the notes: the pitch
-	// bend, the controllers, both or neither. [Manager.SetPlaying]
-	// changes them.
-	Hysteresis float64
-	Rest       engine.Rest
+	// Playing is how every instrument plays beside what its profile
+	// says. [Manager.SetPlaying] changes it.
+	Playing Playing
 	// LearnThreshold is how far an axis has to move to get through in
 	// learning mode, as a part of its range. Zero means
 	// [engine.DefaultLearnThreshold]. [Manager.SetLearnThreshold] changes
@@ -91,6 +87,19 @@ type Options struct {
 	// [Manager.Active] report has changed. It is called from several
 	// goroutines and must return quickly.
 	Changed func()
+}
+
+// Playing is how every instrument plays beside what its profile says.
+type Playing struct {
+	// Hysteresis is the hysteresis of axes that act as buttons, as a
+	// part of their travel; see [engine.Engine.SetHysteresis].
+	Hysteresis float64
+	// VelocityStep is how far the velocity commands move the velocity;
+	// see [engine.Engine.SetVelocityStep]. Zero is the engine's default.
+	VelocityStep int
+	// Rest is what turning HIDI off returns to rest beside the notes: the
+	// pitch bend, the controllers, both or neither.
+	Rest engine.Rest
 }
 
 // GrabKeyboards is a grab policy that takes keyboards and leaves every
@@ -454,10 +463,8 @@ type inputRules struct {
 	tap, hide bool
 	// left says that the device would be kept from the system and is
 	// not, because nothing on it turns HIDI off again.
-	left bool
-	// hysteresis and rest are described at [Options].
-	hysteresis float64
-	rest       engine.Rest
+	left    bool
+	playing Playing
 }
 
 // rulesFor works out the rules for a device that plays with a profile, or
@@ -474,7 +481,7 @@ func (m *Manager) rulesFor(info control.DeviceInfo, profile *config.Profile) *in
 	r := &inputRules{
 		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: toggle,
 		tap: tap, hide: len(toggle) == 1 && (tap && m.opts.HideToggle || m.opts.OwnToggle),
-		hysteresis: m.opts.Hysteresis, rest: m.opts.Rest,
+		playing: m.opts.Playing,
 	}
 	if r.grab && len(toggle) == 0 && info.Type == control.DeviceKeyboard {
 		r.grab, r.left = false, profile != nil
@@ -526,13 +533,12 @@ func (m *Manager) SetOwnToggle(own bool) {
 	}
 }
 
-// SetPlaying changes the hysteresis of axes that act as buttons and what
-// turning HIDI off returns to rest, while the manager runs; see
-// [Options.Hysteresis] and [Options.Rest].
-func (m *Manager) SetPlaying(hysteresis float64, rest engine.Rest) {
+// SetPlaying changes how every instrument plays beside what its profile
+// says, while the manager runs; see [Playing].
+func (m *Manager) SetPlaying(p Playing) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.opts.Hysteresis, m.opts.Rest = hysteresis, rest
+	m.opts.Playing = p
 	for r := range m.running {
 		m.rule(r, r.assigned)
 		r.poke()

@@ -205,7 +205,7 @@ ABS_Z = { cc = 7 }
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRigWith(t, Options{Rest: engine.Rest{Controllers: true, PitchBend: true}}, lever)
+	r := newRigWith(t, Options{Playing: Playing{Rest: engine.Rest{Controllers: true, PitchBend: true}}}, lever)
 	pad := newFakeDevice("Throttle", control.DeviceGamepad)
 	e := r.plug(pad)
 	pad.set(control.Axis(2), 0.75)
@@ -274,7 +274,7 @@ ABS_Y = { pitch_bend = true, centered = true }
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRigWith(t, Options{Rest: engine.Rest{PitchBend: true}}, stick)
+	r := newRigWith(t, Options{Playing: Playing{Rest: engine.Rest{PitchBend: true}}}, stick)
 	pad := newFakeDevice("Stick", control.DeviceGamepad)
 	e := r.plug(pad)
 	pad.set(control.Axis(2), 0.75)
@@ -310,7 +310,7 @@ ABS_Y = { pitch_bend = true, centered = true }
 	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191")
 
 	// The other way round, set while HIDI runs.
-	r.manager.SetPlaying(0, engine.Rest{Controllers: true})
+	r.manager.SetPlaying(Playing{Rest: engine.Rest{Controllers: true}})
 	r.manager.SetActive(false)
 	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191; ControlChange ch=1 controller=7 value=0")
 }
@@ -348,4 +348,38 @@ func TestCopyOfAProfileTakesOverAtOnce(t *testing.T) {
 	if !plays(own.Source, config.KindUser)() || r.manager.Status()[0].Trail.Seq < before {
 		t.Error("the same profiles again changed what the device plays with")
 	}
+}
+
+// The step of the velocity commands comes from the settings, at the start
+// and while HIDI runs.
+func TestVelocityStepFromSettings(t *testing.T) {
+	p, err := config.Parse([]byte("schema = 2\nname = \"Steps\"\n[match]\ntype = \"keyboard\"\n[defaults]\nvelocity = 100\n" +
+		"[[layout]]\nname = \"Main\"\n[layout.bindings]\nKEY_Z = \"C3\"\nKEY_X = \"velocity_up\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys, Playing: Playing{VelocityStep: 10}}, p)
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	velocity := func(want uint8) {
+		t.Helper()
+		eventually(t, fmt.Sprintf("the velocity to be %d", want), func() bool {
+			st := r.manager.Status()
+			return len(st) == 1 && st[0].State.Velocity == want
+		})
+	}
+	keyX := control.Key(45)
+	kbd.set(keyX, 1)
+	kbd.set(keyX, 0)
+	velocity(110)
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=110; NoteOff ch=1 note=C3 velocity=0")
+
+	// 110 is as far from 100 as from 120: the nearer to the profile's.
+	r.manager.SetPlaying(Playing{VelocityStep: 20})
+	velocity(100)
+	kbd.set(keyX, 1)
+	kbd.set(keyX, 0)
+	velocity(120)
 }

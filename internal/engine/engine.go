@@ -171,9 +171,12 @@ type Engine struct {
 	index []map[controlKey][]*Binding
 
 	octave, transpose int
-	channel, velocity uint8
+	channel           uint8
 	layout            int
-	defaultLayout     int
+	// velocityAt is the place of the velocity on its ladder, and
+	// velocityStep the distance between two places; see velocity.go.
+	velocityAt, velocityStep int
+	defaultLayout            int
 
 	// states and stateOrder hold the per-source state. The slice gives
 	// iteration a stable order so that output is deterministic.
@@ -299,7 +302,7 @@ func New(p Profile) (*Engine, error) {
 	e.octave = p.Defaults.Octave
 	e.transpose = p.Defaults.Transpose
 	e.channel = p.Defaults.Channel
-	e.velocity = p.Defaults.Velocity
+	e.velocityStep = DefaultVelocityStep
 	e.layout = e.defaultLayout
 	return e, nil
 }
@@ -310,7 +313,7 @@ func (e *Engine) State() State {
 		Octave:    e.octave,
 		Transpose: e.transpose,
 		Channel:   e.channel,
-		Velocity:  e.velocity,
+		Velocity:  e.velocity(),
 		Layout:    e.profile.Layouts[e.layout].Name,
 		Sounding:  e.soundingNotes,
 		Notes:     e.noteBits,
@@ -514,7 +517,7 @@ func (e *Engine) noteOn(st *sourceState, a Note, out []midi.Message) []midi.Mess
 		return out // the press stays latched, so its release is a no-op
 	}
 	channel := e.channelFor(a.ChannelOffset)
-	velocity := e.velocity
+	velocity := e.velocity()
 	if a.Velocity != 0 {
 		velocity = a.Velocity
 	}
@@ -707,9 +710,9 @@ func (e *Engine) commandPress(c Command, out []midi.Message) []midi.Message {
 	case CommandLayoutPrevious:
 		out = e.setLayout(max(e.layout-1, 0), out)
 	case CommandVelocityUp:
-		e.velocity = min(e.velocity+velocityStep, 127)
+		e.moveVelocity(1)
 	case CommandVelocityDown:
-		e.velocity = max(e.velocity, velocityStep+1) - velocityStep
+		e.moveVelocity(-1)
 	case CommandPanic:
 		out = e.panic(out)
 	case CommandChord:
@@ -784,7 +787,7 @@ func (e *Engine) resetPair(c Command, out []midi.Message) []midi.Message {
 	case CommandLayoutNext, CommandLayoutPrevious:
 		out = e.setLayout(e.defaultLayout, out)
 	case CommandVelocityUp, CommandVelocityDown:
-		e.velocity = e.profile.Defaults.Velocity
+		e.velocityAt = 0
 	}
 	return out
 }

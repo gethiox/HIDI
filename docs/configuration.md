@@ -90,6 +90,7 @@ always_grab = false
 toggle_exclusive = true
 learn_threshold = 50
 hysteresis = 2
+velocity_step = 16
 
 [devices]
 mode = "blacklist"
@@ -140,6 +141,7 @@ control_names = false
 | `devices.mode` | How `devices.list` is read: with `"blacklist"` every keyboard and game controller plays except the listed ones, with `"whitelist"` only the listed ones do. | |
 | `devices.list` | Names of devices, as HIDI shows them. Two devices of one name are treated alike. | |
 | `input.hysteresis` | The hysteresis of an axis that acts as a button, in hundredths of its travel, 0 to 100. An axis that plays a note or runs a command has to pass its trigger point by half of this to count as pressed, and to come back behind the point by half of this to count as let go, so that an axis resting near the point does not trigger over and over. Neither goes past the ends of the travel: with the point at 50 % and a hysteresis of 100, the axis is pressed at its far end and let go at rest. 0 turns it off. | |
+| `input.velocity_step` | How far `velocity_up` and `velocity_down` move the velocity, 1 to 127. The velocity goes along the values this far apart from the velocity the profile starts with, and stops at 127 and 1; the step back from either end goes to the value before, so the velocity of the profile is always reached again. With 16, as HIDI comes, and a profile at 64: 80, 96, 112, 127 up, and 48, 32, 16, 1 down. | |
 | `output.connect` | Existing MIDI ports every instrument also sends to. | `--connect` |
 | `output.reset_pitch_bend` | Turning HIDI off puts the pitch bend back to no bend. `true` as HIDI comes. | |
 | `output.reset_controllers` | Turning HIDI off puts every controller back to its rest. `false` as HIDI comes: a controller stays as it was last sent, and is not sent again on turning on while its axis is where it was. | |
@@ -626,7 +628,7 @@ that.
 | `transpose_up`, `transpose_down` | Shift all notes by a semitone. |
 | `channel_up`, `channel_down` | Change the MIDI channel. |
 | `layout_next`, `layout_previous` | Switch layout. |
-| `velocity_up`, `velocity_down` | Change the note velocity. |
+| `velocity_up`, `velocity_down` | Change the velocity of the notes that name none of their own, by the step of the settings (`input.velocity_step`). Pressed together, back to the profile's velocity. |
 | `panic` | Silence everything on every channel the instrument has played on. |
 | `chord` | Remember a chord, or forget it. See below. |
 | `learn` | Turn learning mode on, or off: axes stand still until they are moved far. See below. |

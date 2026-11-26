@@ -252,7 +252,7 @@ func TestCommands(t *testing.T) {
 		{CommandTransposeUp, CommandTransposeDown, func(s State) any { return s.Transpose }, 3, 1, 2},
 		{CommandChannelUp, CommandChannelDown, func(s State) any { return s.Channel }, uint8(4), uint8(2), uint8(3)},
 		{CommandLayoutNext, CommandLayoutPrevious, func(s State) any { return s.Layout }, "second", "main", "main"},
-		{CommandVelocityUp, CommandVelocityDown, func(s State) any { return s.Velocity }, uint8(108), uint8(92), uint8(100)},
+		{CommandVelocityUp, CommandVelocityDown, func(s State) any { return s.Velocity }, uint8(116), uint8(84), uint8(100)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.up.String(), func(t *testing.T) {
@@ -281,6 +281,57 @@ func TestCommands(t *testing.T) {
 			r.release(down, "")
 			check("releasing the combination", tt.afterReset)
 		})
+	}
+}
+
+// The velocity moves along a ladder from the profile's velocity: a step
+// past an end stops there, and the step back goes to the value before,
+// so the profile's velocity is always reached again.
+func TestVelocityLadder(t *testing.T) {
+	p := baseProfile(key(keyUp, CommandVelocityUp), key(keyDown, CommandVelocityDown))
+	p.Defaults.Velocity = 64
+	r := newRig(t, p)
+	walk := func(code control.Code, want ...uint8) {
+		t.Helper()
+		for i, w := range want {
+			r.press(code, "")
+			r.release(code, "")
+			if got := r.e.State().Velocity; got != w {
+				t.Errorf("press %d of %v: velocity %d, want %d", i+1, code, got, w)
+			}
+		}
+	}
+	walk(keyUp, 80, 96, 112, 127, 127, 127)
+	walk(keyDown, 112, 96, 80, 64, 48, 32, 16, 1, 1)
+	walk(keyUp, 16, 32, 48, 64)
+
+	// Another step: the velocity goes to the nearest place on the new
+	// ladder, and the profile's velocity is on it.
+	walk(keyUp, 80)
+	r.e.SetVelocityStep(10)
+	if got := r.e.State().Velocity; got != 84 {
+		t.Errorf("velocity after the step changed: %d, want 84", got)
+	}
+	walk(keyDown, 74, 64, 54)
+	walk(keyUp, 64)
+	r.e.SetVelocityStep(100)
+	walk(keyUp, 127, 127)
+	walk(keyDown, 64, 1, 1)
+	walk(keyUp, 64)
+	r.e.SetVelocityStep(0) // the default
+	walk(keyUp, 80)
+	// From the top, a smaller step lands below 127 again.
+	walk(keyUp, 96, 112, 127)
+	r.e.SetVelocityStep(1)
+	if got := r.e.State().Velocity; got != 127 {
+		t.Errorf("velocity at the top with a step of 1: %d", got)
+	}
+	walk(keyDown, 126)
+	// 126 with a step of 10 is nearest to the top, which the ladder of
+	// that step reaches only by stopping there.
+	r.e.SetVelocityStep(10)
+	if got := r.e.State().Velocity; got != 127 {
+		t.Errorf("velocity near the top with a step of 10: %d, want 127", got)
 	}
 }
 
