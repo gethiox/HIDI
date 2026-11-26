@@ -86,6 +86,40 @@ is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
 
+### Thirteenth round (26 November 2026): what was reported, and what was done
+
+| Reported or asked for | Done |
+|---|---|
+| "a profile is no longer tried" should be a debug message | It is. |
+| Caps Lock held with "pass the toggle through" while HIDI is off stays lit, on the keyboard and in the window, until another key is pressed | The lights were shown before each event was recorded, and the toggle key was not shown again after it. It goes through the same step as every other key now. |
+| Earlier, Later and Remove on the profile page are broken; rename to Move left and Move right | The buttons after a clicked one were drawn on top of it in that frame and took the same click: Earlier also moved back, removed, and opened the field for a new layout. Each button keeps its place now. On a factory profile the four buttons are faint. |
+| Commands are the same in every layout; make them each layout's own, in the format and in the engine, without side effects on a release in another layout | Profile schema 2: every layout holds all of its bindings, `[global]` holds only `hidi_toggle`. Schema 1 files are read as before, and the window writes them in the new form with their first change. A new layout begins with the commands of the one it is made from. The engine already sent a release to what was pressed; it is held down by a test now. |
+| Factory keyboard: no notes on Shift, Tab and Grave in Piano and Chromatic; the modifiers, space, arrows and the keys above them left to the system; velocity on F7 and F8 | Done. |
+| Learning key yellow, velocity keys cyan by the velocity, chord key purple, dim when off | Three colours of their own among the settings: `learn`, `chord`, `velocity`. |
+| A setting for the velocity step, 16, with values that do not drift at the ends | `input.velocity_step`, 16. The velocity moves along a ladder from the profile's velocity, stops at 1 and 127, and comes back the same way. |
+| Holding + and − should repeat, 500 ms then every 100 ms | Every stepper and the note and controller steps on the profile page. |
+| Buttons show no click | Every button is tinted green while held; a repeating one blinks with every click, half on, half off. |
+| Keys that do nothing slightly red, as the lights show them | A dark red hint on the profile page and the main page. |
+| A review of the code | See "Review of the code, third pass". |
+
+### Review of the code, third pass (26 November 2026)
+
+Fixed, each with a test that fails without the fix:
+
+- Two devices toggling HIDI, or learning mode, at the same moment could
+  count as one toggle.
+- A profile of schema 1 whose layout bound a control of `[global]` in
+  another spelling failed to load after the change to schema 2.
+- A layout whose name has an escape in it could not be changed.
+- `enabled = false` was not heeded for profiles in a directory named
+  with `--profiles`.
+- One half of a stick that stopped bending the pitch took the bend of the
+  other half back.
+
+Made one: what a controller or pitch-bend action drives (three copies in
+the engine), the type of a device, the key of a generated binding, the
+line ending of a new line, the fingerprint of the profile directories.
+
 ### Twelfth round (26 November 2026): what was reported, and what was done
 
 | Reported or asked for | Done |
