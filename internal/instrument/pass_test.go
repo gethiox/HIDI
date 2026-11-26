@@ -169,6 +169,31 @@ func TestLightsShowPressedKeysWhileOff(t *testing.T) {
 	eventually(t, "the released key to go dark", func() bool { s, _ := lamp.last(); return len(s.Pressed) == 0 })
 }
 
+// The key of a tapped toggle lights up while it is held with HIDI off, as
+// any key does, and goes dark when it is let go of: the lights must not
+// keep the state from before its release.
+func TestLightsShowHeldToggleWhileOff(t *testing.T) {
+	old := TapHold
+	TapHold = 60 * time.Millisecond
+	t.Cleanup(func() { TapHold = old })
+
+	lamp := &fakeLight{}
+	r := newRigWith(t, Options{Toggle: []control.Code{keyZ}, ToggleTap: true, StartInactive: true, Lights: func(control.DeviceInfo) Light { return lamp }})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.plug(kbd)
+	kbd.set(keyZ, 1)
+	eventually(t, "the held toggle key to reach the lights", func() bool {
+		s, _ := lamp.last()
+		return !s.Active && slices.Equal(s.Pressed, []control.Code{keyZ})
+	})
+	time.Sleep(3 * TapHold) // held: no tap
+	kbd.set(keyZ, 0)
+	eventually(t, "the released toggle key to go dark", func() bool { s, _ := lamp.last(); return len(s.Pressed) == 0 })
+	if r.manager.Active() {
+		t.Error("the long press turned HIDI on")
+	}
+}
+
 // Learning mode is one for all instruments: the learn key of one turns it
 // on for every one, and axes then stand still until they are moved far.
 func TestLearningMode(t *testing.T) {

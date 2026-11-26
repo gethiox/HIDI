@@ -233,6 +233,16 @@ func (s *session) tap(ev control.Event) bool {
 	return false
 }
 
+// lightDown shows a key that went down or up while HIDI is off, where
+// the keys that are down light up. apply shows the lights before the
+// event is recorded, so a key needs this to show as it is now; the
+// toggle key does too, held as long as it is passed on to the system.
+func (s *session) lightDown(ev control.Event) {
+	if !s.active && s.light != nil && ev.Code.Kind == control.KindKey {
+		s.show()
+	}
+}
+
 // show makes the lights fit the instrument.
 func (s *session) show() {
 	if s.light == nil || s.eng == nil {
@@ -585,6 +595,8 @@ loop:
 					if s.tap(ev) {
 						s.onToggle()
 						s.apply()
+					} else {
+						s.lightDown(ev)
 					}
 					continue // the key of a tapped toggle plays nothing
 				}
@@ -594,9 +606,7 @@ loop:
 				continue
 			}
 			if !s.active {
-				if s.light != nil && ev.Code.Kind == control.KindKey {
-					s.show() // the key lights up while it is down
-				}
+				s.lightDown(ev)
 				continue
 			}
 			now := time.Now()
