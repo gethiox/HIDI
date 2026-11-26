@@ -13,6 +13,13 @@ import (
 // frame being drawn. Everything that takes a click lights up while the
 // pointer is on it.
 
+// pressID tells a button from every other one drawn: by its label and its
+// place, which stay the same from frame to frame.
+type pressID struct {
+	label string
+	x, y  float32
+}
+
 // colPushed is a button while it is held down: the ground of a button
 // under the pointer, tinted towards the accent.
 var colPushed = Mix(colPanelEdge, colAccent, 0.4)
@@ -58,12 +65,12 @@ func (k *kit) pushButton(label string, x, y float32, repeat bool) (clickedNow bo
 func (k *kit) pushed(id pressID, r rl.Rectangle, repeat bool) (fire, lit bool) {
 	if k.clicked(r) {
 		now := time.Now()
-		k.press = &press{id: id, since: now, fired: now}
+		k.press, k.pressing = &press{since: now, fired: now}, id
 		k.moving = true // the next frame shows it pressed, or lets it go
 		return true, true
 	}
 	p := k.press
-	if p == nil || p.id != id {
+	if p == nil || k.pressing != id {
 		return false, false
 	}
 	if !rl.IsMouseButtonDown(rl.MouseButtonLeft) {

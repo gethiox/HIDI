@@ -12,17 +12,9 @@ const (
 	repeatEvery = 100 * time.Millisecond
 )
 
-// pressID tells a button from every other one drawn: by its label and its
-// place, which stay the same from frame to frame.
-type pressID struct {
-	label string
-	x, y  float32
-}
-
-// press is a button the left mouse button went down on and is held on.
+// press is a button the left mouse button went down on and is held on:
+// since is when it went down, and fired when it last clicked.
 type press struct {
-	id pressID
-	// since is when it went down, and fired when it last clicked.
 	since, fired time.Time
 }
 

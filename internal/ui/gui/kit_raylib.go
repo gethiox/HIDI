@@ -50,9 +50,11 @@ type kit struct {
 	// answer; see confirm. asking is that question.
 	blocked bool
 	asking  *question
-	// press is the button the left mouse button is held down on.
-	press *press
-	hints hints
+	// press is the button the left mouse button is held down on, and
+	// pressing tells which one it is.
+	press    *press
+	pressing pressID
+	hints    hints
 	// wide and high are the size of the window in its own points, as of
 	// the frame being drawn.
 	wide, high float32
