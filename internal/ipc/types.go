@@ -254,6 +254,11 @@ type Host struct {
 	// SetLearning turns learning mode on or off. Nil for a host that
 	// has none.
 	SetLearning func(on bool)
+	// Toggle and ToggleLearning turn HIDI, and learning mode, over in
+	// one step, so that a toggle from here and one from a device at the
+	// same moment both count. Nil for a host that cannot: the state is
+	// then read and set the other way.
+	Toggle, ToggleLearning func()
 	// Simulate turns the showing of a keyboard's lights on or off for
 	// an instrument, named as a snapshot names it. Nil for a host that
 	// cannot.

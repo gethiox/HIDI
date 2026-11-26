@@ -41,6 +41,17 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	return conn, nil
 }
 
+// requestTimeout is the longest one request may take, when the context
+// given allows longer.
+const requestTimeout = 5 * time.Second
+
+// bound makes a connection give up when ctx ends, or after requestTimeout
+// at the most, and returns what ends the watch on ctx.
+func bound(ctx context.Context, conn net.Conn) (stop func() bool) {
+	conn.SetDeadline(time.Now().Add(requestTimeout))
+	return context.AfterFunc(ctx, func() { conn.SetDeadline(time.Now()) })
+}
+
 // ask sends a request that is answered with one snapshot.
 func (c *Client) ask(ctx context.Context, op string) (Snapshot, error) {
 	return c.send(ctx, request{Op: op})
@@ -53,7 +64,7 @@ func (c *Client) send(ctx context.Context, req request) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	defer bound(ctx, conn)()
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Snapshot{}, fmt.Errorf("asking HIDI: %w", err)
 	}
@@ -97,7 +108,7 @@ func (c *Client) Settings(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	defer bound(ctx, conn)()
 	if err := json.NewEncoder(conn).Encode(request{Op: "current_settings"}); err != nil {
 		return "", fmt.Errorf("asking HIDI: %w", err)
 	}
@@ -120,7 +131,7 @@ func (c *Client) long(ctx context.Context, head string, fields any) error {
 		return err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	defer bound(ctx, conn)()
 	// Written by hand so that it begins the way the server tells it by.
 	rest, err := json.Marshal(fields)
 	if err != nil {

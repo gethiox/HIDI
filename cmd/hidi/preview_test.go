@@ -63,3 +63,17 @@ func TestPreviews(t *testing.T) {
 		t.Errorf("after ending: %s", names(now))
 	}
 }
+
+// The profiles to use are handed on from within the lock, by a try and
+// by a load alike, so the one worked out last is the one in use.
+func TestPreviewsHandOverInOrder(t *testing.T) {
+	a, b := parsed(t, "/p/a.toml", profileA), parsed(t, "/p/b.toml", profileB)
+	var used [][]*config.Profile
+	p := &previews{profiles: []*config.Profile{a, b}}
+	p.use = func(profiles []*config.Profile) { used = append(used, profiles) }
+	now, _ := p.set("/p/a.toml", profileA2)
+	later := p.loaded([]*config.Profile{a, b})
+	if len(used) != 2 || &used[0][0] != &now[0] || &used[1][0] != &later[0] {
+		t.Errorf("handed over %d times, not what was returned", len(used))
+	}
+}

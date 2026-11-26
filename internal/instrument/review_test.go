@@ -395,13 +395,114 @@ func TestTogglesAtOnceAllCount(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 500 {
-				m.toggle()
-				m.toggleLearning()
+				m.Toggle()
+				m.ToggleLearning()
 			}
 		}()
 	}
 	wg.Wait()
 	if !m.Active() || m.Learning() {
 		t.Errorf("after 2000 toggles: active %v, learning %v", m.Active(), m.Learning())
+	}
+}
+
+// A MIDI device that could not be created is tried for again after a
+// while. When a new profile comes first and the device is created then,
+// the try that was waiting creates no second one over it.
+func TestNoSecondEndpointAfterAWaitingTry(t *testing.T) {
+	old := RetryOutput
+	RetryOutput = 150 * time.Millisecond
+	t.Cleanup(func() { RetryOutput = old })
+
+	r := newRig(t)
+	r.mu.Lock()
+	r.openErr = errors.New("the service is starting")
+	r.mu.Unlock()
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.devices <- kbd
+	eventually(t, "the first try", func() bool { return r.openFailures() == 1 })
+
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Mine", `type = "keyboard"`, "C3")))
+	eventually(t, "the MIDI device", func() bool { return r.endpoint(EndpointPrefix+"Test Keyboard") != nil })
+	time.Sleep(3 * RetryOutput)
+	r.mu.Lock()
+	opened := r.opened
+	r.mu.Unlock()
+	if opened != 1 {
+		t.Errorf("%d MIDI devices were created for one keyboard", opened)
+	}
+}
+
+// A change of settings that are not about the toggle or the grab, such
+// as the hysteresis, leaves a device as it is held: a keyboard that hides
+// its toggle while HIDI is off is not let go of and taken again.
+func TestPlayingSettingsLeaveTheGrab(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true, StartInactive: true})
+	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
+	r.devices <- kbd
+	eventually(t, "the keyboard to be passed on", kbd.isPassing)
+	kbd.pmu.Lock()
+	before := kbd.passes
+	kbd.pmu.Unlock()
+	for i := range 5 {
+		r.manager.SetPlaying(Playing{Hysteresis: float64(i) / 10, VelocityStep: i + 1})
+	}
+	r.manager.SetOwnToggle(false) // a toggle hidden by the tap already: the same hold
+	time.Sleep(100 * time.Millisecond)
+	kbd.pmu.Lock()
+	after := kbd.passes
+	kbd.pmu.Unlock()
+	if after != before || !kbd.isPassing() {
+		t.Errorf("passed on anew %d times, passing %v", after-before, kbd.isPassing())
+	}
+	// Another toggle does start over.
+	keyX := control.Key(45)
+	r.manager.SetInput([]control.Code{keyX}, GrabKeyboards)
+	eventually(t, "the new toggle to be hidden", func() bool {
+		kbd.pmu.Lock()
+		defer kbd.pmu.Unlock()
+		return kbd.passes > after && len(kbd.hidden) == 1 && kbd.hidden[0] == keyX
+	})
+}
+
+// HIDI turned off while an instrument waits for a new MIDI device: when
+// the device is there, the keyboard is not taken again, not even for a
+// moment, and nothing but the rest of the turning off is sent.
+func TestRecoveryAfterTurningOff(t *testing.T) {
+	old := RetryOutput
+	RetryOutput = 20 * time.Millisecond
+	t.Cleanup(func() { RetryOutput = old })
+
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	r.mu.Lock()
+	r.openErr = errors.New("the service is away")
+	r.mu.Unlock()
+	e.mu.Lock()
+	e.sendErr = errors.New("broken")
+	e.mu.Unlock()
+	kbd.set(keyZ, 1)
+	eventually(t, "the keyboard to be given back", func() bool { return !kbd.isGrabbed() })
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+
+	r.manager.SetActive(false)
+	kbd.mu.Lock()
+	grabs := kbd.grabs
+	kbd.mu.Unlock()
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(e.name) != e })
+	time.Sleep(50 * time.Millisecond)
+	kbd.mu.Lock()
+	defer kbd.mu.Unlock()
+	if kbd.grabs != grabs || kbd.grabbed {
+		t.Errorf("the keyboard was taken %d times after HIDI was turned off", kbd.grabs-grabs)
 	}
 }

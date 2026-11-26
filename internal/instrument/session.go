@@ -380,7 +380,9 @@ func (s *session) reassign() {
 			keep()
 			return
 		}
-		s.openFailed = nil
+		// A try that was waiting is not needed any more: the
+		// device is there.
+		s.openFailed, s.retry = nil, nil
 		s.endpoint = e
 		s.health = time.After(healthPeriod)
 		if s.lights != nil && s.info.Type == control.DeviceKeyboard {
@@ -427,21 +429,25 @@ func (s *session) apply() {
 		s.publish(s.eng, &s.state)
 	}
 	if now := s.rules.Load(); now != s.rule {
-		// Changed settings: another combination starts with no key
-		// of it held, and the grab follows at once.
-		if s.tapDown {
-			s.endTap()
+		// Changed settings. Another toggle, or another way of holding
+		// the device, starts with no key of the toggle held, and the
+		// grab follows at once; settings of the playing alone leave
+		// the device as it is held.
+		if !now.sameInput(s.rule) {
+			if s.tapDown {
+				s.endTap()
+			}
+			clear(s.held)
+			s.cannotPass, s.cannotShare = false, false
+			if s.hold == holdPassing {
+				// The keys to hide may be others now.
+				if err := s.device.Release(); err != nil {
+					s.log.Warn("the device cannot be released", "error", err)
+				}
+				s.hold = holdFree
+			}
 		}
 		s.rule = now
-		clear(s.held)
-		s.cannotPass, s.cannotShare = false, false
-		if s.hold == holdPassing {
-			// The keys to hide may be others now.
-			if err := s.device.Release(); err != nil {
-				s.log.Warn("the device cannot be released", "error", err)
-			}
-			s.hold = holdFree
-		}
 		s.regrab()
 	}
 	if s.eng != nil {
@@ -560,24 +566,9 @@ loop:
 				// and what is left to pile up elsewhere holds up the
 				// reading of other devices, or would be played in one
 				// burst when a profile takes the device after all.
-				// A queue behind the channel fills it again a moment after
-				// it was emptied, so the emptying ends only when nothing
-				// has come for a moment, or after a while at the most.
-				quiet, enough := time.NewTimer(parkedQuiet), time.After(parkedPoll/5)
-				for drained := false; !drained; {
-					select {
-					case _, ok := <-s.events:
-						if !ok {
-							break loop
-						}
-						quiet.Reset(parkedQuiet)
-					case <-quiet.C:
-						drained = true
-					case <-enough:
-						drained = true
-					}
+				if s.discard() {
+					break loop
 				}
-				quiet.Stop()
 			}
 			continue
 		}
@@ -589,8 +580,14 @@ loop:
 				break loop
 			}
 			// A request from the manager may be waiting behind this
-			// event; it comes first.
-			s.apply()
+			// event; it comes first. Every request wakes the session,
+			// so without one there is nothing to apply: the event is
+			// played, and what it changes is shown, by itself.
+			select {
+			case <-s.wake:
+				s.apply()
+			default:
+			}
 			if s.failed || s.eng == nil {
 				continue // draining, or parked a moment ago
 			}
@@ -656,6 +653,9 @@ loop:
 			}
 		case <-s.retry:
 			s.retry = nil
+			if !s.failed || s.endpoint != nil {
+				break // nothing is broken; the device is there
+			}
 			e, err := s.open(s.endpointName)
 			if err != nil {
 				s.log.Debug("the MIDI device cannot be created yet", "error", err)
@@ -672,9 +672,11 @@ loop:
 			s.eng.Reset(s.out[:0])
 			clear(s.held)
 			s.log.Info("the MIDI device is back")
-			s.regrab()
-			s.replay() // the new device knows nothing of where the axes stand
+			// What the manager asked for meanwhile first: HIDI may have
+			// been turned off, and the device is then not taken again
+			// for a moment, nor anything played.
 			s.apply()
+			s.replay() // the new device knows nothing of where the axes stand
 			if s.eng != nil {
 				s.publish(s.eng, &s.state)
 			}

@@ -326,7 +326,6 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		// a window nothing else tells.
 		log.Info("HIDI starts turned off; turn it on with the toggle, with \"hidi on\", or start it with --on")
 	}
-	openEndpoint := backend.OpenEndpoint
 	// Lighting the keys: a hub that talks to OpenRGB, and MIDI devices
 	// that other programs can send to, so that their notes show too.
 	// The hub is always there and reaches for a server only while the
@@ -350,7 +349,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	lights := func(info control.DeviceInfo) instrument.Light { return hub.Attach(info) }
 	// Two-way MIDI devices, so that the notes other programs send show on
 	// the keys when the lights are on.
-	openEndpoint = backend.OpenDuplexEndpoint
+	openEndpoint := backend.OpenDuplexEndpoint
 	if lightsOn {
 		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
 	}
@@ -426,7 +425,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	served := make(chan struct{})
 	// Profiles the window tries before they are saved take the place of
 	// their files.
-	tried := &previews{profiles: profiles}
+	tried := &previews{profiles: profiles, use: manager.SetProfiles}
 	host := controlHost(manager, logs, &changes, &seenDevices{})
 	// The settings HIDI runs by. The window changes them as the user
 	// does, without writing anything; a changed file changes them too.
@@ -452,11 +451,9 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}
 	}
 	host.Preview = func(file, text string) error {
-		now, err := tried.set(file, text)
-		if err != nil {
+		if _, err := tried.set(file, text); err != nil {
 			return err
 		}
-		manager.SetProfiles(now)
 		if text == "" {
 			configLog.Debug("a profile is no longer tried; its file counts again", "file", file)
 		} else {
@@ -494,7 +491,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		go config.Watch(ctx, pl.profiles, time.Second, look, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
 			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
-			manager.SetProfiles(tried.loaded(profiles))
+			tried.loaded(profiles) // and in use
 		})
 	}
 	if pl.settingsFile != "" {

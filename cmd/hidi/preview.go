@@ -16,6 +16,11 @@ type previews struct {
 	tried    map[string]*config.Profile // by the file they stand in for
 	// stood is the content of each file when its stand-in was set.
 	stood map[string][32]byte
+	// use, if set, is given the profiles to use whenever they change,
+	// while the lock is held: a try from the window and a load of the
+	// directory, which come from two goroutines, reach it in the order
+	// they were worked out in, and the last one counts.
+	use func([]*config.Profile)
 }
 
 // set makes text stand in for a profile file, or ends that when text is
@@ -75,7 +80,7 @@ func (p *previews) loaded(profiles []*config.Profile) []*config.Profile {
 }
 
 // effective returns the loaded profiles with the stand-ins in the places
-// of their files. The caller holds p.mu.
+// of their files, and gives them to use. The caller holds p.mu.
 func (p *previews) effective() []*config.Profile {
 	out := make([]*config.Profile, len(p.profiles))
 	for i, loaded := range p.profiles {
@@ -83,6 +88,9 @@ func (p *previews) effective() []*config.Profile {
 		if tried, ok := p.tried[loaded.Source]; ok {
 			out[i] = tried
 		}
+	}
+	if p.use != nil {
+		p.use(out)
 	}
 	return out
 }

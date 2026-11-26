@@ -36,11 +36,13 @@ func socketFlag(fs *pflag.FlagSet) *string {
 // controlHost is the running HIDI as the control interface sees it.
 func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.Notifier, seen *seenDevices) ipc.Host {
 	return ipc.Host{
-		Snapshot:    func() ipc.Snapshot { return withDevices(snapshot(manager), manager, seen) },
-		SetActive:   manager.SetActive,
-		SetLearning: manager.SetLearning,
-		Simulate:    manager.SetSimulated,
-		Changes:     changes,
+		Snapshot:       func() ipc.Snapshot { return withDevices(snapshot(manager), manager, seen) },
+		SetActive:      manager.SetActive,
+		SetLearning:    manager.SetLearning,
+		Toggle:         manager.Toggle,
+		ToggleLearning: manager.ToggleLearning,
+		Simulate:       manager.SetSimulated,
+		Changes:        changes,
 		LogLines: func(from, to int) []ipc.LogLine {
 			lines, first := logs.Lines(from, to)
 			out := make([]ipc.LogLine, len(lines))

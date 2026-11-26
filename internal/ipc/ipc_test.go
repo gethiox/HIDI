@@ -604,3 +604,32 @@ func TestReload(t *testing.T) {
 		t.Errorf("the host looked %d times, want 2", got)
 	}
 }
+
+// A request ends when its context does, not only after the longest a
+// request may take: the window gives some of them less.
+func TestRequestEndsWithItsContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "silent.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close() // accepted, and never answered
+		}
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := NewClient(path).Status(ctx); err == nil {
+		t.Fatal("a HIDI that never answers answered")
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("the request took %v with a context of 100 ms", took)
+	}
+}

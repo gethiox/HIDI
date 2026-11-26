@@ -151,8 +151,7 @@ func (l *liveSettings) apply(s settings.Settings) {
 	}
 	if input := fmt.Sprint(toggle, keyboards, gamepads, tap, always); input != l.input {
 		l.input = input
-		l.manager.SetToggleTap(tap, hidesToggle(always))
-		l.manager.SetInput(toggle, grabPolicy(keyboards, gamepads))
+		l.manager.SetToggleAndGrab(toggle, grabPolicy(keyboards, gamepads), tap, hidesToggle(always))
 		l.showToggle(toggle)
 		l.log.Info("settings changed", "toggle", formatToggle(toggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
 	}

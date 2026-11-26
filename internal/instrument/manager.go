@@ -177,9 +177,9 @@ func (m *Manager) changed() {
 	}
 }
 
-// toggle flips between on and off, in one step: two devices that toggle
+// Toggle flips between on and off, in one step: two devices that toggle
 // at the same moment turn HIDI over twice, not once.
-func (m *Manager) toggle() {
+func (m *Manager) Toggle() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.setActive(!m.active)
@@ -228,9 +228,9 @@ func (m *Manager) SetLearnThreshold(threshold float64) {
 	}
 }
 
-// toggleLearning is what the learn command of an instrument calls. Like
-// toggle, it flips in one step.
-func (m *Manager) toggleLearning() {
+// ToggleLearning turns learning mode over, in one step like Toggle; the
+// learn command of an instrument calls it.
+func (m *Manager) ToggleLearning() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.setLearning(!m.learning)
@@ -321,6 +321,12 @@ func (m *Manager) SetProfiles(profiles []*config.Profile) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.profiles = profiles
+	m.rematch()
+}
+
+// rematch gives every device the profile it is to have now, where that
+// is another. The caller holds m.mu.
+func (m *Manager) rematch() {
 	for r := range m.running {
 		a := m.choose(r.info, r.has, r.log)
 		if sameProfile(a.profile, r.assigned) {
@@ -357,13 +363,7 @@ func (m *Manager) SetAllow(allow func(control.DeviceInfo) bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.opts.Allow = allow
-	for r := range m.running {
-		a := m.choose(r.info, r.has, r.log)
-		if sameProfile(a.profile, r.assigned) {
-			continue
-		}
-		m.assign(r, a)
-	}
+	m.rematch()
 }
 
 // Device is a connected device that a profile selects.
@@ -437,8 +437,8 @@ func (m *Manager) add(dev input.Device) {
 		device: dev, info: info, has: has, log: m.log.With("device", info.Name),
 		open:     m.opts.OpenEndpoint,
 		lights:   m.opts.Lights,
-		onToggle: m.toggle,
-		onLearn:  m.toggleLearning,
+		onToggle: m.Toggle,
+		onLearn:  m.ToggleLearning,
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
 		changed:  m.changed,
@@ -482,6 +482,12 @@ type inputRules struct {
 	playing Playing
 }
 
+// sameInput reports whether two rules take the device and its toggle
+// alike, whatever else differs.
+func (r *inputRules) sameInput(o *inputRules) bool {
+	return r != nil && o != nil && r.grab == o.grab && r.tap == o.tap && r.hide == o.hide && slices.Equal(r.toggle, o.toggle)
+}
+
 // rulesFor works out the rules for a device that plays with a profile, or
 // with none. The toggle is the one the settings name for every device, or
 // else the profile's own. A keyboard without either is not kept from the
@@ -523,54 +529,49 @@ func (m *Manager) assign(r *runner, a assignment) {
 	r.assign(a)
 }
 
-// SetToggleTap changes whether the toggle works by a tap and whether its
-// key is hidden from the system, while the manager runs. See
-// [Options.ToggleTap] and [Options.HideToggle].
-func (m *Manager) SetToggleTap(tap, hide bool) {
+// reconfigure changes the options and gives every device the rules that
+// follow from them, in one step.
+func (m *Manager) reconfigure(change func(*Options)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.opts.ToggleTap, m.opts.HideToggle = tap, hide
+	change(&m.opts)
 	for r := range m.running {
 		m.rule(r, r.assigned)
 		r.poke()
 	}
+}
+
+// SetToggleTap changes whether the toggle works by a tap and whether its
+// key is hidden from the system, while the manager runs. See
+// [Options.ToggleTap] and [Options.HideToggle].
+func (m *Manager) SetToggleTap(tap, hide bool) {
+	m.reconfigure(func(o *Options) { o.ToggleTap, o.HideToggle = tap, hide })
 }
 
 // SetOwnToggle changes whether a toggle of one key is kept from the rest
 // of the system; see [Options.OwnToggle].
 func (m *Manager) SetOwnToggle(own bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.opts.OwnToggle = own
-	for r := range m.running {
-		m.rule(r, r.assigned)
-		r.poke()
-	}
+	m.reconfigure(func(o *Options) { o.OwnToggle = own })
 }
 
 // SetPlaying changes how every instrument plays beside what its profile
 // says, while the manager runs; see [Playing].
 func (m *Manager) SetPlaying(p Playing) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.opts.Playing = p
-	for r := range m.running {
-		m.rule(r, r.assigned)
-		r.poke()
-	}
+	m.reconfigure(func(o *Options) { o.Playing = p })
 }
 
 // SetInput replaces the toggle combination and the grab policy while the
 // manager runs. Devices that are grabbed and should not be any more are
 // released at once, and the other way round.
 func (m *Manager) SetInput(toggle []control.Code, grab func(control.DeviceInfo) bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.opts.Toggle, m.opts.Grab = toggle, grab
-	for r := range m.running {
-		m.rule(r, r.assigned)
-		r.poke()
-	}
+	m.reconfigure(func(o *Options) { o.Toggle, o.Grab = toggle, grab })
+}
+
+// SetToggleAndGrab is SetInput and SetToggleTap at once: a device never
+// goes by the new toggle with the old way of tapping it, nor the other
+// way round.
+func (m *Manager) SetToggleAndGrab(toggle []control.Code, grab func(control.DeviceInfo) bool, tap, hide bool) {
+	m.reconfigure(func(o *Options) { o.Toggle, o.Grab, o.ToggleTap, o.HideToggle = toggle, grab, tap, hide })
 }
 
 // takeName returns a name for a MIDI device that no other device of this
@@ -890,9 +891,11 @@ func (r *runner) assign(a assignment) {
 // device stops, then leaves the instrument silent and removes its endpoint.
 func (r *runner) run() { newSession(r).run() }
 
-// discard throws away what the device has reported and nobody took, until
-// nothing has come for a moment.
-func (r *runner) discard() {
+// discard throws away what the device has reported and nobody took. A
+// queue behind the channel fills it again a moment after it was emptied,
+// so the emptying ends only when nothing has come for a moment, or after a
+// while at the most. It reports whether the device is gone.
+func (r *runner) discard() (gone bool) {
 	events := r.device.Events()
 	quiet, enough := time.NewTimer(parkedQuiet), time.After(parkedPoll/5)
 	defer quiet.Stop()
@@ -900,13 +903,13 @@ func (r *runner) discard() {
 		select {
 		case _, ok := <-events:
 			if !ok {
-				return // the device is gone, which the caller finds out
+				return true
 			}
 			quiet.Reset(parkedQuiet)
 		case <-quiet.C:
-			return
+			return false
 		case <-enough:
-			return
+			return false
 		}
 	}
 }

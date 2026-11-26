@@ -33,6 +33,7 @@ type fakeDevice struct {
 	err     error
 	closed  bool
 	grabbed bool
+	grabs   int // how often it was grabbed
 	grabErr error
 	// has is what the device says it has.
 	has []control.Input
@@ -74,6 +75,7 @@ func (d *fakeDevice) Grab() error {
 		return d.grabErr
 	}
 	d.grabbed = true
+	d.grabs++
 	return nil
 }
 
@@ -195,6 +197,7 @@ type rig struct {
 	endpoints map[string]*fakeEndpoint
 	openErr   error
 	failures  int // attempts to open an endpoint that failed
+	opened    int // endpoints opened
 }
 
 func (r *rig) openFailures() int {
@@ -232,6 +235,7 @@ func newRigWith(t *testing.T, opts Options, extra ...*config.Profile) *rig {
 		}
 		e := &fakeEndpoint{name: name, incoming: make(chan []midi.Message, 8), gone: make(chan struct{})}
 		r.endpoints[name] = e
+		r.opened++
 		return e, nil
 	}
 	r.manager = NewManager(opts)
@@ -1324,6 +1328,7 @@ type passingDevice struct {
 	hidden   []control.Code
 	open     []control.Code // the keys a grab lets through
 	shares   int
+	passes   int
 	shareErr error
 	typed    []string
 	passErr  error
@@ -1336,6 +1341,7 @@ func (d *passingDevice) Pass(hidden []control.Code) error {
 		return d.passErr
 	}
 	d.passing, d.hidden = true, hidden
+	d.passes++
 	d.fakeDevice.Release()
 	return nil
 }
