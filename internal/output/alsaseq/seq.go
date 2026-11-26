@@ -16,16 +16,20 @@ import (
 const devicePath = "/dev/snd/seq"
 
 // ioctl request numbers from sound/asequencer.h. They encode the size of
-// their argument, which is the same on every architecture Linux supports.
+// their argument. That is the same on every architecture Linux supports
+// except for struct snd_seq_port_info, which holds a pointer: 168 bytes
+// where a pointer has 8, 164 where it has 4, as on the 32-bit ARM of a
+// Raspberry Pi. The requests for it are worked out from its size, and the
+// kernel answers only the one that fits.
 const (
 	ioctlClientID      = 0x80045301
 	ioctlGetClientInfo = 0xc0bc5310
 	ioctlSetClientInfo = 0x40bc5311
-	ioctlCreatePort    = 0xc0a85320
+	ioctlCreatePort    = 0xc0005320 | unsafe.Sizeof(portInfo{})<<16
 	ioctlSubscribePort = 0x40505330
 	ioctlUnsubscribe   = 0x40505331
 	ioctlNextClient    = 0xc0bc5351
-	ioctlNextPort      = 0xc0a85352
+	ioctlNextPort      = 0xc0005352 | unsafe.Sizeof(portInfo{})<<16
 )
 
 // Port capabilities and types.
@@ -88,13 +92,17 @@ type clientInfo struct {
 	_      [116]byte
 }
 
-// portInfo is struct snd_seq_port_info. Only the leading fields are used.
+// portInfo is struct snd_seq_port_info. Only the leading fields are used;
+// the pointer the kernel keeps to itself is there for the size and the
+// places of what follows it.
 type portInfo struct {
 	Addr       addr
 	Name       [64]byte
 	Capability uint32
 	Type       uint32
-	_          [92]byte
+	_          [5]int32       // midi_channels to write_use
+	_          unsafe.Pointer // kernel
+	_          [64]byte       // flags, time_queue, direction, ump_group, reserved
 }
 
 // portSubscribe is struct snd_seq_port_subscribe.

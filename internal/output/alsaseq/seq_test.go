@@ -22,7 +22,7 @@ func TestStructLayout(t *testing.T) {
 		{"snd_seq_addr", unsafe.Sizeof(addr{}), 2},
 		{"snd_seq_event", unsafe.Sizeof(event{}), 28},
 		{"snd_seq_client_info", unsafe.Sizeof(clientInfo{}), 188},
-		{"snd_seq_port_info", unsafe.Sizeof(portInfo{}), 168},
+		{"snd_seq_port_info", unsafe.Sizeof(portInfo{}), 96 + unsafe.Sizeof(uintptr(0)) + 64}, // 168, or 164 with pointers of 4 bytes
 		{"snd_seq_port_subscribe", unsafe.Sizeof(portSubscribe{}), 80},
 	}
 	for _, s := range sizes {
@@ -48,6 +48,16 @@ func TestStructLayout(t *testing.T) {
 		if o.got != o.want {
 			t.Errorf("offsetof(%s) = %d, want %d", o.name, o.got, o.want)
 		}
+	}
+
+	// The requests about ports, as the kernel's headers give them for
+	// pointers of 8 bytes and of 4.
+	create, next := uintptr(0xc0a85320), uintptr(0xc0a85352)
+	if unsafe.Sizeof(uintptr(0)) == 4 {
+		create, next = 0xc0a45320, 0xc0a45352
+	}
+	if ioctlCreatePort != create || ioctlNextPort != next {
+		t.Errorf("CREATE_PORT %#x, QUERY_NEXT_PORT %#x; want %#x, %#x", uintptr(ioctlCreatePort), uintptr(ioctlNextPort), create, next)
 	}
 
 	// The ioctl numbers encode the argument sizes in bits 16-29.

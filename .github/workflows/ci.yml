@@ -53,6 +53,13 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./internal/ui/... ./cmd/...
       - name: go test
         run: go test -race ./...
+      - name: go test, 32-bit
+        # The structures HIDI shares with the kernel differ where a pointer
+        # has 4 bytes, as on the 32-bit ARM of a Raspberry Pi, which the
+        # release is built for. 386 runs here and has pointers of 4 bytes.
+        env:
+          GOARCH: "386"
+        run: go test ./...
 
   test-windows:
     name: Test (Windows)
