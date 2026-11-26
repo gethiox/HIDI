@@ -40,7 +40,7 @@ const (
 	// The keyboard shows every MIDI note.
 	firstNote, lastNote = 0, 127
 
-	// screenshotFrames is how many frames are drawn before the picture
+	// screenshotDelay is how long the window draws before the picture
 	// is taken, so that HIDI's state has arrived.
 	screenshotDelay = 1500 * time.Millisecond
 )
@@ -595,13 +595,11 @@ func (w *window) drawTrails(in ipc.Instrument, area rl.Rectangle) {
 	}
 }
 
-// toggle asks HIDI to turn on or off.
+// switchHIDI asks HIDI to turn on or off.
 func (w *window) switchHIDI() {
 	w.ask(func(ctx context.Context) { w.hidi.Toggle(ctx) })
 }
 
-// ask asks HIDI for something without making the drawing wait for the
-// answer; the new state arrives like every other.
 // reload asks the running HIDI to look at its profile files now, after the
 // window wrote or removed one: by itself HIDI notices within a second or
 // two, which is long to wait for a click to show.
@@ -613,6 +611,10 @@ func (w *window) reload() {
 	}()
 }
 
+// ask asks HIDI for something without making the drawing wait for the
+// answer; the new state arrives like every other. One request is on its
+// way at a time: a click while one is, a double click for one, does
+// nothing.
 func (w *window) ask(what func(context.Context)) {
 	select {
 	case w.toggling <- struct{}{}:

@@ -190,6 +190,8 @@ type fieldLook struct {
 // that asks to be done with it, rl.KeyEnter or rl.KeyEscape, or 0.
 //
 // The keys reach the window only while the keyboard is not HIDI's alone.
+// A field under the settings sheet takes no keys, as it takes no clicks:
+// what is typed belongs to the sheet.
 func (k *kit) field(state *typing, r rl.Rectangle, value *string, look fieldLook) (changed bool, key int32) {
 	free := !look.locked
 	if !free {
@@ -202,7 +204,7 @@ func (k *kit) field(state *typing, r rl.Rectangle, value *string, look fieldLook
 	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 		state.on = over
 	}
-	if state.on {
+	if state.on && !k.deaf {
 		before := *value
 		for c := rl.GetCharPressed(); c > 0; c = rl.GetCharPressed() {
 			if c < 0x20 || c == 0x7f || len([]rune(*value)) >= look.most {

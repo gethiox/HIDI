@@ -159,11 +159,8 @@ func target(sign string, role Role) string {
 // control sends too is ringed in yellow. It returns the width it took.
 func (w *window) spotChip(e *editor, at Spot, text string, now live, x, y float32) float32 {
 	role := e.doc.RoleAt(e.layout, at)
-	cw := w.chipWidth(text)
+	cw := w.spotWidth(role, text)
 	follows := role.Kind == RoleController || role.Kind == RoleBend
-	if follows {
-		cw = max(cw, fillChip) // room for the value to show
-	}
 	chip := rl.NewRectangle(x, y, cw, chipH)
 	back := roleColour(role)
 	// A key that is down shows, whatever it does; anything else when
@@ -198,6 +195,15 @@ func (w *window) spotChip(e *editor, at Spot, text string, now live, x, y float3
 	w.pointAt(e, at, chip, 0.4)
 	w.text(w.mono, text, x+7, y+3, sizeMono, ink)
 	return cw
+}
+
+// spotWidth is the width of the chip of a spot: its text, and for one
+// that fills by the value it sends, room for that to show.
+func (w *window) spotWidth(role Role, text string) float32 {
+	if role.Kind == RoleController || role.Kind == RoleBend {
+		return max(w.chipWidth(text), fillChip)
+	}
+	return w.chipWidth(text)
 }
 
 // neutralMark draws the mark of where an axis rests: a small triangle
@@ -242,11 +248,13 @@ func (w *window) editKeyboard(e *editor, now live, x, y, inner float32) float32 
 		w.pointAt(e, at, rect, 0.2)
 		// The key's own name small at the top, what it does below.
 		w.text(w.mono, key.Label, rect.X+3, rect.Y+2, small, col(colFaint))
-		if label := role.Short(); label != "" {
-			for len(label) > 1 && width(w.mono, label, small+1) > rect.Width-4 {
+		if label := []rune(role.Short()); len(label) > 0 {
+			// Cut by characters: "PB↓" is not cut in the middle of its
+			// arrow.
+			for len(label) > 1 && width(w.mono, string(label), small+1) > rect.Width-4 {
 				label = label[:len(label)-1]
 			}
-			w.text(w.mono, label, rect.X+3, rect.Y+rect.Height-small-4, small+1, col(colText))
+			w.text(w.mono, string(label), rect.X+3, rect.Y+rect.Height-small-4, small+1, col(colText))
 		}
 	}
 	y += unit*KeyboardUnitsH + 6
@@ -470,11 +478,19 @@ func (w *window) axisLine(e *editor, device *ipc.Instrument, now live, code cont
 	w.text(w.mono, "=>", cx, y+3, arrowSize, col(colFaint))
 	cx += width(w.mono, "=>", arrowSize) + 8
 	end := x + room
+	// A chip stays within the column: one drawn into the next would lie
+	// under what is drawn there and take its clicks too. A long one is
+	// shortened, and one that does not fit even so is left out.
 	put := func(at Spot, sign string) {
-		if cx >= end {
+		role := e.doc.RoleAt(e.layout, at)
+		text := target(sign, role)
+		if w.chipWidth(text) > end-cx {
+			text = fit(w.mono, text, sizeMono, end-cx-w.chipWidth(""))
+		}
+		if text == "" || cx+w.spotWidth(role, text) > end {
 			return
 		}
-		cx += w.spotChip(e, at, target(sign, e.doc.RoleAt(e.layout, at)), now, cx, y) + 6
+		cx += w.spotChip(e, at, text, now, cx, y) + 6
 	}
 	if wholeToo {
 		put(whole, "")

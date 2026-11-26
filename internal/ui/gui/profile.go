@@ -842,7 +842,8 @@ func (d *ProfileDoc) Split(layout string, code control.Code) error {
 
 // Join binds an axis as a whole in place of its two halves: it does what
 // the upper half did, read from one end of its travel to the other with
-// its rest in the middle.
+// its rest in the middle. Halves that Split made of a reversed axis give
+// that axis back, reversed.
 func (d *ProfileDoc) Join(layout string, code control.Code) error {
 	return d.change(func(text []byte) ([]byte, error) {
 		upperAt, lowerAt := Spot{code, engine.RangeUpper}, Spot{code, engine.RangeLower}
@@ -861,9 +862,19 @@ func (d *ProfileDoc) Join(layout string, code control.Code) error {
 		if whole.Kind == RoleNone {
 			whole = lower
 		}
+		// Halves the way Split makes of an axis reversed as a whole join
+		// into that axis again: the pitch bending down by the upper half,
+		// or the lower half on the controller before the upper's.
+		reversed := upper.Kind == RoleBend && lower.Kind == RoleBend && upper.Down && !lower.Down ||
+			upper.Kind == RoleController && lower.Kind == RoleController && upper.Controller != lower.Controller &&
+				nextController(lower.Controller) == upper.Controller
+		if reversed {
+			whole = lower
+		}
 		switch whole.Kind {
 		case RoleController, RoleBend:
 			whole.Shape.Centered, whole.Down = true, false
+			whole.Shape.Invert = reversed
 		case RoleOther, RolePass:
 			return nil, fmt.Errorf("what %s does is changed in the file; %w", code, config.ErrNotEditable)
 		case RoleNone:
@@ -886,8 +897,14 @@ func (d *ProfileDoc) Join(layout string, code control.Code) error {
 // that has mistakes now is not taken over, and the mistakes are returned.
 func (d *ProfileDoc) Reload() (bool, error) {
 	fresh, err := os.ReadFile(d.Path)
-	if err != nil || bytes.Equal(fresh, d.saved) {
+	if err != nil {
 		return false, err
+	}
+	if bytes.Equal(fresh, d.saved) {
+		// As the window last knew it: whatever other hands did, they
+		// took it back, and saving writes over nothing of theirs.
+		d.Elsewhere = false
+		return false, nil
 	}
 	if d.Dirty() {
 		// Our own save is not other hands.

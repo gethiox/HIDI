@@ -385,6 +385,7 @@ func TestProfileDocUndoAndSave(t *testing.T) {
 
 	// Other hands change the file while something waits here: what is
 	// shown stays, and the page knows.
+	saved := onDisk()
 	if err := doc.SetNote("L", keyQ, 65); err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +395,17 @@ func TestProfileDocUndoAndSave(t *testing.T) {
 	if changed, err := doc.Reload(); changed || err != nil || !doc.Elsewhere || doc.Role("L", keyQ).Note != 65 {
 		t.Errorf("Reload with unsaved changes: %v %v, elsewhere %v", changed, err, doc.Elsewhere)
 	}
+	// The other hands take their change back: nothing to warn of.
+	if err := os.WriteFile(doc.Path, []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.Reload(); err != nil || doc.Elsewhere {
+		t.Errorf("the file as it was again: %v, elsewhere %v", err, doc.Elsewhere)
+	}
+	if err := os.WriteFile(doc.Path, []byte(optionsProfile+"KEY_Z = \"C1\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc.Reload()
 	if err := doc.Save(); err != nil || doc.Elsewhere || strings.Contains(onDisk(), "KEY_Z") {
 		t.Errorf("saving over the other change: %v, elsewhere %v", err, doc.Elsewhere)
 	}
@@ -733,6 +745,26 @@ func TestProfileDocSplitAndJoin(t *testing.T) {
 	}
 	if _, err := config.Parse(doc.Text()); err != nil {
 		t.Fatal(err)
+	}
+	// Joined again, it is the reversed stick it was, and so is a
+	// reversed controller split and joined.
+	if err := doc.Join(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, y); r.Kind != RoleBend || r.Down || !r.Shape.Centered || !r.Shape.Invert {
+		t.Errorf("the pitch bend joined again: %+v", r)
+	}
+	if err := doc.SetShapeAt(layout, Whole(x), Shape{Centered: true, Invert: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Split(layout, x); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Join(layout, x); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, x); r.Kind != RoleController || r.Controller != 16 || !r.Shape.Invert || !r.Shape.Centered {
+		t.Errorf("a reversed controller split and joined: %+v", r)
 	}
 	// An axis that does nothing splits into two halves that say so,
 	// where the rule would otherwise give it back its part.

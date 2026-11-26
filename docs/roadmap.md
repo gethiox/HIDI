@@ -127,6 +127,16 @@ Fixed, each with a test that fails without the fix:
 - `hidi toggle` and the window's learn request read the state and set the
   other, which a toggle from a device at the same moment could undo.
 - A request to the running HIDI could outlast the time the window gave it.
+- On the profile page, the last chip of a hat could run into the next
+  column, under the name and bar drawn there, and one click then chose or
+  cleared both.
+- What was typed in the settings went into the field for a new layout of
+  the profile page under them, and Enter added the layout.
+- A reversed axis split into its halves and joined again came back the
+  other way round: the stick of the factory profile bent the pitch
+  upside down.
+- The warning that the file was changed elsewhere stayed after the change
+  was taken back there.
 
 Less work per event: an instrument no longer applies the manager's
 requests before every event, only when there is one.
@@ -135,6 +145,14 @@ Made one: what a controller or pitch-bend action drives (three copies in
 the engine), the type of a device, the key of a generated binding, the
 line ending of a new line, the fingerprint of the profile directories,
 the setters of the manager, the emptying of a parked device's queue.
+
+Found in the window and left as they are, for the maintainer to weigh:
+the keyboard is drawn by two functions, one for the main page and one for
+the profile page, with two ways of colouring a key by what it does; the
+main page names an axis "6 · X" and the profile page "6 · ABS_X"; the
+colours of the lights are changed straight in the settings being edited,
+the rest of the sheet through a copy; a click that asks HIDI for
+something while another request is on its way does nothing.
 
 Waits for the maintainer: "Pass the toggle key through to the system when
 held" and "The toggle key is HIDI's alone" say the opposite of a toggle
