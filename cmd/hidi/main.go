@@ -223,7 +223,6 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		// window of its own that nobody asked for.
 		leaveOwnConsole()
 	}
-	pl := o.place
 	var err error
 
 	level := slog.LevelInfo
@@ -283,7 +282,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}
 	}
 	// Now HIDI's directory is made ready: filled on the first start.
-	pl = findPlace(o.root, o.profilesDir, true)
+	pl := findPlace(o.root, o.profilesDir, true)
 	for _, note := range pl.notes {
 		configLog.Info(note)
 	}
