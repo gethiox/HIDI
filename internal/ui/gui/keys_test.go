@@ -12,8 +12,10 @@ import (
 )
 
 func TestKeyColour(t *testing.T) {
-	if KeyColour("", 0, 0, 0) != colBar {
-		t.Error("a key that does nothing has a colour of its own")
+	// A key that does nothing is barely red, as the keyboard's lights
+	// show it: more red than the panel it is set into, and dark.
+	if c := KeyColour("", 0, 0, 0); c != colNothingKey || c.R <= colBar.R || c.R <= c.G || c.R > 0x30 {
+		t.Errorf("a key that does nothing: %v", c)
 	}
 	// C3 is note 60: a C, and a C in every octave.
 	if KeyColour("note", 60, 0, 0) != colCNote || KeyColour("note", 60, -5, 0) != colCNote {
@@ -30,7 +32,7 @@ func TestKeyColour(t *testing.T) {
 	seen := map[RGB]string{}
 	for _, role := range []string{"command", "passthrough", "controller"} {
 		c := KeyColour(role, 0, 0, 0)
-		if other, dup := seen[c]; dup || c == colBar {
+		if other, dup := seen[c]; dup || c == colNothingKey {
 			t.Errorf("%s has the colour of %q", role, other)
 		}
 		seen[c] = role

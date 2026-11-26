@@ -9,7 +9,7 @@ type RGB struct{ R, G, B uint8 }
 var colText = RGB{0xe6, 0xe9, 0xee}
 
 // colBar is the colour of the bar at the bottom and of what is set into
-// the panels: a key that does nothing, the track of an axis.
+// the panels, such as the track of an axis.
 var colBar = RGB{0x0c, 0x0e, 0x11}
 
 // The colours of a key cap by what the key does.
@@ -20,6 +20,9 @@ var (
 	colCommandKey = RGB{0x5a, 0x2f, 0x66}
 	colOtherKey   = RGB{0x2a, 0x4a, 0x52}
 	colPassKey    = RGB{0x66, 0x3d, 0x2a}
+	// colNothingKey is a key that does nothing, bound or not: barely red,
+	// as the keyboard's own lights show it, and no more than a hint.
+	colNothingKey = RGB{0x22, 0x12, 0x15}
 )
 
 // NoteColour is the colour of a key cap that plays a note: one for the
@@ -41,7 +44,7 @@ func NoteColour(note int) RGB {
 func KeyColour(role string, note, octave, transpose int) RGB {
 	switch role {
 	case "":
-		return colBar
+		return colNothingKey
 	case "note":
 		return NoteColour(note + octave*12 + transpose)
 	case "command":

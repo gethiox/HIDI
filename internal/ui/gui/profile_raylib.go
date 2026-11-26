@@ -218,7 +218,7 @@ func roleColour(r Role) RGB {
 	case RolePass:
 		return colPassKey
 	}
-	return colBar
+	return colNothingKey
 }
 
 // drawEditor draws the page in place of the instruments.
