@@ -141,9 +141,17 @@ rows, laid out like a piano.
 | F1, F2 | Octave down, up |
 | F3, F4 | Transpose down, up |
 | F5, F6 | MIDI channel down, up |
+| F7, F8 | Velocity down, up, by 16 from 64 as HIDI comes (the settings change the step) |
 | F9 | Remember the chord that is held; every key then plays it |
+| F10 | Learning mode |
 | F11, F12 | Previous, next layout |
 | Escape | Silence everything |
+
+The modifier keys, the space bar, the arrows, the six keys above them and
+Print Screen, Scroll Lock and Pause are left to the system in the two
+layouts that play notes: they type, also while HIDI plays, so that the
+program played into can still be worked. Every layout has its own commands
+and keys of this kind, and the window changes them layout by layout.
 
 A game controller of any kind, a pad, a stick, a throttle or a wheel,
 plays notes on its buttons, from C1 up in the order of their numbers, and
