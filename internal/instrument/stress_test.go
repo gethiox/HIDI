@@ -13,9 +13,16 @@ import (
 )
 
 func TestStress(t *testing.T) {
-	oldR, oldH, oldT, oldP := RetryOutput, healthPeriod, TapHold, ratePeriod
+	oldR, oldH, oldT, oldP, oldM := RetryOutput, healthPeriod, TapHold, ratePeriod, maxRetryOutput
 	RetryOutput, healthPeriod, TapHold, ratePeriod = 3*time.Millisecond, 3*time.Millisecond, 2*time.Millisecond, 5*time.Millisecond
-	t.Cleanup(func() { RetryOutput, healthPeriod, TapHold, ratePeriod = oldR, oldH, oldT, oldP })
+	// The wait between tries doubles with every failure. Without a bound
+	// that fits this test, an instrument that failed ten times in a row
+	// waits seconds for its next try, longer than the test gives it to
+	// settle: seen once as "HIDI is on but the device is not grabbed".
+	maxRetryOutput = 40 * time.Millisecond
+	t.Cleanup(func() {
+		RetryOutput, healthPeriod, TapHold, ratePeriod, maxRetryOutput = oldR, oldH, oldT, oldP, oldM
+	})
 
 	before := runtime.NumGoroutine()
 	var lmu sync.Mutex
