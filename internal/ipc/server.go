@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,6 +58,9 @@ func snapshotPace(everyMS int) time.Duration {
 // maxRequest bounds a request line, so that a confused client cannot make
 // the server buffer without end.
 const maxRequest = 4096
+
+// maxPreview bounds a request that carries the text of a profile.
+const maxPreview = 1 << 20
 
 // Server answers the clients of a running HIDI.
 type Server struct {
@@ -147,7 +151,16 @@ func (s *Server) Serve(ctx context.Context, host Host) {
 func handle(ctx context.Context, conn net.Conn, host Host) {
 	out := json.NewEncoder(conn)
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	line, err := bufio.NewReaderSize(conn, maxRequest).ReadSlice('\n')
+	// A request is a line of at most maxRequest bytes, except for the one
+	// that carries a profile, which says so in its first bytes.
+	reader := bufio.NewReaderSize(conn, maxRequest)
+	line, err := reader.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) && (bytes.HasPrefix(line, []byte(previewHead)) || bytes.HasPrefix(line, []byte(settingsHead))) {
+		var rest []byte
+		start := bytes.Clone(line)
+		rest, err = bufio.NewReaderSize(reader, maxPreview).ReadSlice('\n')
+		line = append(start, rest...)
+	}
 	if err != nil {
 		out.Encode(response{Error: "expected one request line of JSON"})
 		return
@@ -173,7 +186,62 @@ func handle(ctx context.Context, conn net.Conn, host Host) {
 		host.SetActive(false)
 		snapshot()
 	case "toggle":
-		host.SetActive(!host.Snapshot().Active)
+		if host.Toggle != nil {
+			host.Toggle()
+		} else {
+			host.SetActive(!host.Snapshot().Active)
+		}
+		snapshot()
+	case "learn":
+		if host.SetLearning == nil {
+			out.Encode(response{Error: "this HIDI has no learning mode"})
+			return
+		}
+		if host.ToggleLearning != nil {
+			host.ToggleLearning()
+		} else {
+			host.SetLearning(!host.Snapshot().Learning)
+		}
+		snapshot()
+	case "settings":
+		if host.TrySettings == nil {
+			out.Encode(response{Error: "this HIDI takes no settings"})
+			return
+		}
+		if err := host.TrySettings(req.Text); err != nil {
+			out.Encode(response{Error: err.Error()})
+			return
+		}
+		snapshot()
+	case "current_settings":
+		if host.Settings == nil {
+			out.Encode(response{Error: "this HIDI has no settings to tell"})
+			return
+		}
+		out.Encode(response{Settings: host.Settings()})
+	case "reload":
+		if host.Reload == nil {
+			out.Encode(response{Error: "this HIDI reads its profiles once"})
+			return
+		}
+		host.Reload()
+		snapshot()
+	case "simulate":
+		if host.Simulate == nil {
+			out.Encode(response{Error: "this HIDI cannot show lights it does not control"})
+			return
+		}
+		host.Simulate(req.Name, req.Type, req.Location, req.On)
+		snapshot()
+	case "preview":
+		if host.Preview == nil {
+			out.Encode(response{Error: "this HIDI cannot try profiles"})
+			return
+		}
+		if err := host.Preview(req.File, req.Text); err != nil {
+			out.Encode(response{Error: err.Error()})
+			return
+		}
 		snapshot()
 	case "watch":
 		watch(ctx, conn, out, host, req.Logs, snapshotPace(req.EveryMS))

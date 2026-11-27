@@ -4,9 +4,12 @@ package gui
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/ipc"
+	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
 )
@@ -23,14 +27,16 @@ import (
 // profiles as they are on disk, read anew every so often while the page is
 // open, since they may be changed by hand meanwhile.
 type settingsView struct {
-	loaded   time.Time
-	exists   bool // HIDI's directory is in use
-	values   settings.Settings
+	loaded time.Time
+	exists bool // HIDI's directory is in use
+	// edit holds the settings as the file has them and as the sheet
+	// shows them; they differ until the user saves.
+	edit     pending
 	problem  string // what is wrong with the settings file
 	profiles []*config.Profile
 	broken   []config.Problem
 	message  string // the outcome of the last thing the user did here
-	scroll   float32
+	scroll   glide
 	content  float32 // the height of the page when it was last drawn
 	// capture is the toggle combination being taken from the keys the
 	// user presses, or nil.
@@ -39,13 +45,21 @@ type settingsView struct {
 	// be listed.
 	ports    []output.Port
 	portsErr string
+	// colour is the name of the colour of the lights that is being
+	// changed, and slide the slider that is held: 1, 2 or 3 for red,
+	// green and blue, 0 for none.
+	colour string
+	slide  int
+	// address is the field the address of the OpenRGB server is typed
+	// into.
+	address typing
 }
 
 const settingsRefresh = 2 * time.Second
 
 func (v *settingsView) refresh(p settings.Paths, list func() ([]output.Port, error), now time.Time, force bool) {
-	if !force && now.Sub(v.loaded) < settingsRefresh {
-		return
+	if !force && (now.Sub(v.loaded) < settingsRefresh || v.slide != 0) {
+		return // a colour that is being changed is not on disk yet
 	}
 	v.loaded = now
 	v.ports, v.portsErr = nil, ""
@@ -64,15 +78,15 @@ func (v *settingsView) refresh(p settings.Paths, list func() ([]output.Port, err
 	v.exists = p.Root != "" && settings.Managed(p)
 	v.problem, v.profiles, v.broken = "", nil, nil
 	if !v.exists {
-		v.values = settings.Default()
+		v.edit.load(settings.Default())
 		return
 	}
 	s, err := settings.Load(p.Settings)
 	if err != nil {
 		v.problem = err.Error()
 	}
-	v.values = s
-	v.profiles, v.broken = config.LoadDir(p.Profiles)
+	v.edit.load(s)
+	v.profiles, v.broken = config.LoadKinds(p.Factory, p.User)
 }
 
 // drawGear draws the wheel that opens the settings and handles the click
@@ -82,11 +96,11 @@ func (w *window) drawGear(sw float32) {
 	now := time.Now()
 	const size = 30
 	area := rl.NewRectangle(sw-margin-size, (headerH-size)/2, size, size)
-	over := hovered(area)
+	over := w.hovered(area)
 	if over {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+		w.setCursor(rl.MouseCursorPointingHand)
 	}
-	if clicked(area) {
+	if w.clicked(area) {
 		w.gear.set(!w.gear.open, now)
 		if w.gear.open {
 			w.settings.message, w.settings.capture = "", nil
@@ -102,45 +116,15 @@ func (w *window) drawGear(sw float32) {
 	case w.gear.open:
 		ink = col(colFaint)
 	}
-	cx, cy := area.X+size/2, area.Y+size/2
-	// Six teeth: three bars through the middle, each turned a sixth of a
-	// circle further. raylib turns clockwise for growing angles.
-	for i := range 3 {
-		bar := rl.NewRectangle(cx, cy, 26, 7)
-		rl.DrawRectanglePro(bar, rl.NewVector2(13, 3.5), angle+float32(i)*60, ink)
+	// The gear is a picture, turned; raylib turns clockwise for growing
+	// angles.
+	picture := w.cog
+	rl.DrawTexturePro(picture, rl.NewRectangle(0, 0, float32(picture.Width), float32(picture.Height)),
+		rl.NewRectangle(area.X+size/2, area.Y+size/2, size, size), rl.NewVector2(size/2, size/2), angle, ink)
+	// Settings that were changed and not saved wait behind it.
+	if !w.gear.open && w.settings.exists && w.settings.edit.Dirty() {
+		rl.DrawCircleV(rl.NewVector2(area.X+size-2, area.Y+3), 4.5, col(colUnsaved))
 	}
-	rl.DrawCircleV(rl.NewVector2(cx, cy), 9, ink)
-	rl.DrawCircleV(rl.NewVector2(cx, cy), 4, col(colBackground))
-}
-
-// button draws a button and reports a click on it.
-func (w *window) button(label string, x, y float32) (clickedNow bool, right float32) {
-	bw := width(w.sans, label, sizeText) + 20
-	r := rl.NewRectangle(x, y, bw, 24)
-	if hovered(r) {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
-		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanelEdge))
-	} else {
-		rl.DrawRectangleRounded(r, 0.35, 6, col(colPanel))
-		rl.DrawRectangleRoundedLinesEx(r, 0.35, 6, 1, col(colPanelEdge))
-	}
-	text(w.sans, label, x+10, y+5, sizeText, col(colText))
-	return clicked(r), x + bw
-}
-
-// pill draws an on/off switch and reports a click on it.
-func (w *window) pill(on bool, x, y float32) bool {
-	r := rl.NewRectangle(x, y, 40, 20)
-	back, knob := colOff, r.X+10
-	if on {
-		back, knob = colOn, r.X+r.Width-10
-	}
-	if hovered(r) {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
-	}
-	rl.DrawRectangleRounded(r, 1, 12, col(back))
-	rl.DrawCircle(int32(knob), int32(r.Y+10), 7, col(colText))
-	return clicked(r)
 }
 
 func (w *window) open(path string) {
@@ -151,21 +135,55 @@ func (w *window) open(path string) {
 	}
 }
 
-// save writes changed settings and says what came of it.
-func (w *window) save(s settings.Settings, note string) {
-	if err := settings.Save(w.opts.Paths.Settings, s); err != nil {
-		w.settings.message = strings.ReplaceAll(err.Error(), "\n", " ")
-		return
-	}
-	w.settings.message = note
-	w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+// set takes a change to the settings. It is in use at once: this window
+// follows what is its own, and the running HIDI is given the settings as
+// they are shown. Nothing is written; that is what saving is for.
+func (w *window) set(s settings.Settings) {
+	w.settings.edit.shown = clone(s)
+	w.settings.message = ""
+	w.useSettings()
 }
 
-// What the page says after a change, by when a running HIDI follows it.
-const (
-	soonNote    = "Saved. A running HIDI takes this over within a few seconds."
-	restartNote = "Saved. A running HIDI takes this over when it is started again."
-)
+// useSettings makes the window and the running HIDI behave by the settings as
+// the sheet shows them, saved or not.
+func (w *window) useSettings() {
+	w.useLocal()
+	s := w.settings.edit.shown
+	// Settings with a mistake in them, an address half typed for one,
+	// wait until they are right.
+	if len(s.Check()) > 0 {
+		return
+	}
+	w.tried.put(struct{}{}, string(s.Text()))
+}
+
+// useLocal makes this window go by the settings that are its own.
+func (w *window) useLocal() {
+	s := w.settings.edit.shown
+	w.pace.limit, w.pace.background = s.Window.FPS, s.Window.BackgroundFPS
+	if s.Window.Scale >= settings.MinScale && s.Window.Scale <= settings.MaxScale {
+		w.wantScale = float32(s.Window.Scale) / 100
+	}
+	w.newest.on = s.Window.CheckUpdates
+	w.names = s.Window.ControlNames
+}
+
+// saveSettings writes the settings as they are shown into the settings
+// file, and does nothing else: they are in use since they were changed.
+func (w *window) saveSettings() {
+	v := &w.settings
+	if !v.edit.Dirty() {
+		return
+	}
+	if err := settings.Save(w.opts.Paths.Settings, v.edit.shown); err != nil {
+		v.message = strings.ReplaceAll(err.Error(), "\n", " ")
+		return
+	}
+	// Nothing else: the settings are in use already, and saving only
+	// keeps them.
+	v.message = "Saved."
+	v.edit.disk = clone(v.edit.shown)
+}
 
 // drawOverlay draws the settings as a sheet over the body of the window:
 // smaller than it, so that the instruments show around it, and not quite
@@ -179,15 +197,162 @@ func (w *window) drawOverlay(state *ipc.Snapshot, body rl.Rectangle) {
 	rl.DrawRectangleRec(body, rl.NewColor(0, 0, 0, 70))
 	roundness := 20 / min(sheet.Width, sheet.Height)
 	rl.DrawRectangleRounded(sheet, roundness, 8, colA(colBar, 238))
-	rl.DrawRectangleRoundedLinesEx(sheet, roundness, 8, 1, col(colPanelEdge))
-	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) && hovered(body) && !hovered(sheet) {
+	rl.DrawRectangleRoundedLinesEx(sheet, roundness, 8, w.hair(), col(colPanelEdge))
+	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) && w.hovered(body) && !w.hovered(sheet) {
 		w.gear.set(false, time.Now())
 		return
 	}
+	// Saving has the upper right corner of the sheet, over the page that
+	// scrolls below it, which is deaf where the buttons are.
+	v := &w.settings
+	dirty := v.exists && v.problem == "" && v.edit.Dirty()
+	const disk = 32
+	button := rl.NewRectangle(sheet.X+sheet.Width-disk-22, sheet.Y+12, disk+12, disk+12)
+	drop := rl.NewRectangle(button.X-70, button.Y+8, 62, 28)
+	corner := rl.NewRectangle(drop.X-8, sheet.Y, sheet.X+sheet.Width-drop.X+8, button.Height+22)
+	w.deaf = w.hovered(corner)
 	w.drawSettings(state, rl.NewRectangle(sheet.X+2, sheet.Y+2, sheet.Width-4, sheet.Height-4))
+	w.deaf = false
+
+	ink := col(colText)
+	if dirty {
+		ink = col(colUnsaved)
+	}
+	rl.DrawRectangleRounded(button, 0.25, 6, colA(colBar, 235))
+	if dirty && w.hovered(button) {
+		w.setCursor(rl.MouseCursorPointingHand)
+		rl.DrawRectangleRounded(button, 0.25, 6, col(colPanelEdge))
+	}
+	drawFloppy(button.X+6, button.Y+6, disk/16, ink)
+	control := ctrlHeld()
+	if dirty && (w.clicked(button) || control && rl.IsKeyPressed(rl.KeyS)) {
+		w.saveSettings()
+	}
+	if dirty {
+		rl.DrawRectangleRounded(drop, 0.35, 6, colA(colBar, 235))
+		if hit, _ := w.button("Revert", drop.X, drop.Y+2); hit {
+			v.edit.drop()
+			v.message = ""
+			w.useSettings()
+		}
+	}
 }
 
-// drawSettings draws the settings page.
+// toggleItem is a setting that is a yes or a no.
+type toggleItem struct {
+	name, about string
+	value       *bool
+	// only names the system the setting applies to, as runtime.GOOS
+	// has it; empty for every system. Elsewhere the setting is shown
+	// faintly and cannot be changed.
+	only string
+}
+
+// sheet is the settings page while it is drawn: where the next thing
+// goes, and the settings as they are shown, which the things drawn change.
+type sheet struct {
+	*window
+	area rl.Rectangle
+	// x and right are the edges of what is drawn, and y where the next
+	// thing goes.
+	x, y, right float32
+	// editable says that the settings can be changed: there is a file
+	// for them, without mistakes.
+	editable bool
+	// s are the settings as shown; changed hands them on.
+	s *settings.Settings
+}
+
+// changed takes the settings over as the sheet has changed them.
+func (sh *sheet) changed() { sh.window.set(*sh.s) }
+
+// section begins a group of settings: a line from edge to edge of the
+// sheet, and the name of the group.
+func (sh *sheet) section(title string) {
+	sh.y += 4
+	rl.DrawRectangleRec(rl.NewRectangle(sh.area.X, sh.y, sh.area.Width, 1), col(colPanelEdge))
+	rl.DrawRectangleRec(rl.NewRectangle(sh.area.X, sh.y+1, sh.area.Width, 34), colA(colPanel, 150))
+	sh.text(sh.bold, title, sh.x, sh.y+9, sizeName, col(colText))
+	sh.y += 50
+}
+
+// row draws the name of a setting and returns where its value goes.
+func (sh *sheet) row(name, about string) float32 {
+	sh.text(sh.sans, fit(sh.sans, name, sizeText, sh.valueX-10), sh.x, sh.y+2, sizeText, col(colText))
+	if about != "" {
+		sh.text(sh.sans, fit(sh.sans, about, sizeText-2, sh.valueX-10), sh.x, sh.y+20, sizeText-2, col(colFaint))
+	}
+	return sh.x + sh.valueX
+}
+
+// switches draws settings that are a yes or a no: two beside each other
+// where the sheet is wide enough for that, one below the other where it
+// is not.
+func (sh *sheet) switches(items ...toggleItem) {
+	columns := 1
+	if sh.right-sh.x >= 620 {
+		columns = 2
+	}
+	cell := (sh.right - sh.x) / float32(columns)
+	for i := 0; i < len(items); i += columns {
+		high := float32(32)
+		for j := i; j < min(i+columns, len(items)); j++ {
+			item := items[j]
+			if item.about != "" {
+				high = 46
+			}
+			cx := sh.x + float32(j-i)*cell
+			room := cell - 50 - 16
+			name, about := fit(sh.sans, item.name, sizeText, room), fit(sh.sans, item.about, sizeText-2, room)
+			wide := max(width(sh.sans, name, sizeText), width(sh.sans, about, sizeText-2))
+			if item.only != "" && item.only != runtime.GOOS {
+				// Not for this system: shown, and not to be changed.
+				sh.frozen(rl.NewRectangle(cx, sh.y, 40, 20), *item.value)
+				sh.text(sh.sans, name, cx+50, sh.y+2, sizeText, col(colOff))
+				if about != "" {
+					sh.text(sh.sans, about, cx+50, sh.y+20, sizeText-2, col(colOff))
+				}
+				continue
+			}
+			// The words beside a switch take the click too.
+			if sh.toggle(rl.NewRectangle(cx, sh.y, 40, 20), *item.value, colOn, rl.NewRectangle(cx, sh.y-2, 50+wide, 24)) && sh.editable {
+				*item.value = !*item.value
+				sh.changed()
+			}
+			sh.text(sh.sans, name, cx+50, sh.y+2, sizeText, col(colText))
+			if about != "" {
+				sh.text(sh.sans, about, cx+50, sh.y+20, sizeText-2, col(colFaint))
+			}
+		}
+		sh.y += high
+	}
+	sh.y += 6
+}
+
+// choices draws a row of buttons of which one is chosen, beginning at
+// vx, and reports the one that was clicked.
+func (sh *sheet) choices(vx float32, chosen int, values []int, label func(int) string) (int, bool) {
+	picked, hit := 0, false
+	for _, value := range values {
+		text := label(value)
+		if vx+sh.chipWidth(text) > sh.right {
+			break
+		}
+		if sh.chip(text, chosen == value, vx, sh.y) && sh.editable && chosen != value {
+			picked, hit = value, true
+		}
+		vx += sh.chipWidth(text) + 6
+	}
+	return picked, hit
+}
+
+func percent(n int) string { return fmt.Sprintf("%d%%", n) }
+
+// percentOf writes a part of a whole, from 0 to 1, in hundredths.
+func percentOf(part float64) string { return percent(int(math.Round(part * 100))) }
+
+// drawSettings draws the settings page: sections one below the other,
+// each under a line across the sheet.
 func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 	v := &w.settings
 	p := w.opts.Paths
@@ -195,61 +360,75 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 
 	// The page is as long as it was when last drawn, which is what the
 	// scrolling is held to before anything is drawn.
-	v.scroll -= wheel(area) * 40
-	v.scroll = min(max(v.scroll, 0), max(v.content-area.Height, 0))
-	beginClip(area)
-	defer endClip()
-
-	x, y := area.X+margin, area.Y+12-v.scroll
-	right := area.X + area.Width - margin
-	defer func() { v.content = y + v.scroll - area.Y + 14 }()
-	heading := func(s string) {
-		text(w.bold, s, x, y, sizeName, col(colText))
-		y += 30
+	v.scroll.Target -= w.wheel(area) * 60
+	v.scroll.Clamp(v.content - area.Height)
+	if v.scroll.Step(w.dt) {
+		w.moving = true
 	}
-	// row draws the name of a setting and returns where its value goes.
-	const valueX = 300
-	row := func(name, about string) float32 {
-		text(w.sans, name, x, y+2, sizeText, col(colText))
-		if about != "" {
-			text(w.sans, about, x, y+20, sizeText-2, col(colFaint))
-		}
-		return x + valueX
-	}
+	scrolled := float32(int(v.scroll.At))
+	w.clip(area)
+	defer w.unclip()
 
-	text(w.bold, "Settings", x, y, sizeName, col(colText))
-	y += 26
+	shown := clone(v.edit.shown)
+	sh := &sheet{
+		window: w, area: area,
+		x: area.X + margin, y: area.Y + 12 - scrolled, right: area.X + area.Width - margin,
+		editable: v.exists && v.problem == "",
+		s:        &shown,
+	}
+	defer func() { v.content = sh.y + scrolled - area.Y + 14 }()
+	// Where the value of a setting begins, beside its name: less far in
+	// on a narrow sheet.
+	w.valueX = min(300, (sh.right-sh.x)*0.46)
+
+	w.text(w.bold, "Settings", sh.x, sh.y, sizeName, col(colText))
+	sh.y += 26
 	if p.Root == "" {
-		text(w.sans, "HIDI has no directory for settings here and uses what it comes with.", x, y, sizeText, col(colFaint))
+		w.text(w.sans, "HIDI has no directory for settings here and uses what it comes with.", sh.x, sh.y, sizeText, col(colFaint))
 		return
 	}
 	if !v.exists {
-		text(w.sans, "HIDI's directory is not in use yet. HIDI creates it on its first start.", x, y, sizeText, col(colFaint))
-		y += 30
+		w.text(w.sans, "HIDI's directory is not in use yet. HIDI creates it on its first start.", sh.x, sh.y, sizeText, col(colFaint))
+		sh.y += 30
 	}
 	if v.problem != "" {
 		for _, line := range strings.Split("settings.toml has mistakes; the defaults are shown:\n"+v.problem, "\n") {
-			text(w.sans, line, x, y, sizeText, col(AnsiColour(91)))
-			y += 18
+			w.text(w.sans, line, sh.x, sh.y, sizeText, col(AnsiColour(91)))
+			sh.y += 18
 		}
-		y += 8
+		sh.y += 8
 	}
 	// The outcome of the last change has a line of its own that is always
 	// there, so that nothing below moves when it appears.
-	text(w.sans, v.message, x, y, sizeText, col(AnsiColour(93)))
-	y += 26
+	message := v.message
+	if message == "" && v.edit.Dirty() && v.exists {
+		message = "In use now, and not saved: the disk in the corner keeps it, Revert takes it back."
+	}
+	w.text(w.sans, fit(w.sans, message, sizeText, sh.right-sh.x-130), sh.x, sh.y, sizeText, col(AnsiColour(93)))
+	sh.y += 28
 
-	// The settings that are a yes or a no can be changed here.
-	editable := v.exists && v.problem == ""
-	s := v.values
-	toggleNames := make([]string, len(s.Input.Toggle))
-	for i, c := range s.Input.Toggle {
+	sh.onOff(state)
+	sh.windowSettings()
+	sh.devices(state)
+	sh.midi()
+	sh.lights()
+	sh.profiles()
+}
+
+// onOff draws what turns HIDI on and off.
+func (sh *sheet) onOff(state *ipc.Snapshot) {
+	w, v := sh.window, &sh.window.settings
+	sh.section("State control")
+	toggleNames := make([]string, len(sh.s.Input.Toggle))
+	for i, c := range sh.s.Input.Toggle {
 		toggleNames[i] = strings.TrimPrefix(c.String(), "KEY_")
 	}
-	vx := row("Toggle combination", "turns HIDI off and on")
+	// The toggle is each profile's own unless one is named here for
+	// every device.
+	vx := sh.row("One toggle for every device", "otherwise each profile has its own, as hidi_toggle")
 	combination := strings.Join(toggleNames, " + ")
 	if combination == "" {
-		combination = "none"
+		combination = "by profile"
 	}
 	if state == nil && v.capture != nil {
 		// HIDI went away; what was pressed so far is not a combination.
@@ -260,17 +439,14 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 		// The keys are taken from what the keyboards of the running HIDI
 		// report, which is what the combination will be looked for in.
 		if v.capture.step(keysDown(state)) {
-			s.Input.Toggle = nil
+			sh.s.Input.Toggle = nil
 			for _, name := range v.capture.keys {
 				if code, err := control.ParseCode(name); err == nil {
-					s.Input.Toggle = append(s.Input.Toggle, code)
+					sh.s.Input.Toggle = append(sh.s.Input.Toggle, code)
 				}
 			}
-			if len(s.Input.Toggle) != 1 {
-				s.Input.ToggleTap = false // a tap is of one key
-			}
 			v.capture = nil
-			w.save(s, soonNote)
+			sh.changed()
 			break
 		}
 		pressed := "Press the keys together, then let go"
@@ -281,88 +457,102 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 			}
 			pressed = strings.Join(names, " + ") + " …"
 		}
-		text(w.mono, pressed, vx, y+3, sizeMono, col(AnsiColour(93)))
-		if hit, _ := w.button("Cancel", vx+width(w.mono, pressed, sizeMono)+14, y-2); hit {
+		w.text(w.mono, pressed, vx, sh.y+3, sizeMono, col(AnsiColour(93)))
+		if hit, _ := w.button("Cancel", vx+width(w.mono, pressed, sizeMono)+14, sh.y-2); hit {
 			v.capture = nil
 		}
 	case state == nil:
-		text(w.mono, combination, vx, y+3, sizeMono, col(colText))
-		text(w.sans, "start HIDI to change it here", vx+width(w.mono, combination, sizeMono)+14, y+3, sizeText-2, col(colFaint))
+		w.text(w.mono, combination, vx, sh.y+3, sizeMono, col(colText))
+		w.text(w.sans, "start HIDI to change it here", vx+width(w.mono, combination, sizeMono)+14, sh.y+3, sizeText-2, col(colFaint))
 	default:
-		text(w.mono, combination, vx, y+3, sizeMono, col(colText))
-		if hit, _ := w.button("Change", vx+width(w.mono, combination, sizeMono)+14, y-2); hit && editable {
+		w.text(w.mono, combination, vx, sh.y+3, sizeMono, col(colText))
+		label := "Set one"
+		if len(sh.s.Input.Toggle) > 0 {
+			label = "Change"
+		}
+		hit, end := w.button(label, vx+width(w.mono, combination, sizeMono)+14, sh.y-2)
+		if hit && sh.editable {
 			v.capture, v.message = &capture{}, ""
 		}
-	}
-	y += 46
-
-	for _, item := range []struct {
-		name, about string
-		value       *bool
-	}{
-		{"Keyboards do not type while HIDI is on", "needs a toggle combination", &s.Input.GrabKeyboards},
-		{"Game controllers are kept from other programs", "not possible on Windows", &s.Input.GrabGamepads},
-		{"HIDI is on when it starts", "", &s.Input.StartOn},
-		{"The toggle is one key, tapped", "held longer, the key does what it normally does", &s.Input.ToggleTap},
-		{"Keyboards stay grabbed while HIDI is off", "Linux; hides the tapped key from the system", &s.Input.AlwaysGrab},
-		{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &s.Window.ShowAtStart},
-	} {
-		vx := row(item.name, item.about)
-		if w.pill(*item.value, vx, y) && editable {
-			*item.value = !*item.value
-			note := soonNote
-			if item.value == &s.Input.StartOn || item.value == &s.Window.ShowAtStart {
-				note = restartNote
+		if len(sh.s.Input.Toggle) > 0 {
+			// Back to what the profiles say.
+			if hit, _ := w.button("Use the profiles'", end+8, sh.y-2); hit && sh.editable {
+				sh.s.Input.Toggle = nil
+				sh.changed()
 			}
-			w.save(s, note)
-		}
-		y += 46
-		if item.about == "" {
-			y -= 12
 		}
 	}
+	sh.y += 48
+	sh.switches(
+		toggleItem{"Pass the toggle key through to the system when held", "one key: a tap toggles; otherwise the key is HIDI's alone", &sh.s.Input.ToggleTap, ""},
+		toggleItem{"HIDI is on when it starts", "", &sh.s.Input.StartOn, ""},
+		toggleItem{"Reset the pitch bend when HIDI is turned off", "otherwise it stays bent as it was", &sh.s.Output.ResetPitchBend, ""},
+		toggleItem{"Reset controllers when HIDI is turned off", "otherwise every controller keeps its last value", &sh.s.Output.ResetControllers, ""},
+	)
+}
 
-	// The MIDI ports that exist, and those the settings name that do not:
-	// a click adds or removes one.
-	vx = row("Also send to MIDI ports", "every instrument; HIDI follows when it starts again")
-	px, py := vx, y
+// devices draws what is done with the devices, and which of them play.
+func (sh *sheet) devices(state *ipc.Snapshot) {
+	w := sh.window
+	sh.section("Devices")
+	sh.switches(
+		toggleItem{"Keyboards do not type while HIDI is on", "one without a toggle is left typing", &sh.s.Input.GrabKeyboards, ""},
+		toggleItem{"Game controllers are kept from other programs", "Linux only: Windows cannot", &sh.s.Input.GrabGamepads, "linux"},
+	)
+	sh.y = w.drawDeviceList(state, sh.s, sh.editable, sh.x, sh.y, sh.right)
+	// How far an axis has to move in learning mode.
+	vx := sh.row("Learning mode lets an axis through", "when it moved by this much of its range")
+	if picked, hit := sh.choices(vx, sh.s.Input.LearnThreshold, []int{5, 10, 20, 30, 50}, percent); hit {
+		sh.s.Input.LearnThreshold = picked
+		sh.changed()
+	}
+	sh.y += 46
+	// How far past its trigger point an axis has to go to count as
+	// pressed, and behind it to count as let go, halved each way.
+	vx = sh.row("Hysteresis of axes that act as buttons", "pressed half of this past the trigger point, let go half of it before")
+	if picked, hit := sh.choices(vx, sh.s.Input.Hysteresis, []int{0, 2, 5, 10, 20, 50, 100}, percent); hit {
+		sh.s.Input.Hysteresis = picked
+		sh.changed()
+	}
+	sh.y += 46
+	// How far the velocity commands move the velocity.
+	vx = sh.row("Velocity up and down move by", "from the profile's velocity, stopping at 1 and 127")
+	if picked, hit := sh.choices(vx, sh.s.Input.VelocityStep, []int{1, 4, 8, 10, 16, 20, 32}, strconv.Itoa); hit {
+		sh.s.Input.VelocityStep = picked
+		sh.changed()
+	}
+	sh.y += 46
+}
+
+// midi draws where else the instruments send: the ports that exist, and
+// those the settings name that do not. A click adds or removes one.
+func (sh *sheet) midi() {
+	w, v := sh.window, &sh.window.settings
+	sh.section("MIDI")
+	vx := sh.row("Also send to MIDI ports", "every instrument")
+	ports := newFlow(vx, sh.right, sh.y, chipH+6, 6)
 	portChip := func(label string, on bool) bool {
-		cw := w.chipWidth(label)
-		if px > vx && px+cw > right {
-			px, py = vx, py+chipH+6
-		}
-		chip := rl.NewRectangle(px, py, cw, chipH)
-		if hovered(chip) {
-			rl.SetMouseCursor(rl.MouseCursorPointingHand)
-		}
-		if on {
-			rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
-			text(w.mono, label, px+7, py+3, sizeMono, col(colBar))
-		} else {
-			rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
-			text(w.mono, label, px+7, py+3, sizeMono, col(colFaint))
-		}
-		px += cw + 6
-		return clicked(chip) && editable
+		px, py := ports.put(w.chipWidth(label))
+		return w.chip(label, on, px, py) && sh.editable
 	}
 	for _, port := range v.ports {
-		if portChip(port.Name, portChosen(s.Output.Connect, port)) {
+		if portChip(port.Name, portChosen(sh.s.Output.Connect, port)) {
 			var still string
-			s.Output.Connect, still = togglePort(s.Output.Connect, port)
+			sh.s.Output.Connect, still = togglePort(sh.s.Output.Connect, port)
 			if still != "" {
-				// Nothing to save: the entry may select other ports too.
+				// Nothing to change: the entry may select other ports too.
 				v.message = fmt.Sprintf("%q in settings.toml selects this port, and maybe others; change it there.", still)
 			} else {
-				w.save(s, restartNote)
+				sh.changed()
 			}
 		}
 	}
 	// Without a list nothing can be told to be absent.
 	var absent []string
 	if v.portsErr == "" {
-		absent = absentPorts(s.Output.Connect, v.ports)
+		absent = absentPorts(sh.s.Output.Connect, v.ports)
 	} else {
-		absent = s.Output.Connect
+		absent = sh.s.Output.Connect
 	}
 	for _, pattern := range absent {
 		label := pattern + " (not there now)"
@@ -370,139 +560,441 @@ func (w *window) drawSettings(state *ipc.Snapshot, area rl.Rectangle) {
 			label = pattern
 		}
 		if portChip(label, true) {
-			s.Output.Connect = slices.DeleteFunc(slices.Clone(s.Output.Connect), func(p string) bool { return p == pattern })
-			w.save(s, restartNote)
+			sh.s.Output.Connect = slices.DeleteFunc(slices.Clone(sh.s.Output.Connect), func(p string) bool { return p == pattern })
+			sh.changed()
 		}
 	}
+	py := ports.y
 	switch {
-	case v.portsErr != "" && px > vx:
+	case v.portsErr != "" && !ports.empty():
 		// The reason goes below what is chosen.
 		py += chipH + 6
-		text(w.sans, v.portsErr, vx, py+3, sizeText-2, col(colFaint))
-	case px > vx:
+		w.text(w.sans, fit(w.sans, v.portsErr, sizeText-2, sh.right-vx), vx, py+3, sizeText-2, col(colFaint))
+	case !ports.empty():
 	case v.portsErr != "":
-		// The reason may be long; its start says most.
-		reason := []rune(v.portsErr)
-		for len(reason) > 1 && width(w.sans, string(reason), sizeText-2) > right-vx {
-			reason = append(reason[:len(reason)-2], '…')
-		}
-		text(w.sans, string(reason), vx, y+3, sizeText-2, col(colFaint))
+		w.text(w.sans, fit(w.sans, v.portsErr, sizeText-2, sh.right-vx), vx, sh.y+3, sizeText-2, col(colFaint))
 	default:
-		text(w.mono, "no MIDI ports found", vx, y+3, sizeMono, col(colFaint))
+		w.text(w.mono, "no MIDI ports found", vx, sh.y+3, sizeMono, col(colFaint))
 	}
-	y = max(py+chipH+26, y+46)
+	sh.y = max(py+chipH+26, sh.y+46)
+}
 
-	// The two frame limits: one for always, one for while another window
-	// is the one in use.
-	for _, limit := range []struct {
-		name, about string
-		value       *int
-		live        *int
-		choices     []int
-	}{
-		{"Frame limit", "none keeps to the monitor's refresh rate", &s.Window.FPS, &w.pace.limit, []int{0, 30, 60, 120, 144, 240}},
-		{"Frame limit while the window is unfocused", "for less work while another window is in use", &s.Window.BackgroundFPS, &w.pace.background, []int{0, 15, 30, 60}},
-	} {
-		vx = row(limit.name, limit.about)
-		for _, fps := range limit.choices {
-			label := fmt.Sprintf("%d", fps)
-			if fps == 0 {
-				label = "none"
-			}
-			chip := rl.NewRectangle(vx, y, w.chipWidth(label), chipH)
-			if hovered(chip) {
-				rl.SetMouseCursor(rl.MouseCursorPointingHand)
-			}
-			if *limit.value == fps {
-				rl.DrawRectangleRounded(chip, 0.4, 6, col(colAccent))
-				text(w.mono, label, vx+7, y+3, sizeMono, col(colBar))
-			} else {
-				rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1, col(colPanelEdge))
-				text(w.mono, label, vx+7, y+3, sizeMono, col(colFaint))
-			}
-			if clicked(chip) && editable && *limit.value != fps {
-				*limit.value = fps
-				*limit.live = fps // this window follows at once
-				w.save(s, "Saved.")
-			}
-			vx += chip.Width + 6
-		}
-		y += 46
-	}
+// lights draws the settings of the lights.
+func (sh *sheet) lights() {
+	w := sh.window
+	sh.section("Lights")
+	sh.y = w.drawLights(sh.s, sh.editable, sh.x, sh.y, sh.right)
+}
 
-	vx = row("Height of the log when the window opens", "")
-	text(w.mono, fmt.Sprintf("%d", s.Window.LogHeight), vx, y+3, sizeMono, col(colText))
-	if now := int(w.logHeight); now != s.Window.LogHeight {
-		if hit, _ := w.button(fmt.Sprintf("Keep the present height (%d)", now), vx+50, y-2); hit && editable {
-			s.Window.LogHeight = now
-			w.save(s, "Saved.")
-		}
+// windowSettings draws the settings of the window, which follows them
+// at once.
+func (sh *sheet) windowSettings() {
+	sh.section("Window")
+	sh.switches(
+		toggleItem{"The window opens when HIDI starts", "otherwise HIDI starts as an icon in the tray", &sh.s.Window.ShowAtStart, ""},
+		toggleItem{"Look for a newer HIDI", "asks GitHub once a day; installs nothing", &sh.s.Window.CheckUpdates, ""},
+		toggleItem{"Name the controls of game controllers", "BTN_SOUTH and ABS_X, as profiles call them, beside their numbers", &sh.s.Window.ControlNames, ""},
+	)
+	// The window itself follows these at once.
+	vx := sh.row("Size of the interface", "of everything this window draws")
+	if picked, hit := sh.choices(vx, sh.s.Window.Scale, []int{85, 100, 125, 150, 175, 200}, percent); hit {
+		sh.s.Window.Scale = picked
+		sh.changed()
 	}
-	y += 44
+	sh.y += 46
+	fps := func(n int) string {
+		if n == 0 {
+			return "none"
+		}
+		return fmt.Sprintf("%d", n)
+	}
+	vx = sh.row("Frame limit", "none keeps to the monitor's refresh rate")
+	if picked, hit := sh.choices(vx, sh.s.Window.FPS, []int{0, 30, 60, 120, 144, 240}, fps); hit {
+		sh.s.Window.FPS = picked
+		sh.changed()
+	}
+	sh.y += 46
+	vx = sh.row("Frame limit while unfocused", "for less work while another window is in use")
+	if picked, hit := sh.choices(vx, sh.s.Window.BackgroundFPS, []int{0, 15, 30, 60}, fps); hit {
+		sh.s.Window.BackgroundFPS = picked
+		sh.changed()
+	}
+	sh.y += 46
+}
 
-	// Where things are.
-	heading("Where things are")
-	for _, place := range []struct{ name, path, label, target string }{
-		{"HIDI's directory", p.Root, "Open folder", p.Root},
-		{"Settings", p.Settings, "Open file", p.Settings},
-		{"Profiles", p.Profiles, "Open folder", p.Profiles},
-	} {
-		text(w.sans, place.name, x, y+5, sizeText, col(colText))
-		bx := x + 130
-		if _, err := os.Stat(place.target); err == nil {
-			hit, end := w.button(place.label, bx, y)
-			if hit {
-				w.open(place.target)
-			}
-			bx = end + 12
-		}
-		w.drawPath(place.path, bx, y+6, right-bx)
-		y += 32
-	}
-	y += 12
-
-	// Every profile, also those of devices that are not connected.
-	heading("Profiles")
-	if len(v.profiles) == 0 && len(v.broken) == 0 {
-		text(w.sans, "No profiles.", x, y, sizeText, col(colFaint))
-		y += 26
-	}
-	for _, profile := range v.profiles {
-		edit, end := w.button("Edit", x, y)
-		if edit {
-			w.editProfile(profile.Source)
-		}
-		hit, end := w.button("Open file", end+6, y)
+// profiles draws where HIDI keeps things, and every profile, also those
+// of devices that are not connected: the user's own first, which come
+// before the factory ones where both fit a device.
+func (sh *sheet) profiles() {
+	w, v := sh.window, &sh.window.settings
+	p := w.opts.Paths
+	sh.section("Profiles")
+	w.text(w.sans, "HIDI's directory", sh.x, sh.y+5, sizeText, col(colText))
+	bx := sh.x + 130
+	if _, err := os.Stat(p.Root); err == nil {
+		hit, end := w.button("Open folder", bx, sh.y)
 		if hit {
-			w.open(profile.Source)
+			w.open(p.Root)
 		}
-		text(w.sans, profile.Name, end+12, y+5, sizeText, col(colText))
-		about := filepath.Base(profile.Source) + " · for " + profile.Match.String()
-		w.drawPath(about, end+12+width(w.sans, profile.Name, sizeText)+12, y+6, right-end-24-width(w.sans, profile.Name, sizeText))
-		y += 32
+		bx = end + 12
+	}
+	w.drawPath(p.Root, bx, sh.y+6, sh.right-bx)
+	sh.y += 44
+
+	var own, factory []*config.Profile
+	mine := map[string]bool{}
+	for _, profile := range v.profiles {
+		if profile.Kind == config.KindUser {
+			own = append(own, profile)
+			mine[filepath.Base(profile.Source)] = true
+		} else {
+			factory = append(factory, profile)
+		}
+	}
+	// about writes what is said of a profile after its name, cut off at
+	// its end where the sheet is too narrow.
+	about := func(profile *config.Profile, from float32, ink RGB) {
+		name := fit(w.sans, profile.Name, sizeText, sh.right-from)
+		w.text(w.sans, name, from, sh.y+5, sizeText, col(ink))
+		ax := from + width(w.sans, name, sizeText) + 12
+		if Overrides(profile, v.profiles) {
+			// It takes the place of a factory profile for every
+			// device of a kind, which one for a single product
+			// does not.
+			const mark = "(factory override)"
+			if ax+width(w.sans, mark, sizeText) < sh.right {
+				w.text(w.sans, mark, ax-4, sh.y+5, sizeText, col(colUnsaved))
+				ax += width(w.sans, mark, sizeText) + 8
+			}
+		}
+		most := int((sh.right - ax) / width(w.mono, "0", sizeMono))
+		if most > 3 {
+			w.text(w.mono, CutEnd(profileLine(profile), most), ax, sh.y+6, sizeMono, col(colFaint))
+		}
+	}
+
+	w.text(w.sans, "Yours", sh.x, sh.y, sizeText, col(colText))
+	w.text(w.sans, fit(w.sans, "used before the factory profiles, and yours to change", sizeText-2, sh.right-sh.x-60), sh.x+width(w.sans, "Yours", sizeText)+12, sh.y+2, sizeText-2, col(colFaint))
+	sh.y += 26
+	if len(own) == 0 {
+		w.text(w.sans, "None yet. \"Customise\" makes one of a factory profile.", sh.x, sh.y, sizeText, col(colFaint))
+		sh.y += 26
+	}
+	for _, profile := range own {
+		// The switch says whether the profile is used; it is written
+		// into the profile at once.
+		lit := colOn
+		if Overrides(profile, v.profiles) {
+			lit = colUnsaved
+		}
+		if w.pillIn(profile.Enabled, lit, sh.x, sh.y+2) {
+			switch {
+			case w.unsaved(profile.Source):
+				v.message = "This profile has changes that are not saved; save or drop them first."
+			default:
+				if err := SetProfileEnabled(profile.Source, !profile.Enabled); err != nil {
+					v.message = strings.ReplaceAll(err.Error(), "\n", " ")
+				} else {
+					v.message = ""
+					v.refresh(p, w.opts.Ports, time.Now(), true)
+					w.reload()
+				}
+			}
+		}
+		edit, end := w.button("Edit", sh.x+50, sh.y)
+		if edit {
+			w.gear.set(false, time.Now()) // the page is under the sheet
+			w.editProfile(profile.Source, "")
+		} else if w.unsaved(profile.Source) {
+			rl.DrawCircleV(rl.NewVector2(end-2, sh.y+2), 4.5, col(colUnsaved))
+		}
+		hit, end := w.button("Show in folder", end+6, sh.y)
+		if hit {
+			w.show(profile.Source)
+		}
+		remove, end := w.button("Delete", end+6, sh.y)
+		if remove {
+			w.deleteProfile(profile)
+		}
+		ink := colText
+		if !profile.Enabled {
+			ink = colOff
+		}
+		about(profile, end+12, ink)
+		sh.y += 32
+	}
+	sh.y += 10
+
+	w.text(w.sans, "Factory", sh.x, sh.y, sizeText, col(colText))
+	w.text(w.sans, fit(w.sans, "come with HIDI, which keeps them as they are", sizeText-2, sh.right-sh.x-70), sh.x+width(w.sans, "Factory", sizeText)+12, sh.y+2, sizeText-2, col(colFaint))
+	sh.y += 26
+	if len(factory) == 0 {
+		w.text(w.sans, "None. HIDI writes them when it starts.", sh.x, sh.y, sizeText, col(colFaint))
+		sh.y += 26
+	}
+	for _, profile := range factory {
+		view, end := w.button("View", sh.x, sh.y)
+		if view {
+			w.gear.set(false, time.Now())
+			w.editProfile(profile.Source, "")
+		}
+		label := "Customise"
+		if mine[filepath.Base(profile.Source)] {
+			label = "Edit yours"
+		}
+		hit, end := w.button(label, end+6, sh.y)
+		if hit {
+			w.customise(profile.Source, "")
+		}
+		about(profile, end+12, colText)
+		sh.y += 32
 	}
 	for _, problem := range v.broken {
-		hit, end := w.button("Open file", x, y)
+		hit, end := w.button("Show in folder", sh.x, sh.y)
 		if hit {
-			w.open(problem.File)
+			w.show(problem.File)
 		}
-		text(w.sans, filepath.Base(problem.File)+" cannot be used:", end+12, y+5, sizeText, col(AnsiColour(91)))
-		y += 28
+		w.text(w.sans, filepath.Base(problem.File)+" cannot be used:", end+12, sh.y+5, sizeText, col(AnsiColour(91)))
+		sh.y += 28
 		for _, line := range strings.Split(problem.Err.Error(), "\n") {
-			text(w.mono, line, end+12, y, sizeMono, col(AnsiColour(91)))
-			y += 18
+			w.text(w.mono, line, end+12, sh.y, sizeMono, col(AnsiColour(91)))
+			sh.y += 18
 		}
-		y += 8
+		sh.y += 8
 	}
+}
+
+// deleteProfile asks whether a profile of the user's is to be removed,
+// and removes its file when the answer is yes.
+func (w *window) deleteProfile(profile *config.Profile) {
+	file := profile.Source
+	question := fmt.Sprintf("Delete your profile %q?\n\nIts file, %s, is removed. This cannot be taken back. Devices that played by it play by the next profile that fits them.",
+		profile.Name, filepath.Base(file))
+	w.confirm(question, "Delete", func() {
+		if err := os.Remove(file); err != nil {
+			w.settings.message = fmt.Sprintf("%s could not be removed: %v", file, err)
+			return
+		}
+		// What was being changed in it goes with it, also for the
+		// running HIDI.
+		if e := w.docs[file]; e != nil {
+			if w.edit == e {
+				w.edit = nil
+			}
+			delete(w.docs, file)
+			w.profiles.put(file, "")
+		}
+		w.settings.message = ""
+		w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+		w.reload()
+	})
+}
+
+// show shows a file in the file manager.
+func (w *window) show(path string) {
+	if err := showInFolder(path); err != nil {
+		w.settings.message = fmt.Sprintf("%s could not be shown: %v", path, err)
+	} else {
+		w.settings.message = ""
+	}
+}
+
+// customise opens the user's own copy of a factory profile for changing,
+// making the copy if there is none.
+func (w *window) customise(factoryFile, device string) {
+	own, made, err := Customise(factoryFile, w.opts.Paths.User)
+	if err != nil {
+		w.settings.message = strings.ReplaceAll(err.Error(), "\n", " ")
+		w.gear.set(true, time.Now())
+		return
+	}
+	w.settings.refresh(w.opts.Paths, w.opts.Ports, time.Now(), true)
+	if made {
+		w.reload()
+	}
+	w.gear.set(false, time.Now())
+	w.editProfile(own, device)
+}
+
+// drawDeviceList draws the choice of the devices that play: the way the
+// list is read, and the list itself, of the devices that are connected,
+// those HIDI has met before, and those the settings name.
+func (w *window) drawDeviceList(state *ipc.Snapshot, s *settings.Settings, editable bool, x, y, right float32) float32 {
+	w.text(w.sans, "Devices that play", x, y+2, sizeText, col(colText))
+	about := "blacklist: all but the ticked ones play"
+	if s.Devices.Mode == settings.Whitelist {
+		about = "whitelist: only the ticked ones play"
+	}
+	w.text(w.sans, about, x, y+20, sizeText-2, col(colFaint))
+	vx := x + w.valueX
+	for _, mode := range []struct{ value, label string }{
+		{settings.Blacklist, "blacklist"},
+		{settings.Whitelist, "whitelist"},
+	} {
+		if w.chip(mode.label, s.Devices.Mode == mode.value, vx, y) && editable && s.Devices.Mode != mode.value {
+			s.Devices.Mode = mode.value
+			w.set(*s)
+		}
+		vx += w.chipWidth(mode.label) + 6
+	}
+	y += 30
+
+	// Connected devices first; what is away, or only named by the
+	// settings, stays in view at the end, so that it can be taken off
+	// the list.
+	var seen []seenDevice
+	if state != nil {
+		for _, d := range state.Devices {
+			seen = append(seen, seenDevice{d.Name, d.Type, d.Connected})
+		}
+	}
+	entries := deviceRows(seen, s.Devices.List)
+	vx = x + w.valueX
+	if len(entries) == 0 {
+		hint := "no devices yet"
+		if state == nil {
+			hint = "start HIDI to see the devices"
+		}
+		w.text(w.mono, hint, vx, y+3, sizeMono, col(colFaint))
+		return y + 34
+	}
+	for _, e := range entries {
+		ticked := slices.Contains(s.Devices.List, e.Name)
+		ink := colText
+		if !e.There {
+			ink = colOff
+		}
+		room := 24 + width(w.sans, e.Name, sizeText) + 10 + width(w.sans, e.About, sizeText-2)
+		if w.checkbox(ticked, vx, y, min(room, right-vx)) && editable {
+			s.Devices.List = flip(s.Devices.List, e.Name)
+			w.set(*s)
+		}
+		w.text(w.sans, e.Name, vx+24, y+1, sizeText, col(ink))
+		w.text(w.sans, e.About, vx+24+width(w.sans, e.Name, sizeText)+10, y+3, sizeText-2, col(colOff))
+		y += 24
+	}
+	return y + 16
+}
+
+// drawLights draws the settings of the lights: whether the keys are lit,
+// and the colours, of which the one that is clicked can be changed.
+func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right float32) float32 {
+	v := &w.settings
+	w.text(w.sans, "Light the keys through OpenRGB", x, y+2, sizeText, col(colText))
+	w.text(w.sans, "needs an OpenRGB server, a program of its own", x, y+20, sizeText-2, col(colFaint))
+	vx := x + w.valueX
+	if w.pill(s.Lights.OpenRGB, vx, y) && editable {
+		s.Lights.OpenRGB = !s.Lights.OpenRGB
+		w.set(*s)
+	}
+	y += 46
+
+	// Where the server is. The usual place shows faintly while none is
+	// named. It can be changed while the lights are off: a HIDI that is
+	// talking to a server is not sent elsewhere letter by letter.
+	w.text(w.sans, "OpenRGB server", x, y+2, sizeText, col(colText))
+	about := "address and port; turn the lights off to change it"
+	if !s.Lights.OpenRGB {
+		about = "address and port; empty means the usual place"
+	}
+	w.text(w.sans, about, x, y+20, sizeText-2, col(colFaint))
+	// What is typed is taken as it is; whether it is an address is
+	// said when it is to be used.
+	address := s.Lights.Address
+	look := fieldLook{hint: settings.DefaultOpenRGBAddress, most: 64, locked: !editable || s.Lights.OpenRGB,
+		accept: func(c rune) bool { return c > 0x20 && c < 0x7f }}
+	if changed, _ := w.field(&v.address, rl.NewRectangle(vx, y-2, min(200, right-vx), 24), &address, look); changed {
+		s.Lights.Address = address
+		w.set(*s)
+	}
+	y += 46
+
+	w.text(w.sans, "Colours of the keys", x, y+2, sizeText, col(colText))
+	w.text(w.sans, "click one to change it", x, y+20, sizeText-2, col(colFaint))
+	// The colours are changed in what the page holds, and written with
+	// everything else when the user saves.
+	colours := v.edit.shown.Lights.Colours.Named()
+	const cellW = 150
+	cols := max(int((right-vx)/cellW), 1)
+	for i, n := range colours {
+		cx, cy := vx+float32(i%cols)*cellW, y+float32(i/cols)*26
+		cell := rl.NewRectangle(cx-4, cy-3, cellW-6, 24)
+		w.hot(cell, 0.3)
+		if w.clicked(cell) && editable && v.slide == 0 {
+			if v.colour == n.Name {
+				v.colour = ""
+			} else {
+				v.colour = n.Name
+			}
+		}
+		if v.colour == n.Name {
+			rl.DrawRectangleRounded(cell, 0.3, 4, col(colPanelEdge))
+		}
+		swatch := rl.NewRectangle(cx, cy, 18, 18)
+		rl.DrawRectangleRounded(swatch, 0.3, 4, col(Glow(RGB(*n.Colour))))
+		rl.DrawRectangleRoundedLinesEx(swatch, 0.3, 4, w.hair(), col(colOff))
+		w.text(w.mono, n.Name, cx+26, cy+2, sizeMono, col(colText))
+	}
+	y += float32((len(colours)+cols-1)/cols)*26 + 8
+
+	for _, n := range colours {
+		if n.Name != v.colour {
+			continue
+		}
+		w.text(w.sans, n.About, vx, y+2, sizeText-2, col(colFaint))
+		w.text(w.mono, settings.FormatColour(*n.Colour), vx+width(w.sans, n.About, sizeText-2)+12, y+1, sizeMono, col(colText))
+		y += 24
+		for i, part := range []struct {
+			label string
+			value *uint8
+			ink   RGB
+		}{{"R", &n.Colour.R, RGB{0xe0, 0x5a, 0x5a}}, {"G", &n.Colour.G, RGB{0x4c, 0xc2, 0x7a}}, {"B", &n.Colour.B, RGB{0x5a, 0x9b, 0xe0}}} {
+			w.text(w.mono, part.label, vx, y+2, sizeMono, col(colFaint))
+			track := rl.NewRectangle(vx+20, y+7, 200, 6)
+			grip := rl.NewRectangle(track.X-8, y, track.Width+16, 20)
+			w.hot(grip, 0.5)
+			if w.clicked(grip) && editable {
+				v.slide = i + 1
+			}
+			if v.slide == i+1 {
+				if rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+					at := (w.mouse().X - track.X) / track.Width
+					if to := uint8(min(max(at, 0), 1)*255 + 0.5); to != *part.value {
+						// In use at once: the lights follow the slider.
+						*part.value = to
+						w.useSettings()
+					}
+				} else {
+					v.slide = 0
+				}
+			}
+			at := track.X + track.Width*float32(*part.value)/255
+			rl.DrawRectangleRounded(track, 1, 4, col(colPanelEdge))
+			rl.DrawRectangleRounded(rl.NewRectangle(track.X, track.Y, at-track.X, track.Height), 1, 4, col(part.ink))
+			rl.DrawCircleV(rl.NewVector2(at, track.Y+3), 7, col(colText))
+			w.text(w.mono, fmt.Sprintf("%3d", *part.value), track.X+track.Width+16, y+2, sizeMono, col(colText))
+			y += 24
+		}
+		defaults := light.DefaultColours()
+		for _, d := range defaults.Named() {
+			if d.Name == n.Name && *d.Colour != *n.Colour {
+				if hit, _ := w.button("Back to the default", vx, y+2); hit && editable {
+					*n.Colour = *d.Colour
+					w.useSettings()
+				}
+				y += 30
+			}
+		}
+		y += 6
+	}
+	return y + 14
 }
 
 // drawPath writes a path, or other text in the fixed-width font, cut off
 // at the start when it is too long: the end of a path says more.
 func (w *window) drawPath(s string, x, y, room float32) {
-	charW := width(w.mono, "0", sizeMono)
-	r := []rune(s)
-	if most := int(room / charW); most > 1 && len(r) > most {
-		r = append([]rune{'…'}, r[len(r)-most+1:]...)
+	if most := int(room / width(w.mono, "0", sizeMono)); most > 1 {
+		s = CutStart(s, most)
 	}
-	text(w.mono, string(r), x, y, sizeMono, col(colFaint))
+	w.text(w.mono, s, x, y, sizeMono, col(colFaint))
 }

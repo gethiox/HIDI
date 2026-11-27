@@ -5,12 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/spf13/pflag"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -18,11 +16,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"github.com/gethiox/HIDI/internal/backend"
 	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/crashlog"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/instrument"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/light"
@@ -60,6 +61,10 @@ Commands:
 Options are written with two dashes, as in --no-grab or --toggle=KEY_CAPSLOCK;
 those of one letter take one, as in -v. "hidi run --help" lists the options
 of HIDI itself, and "hidi <command> --help" those of a command.
+
+On Windows hidi.exe opens no console window. Started from a command line it
+writes there; --console, with any command, gives it a console window of its
+own.
 `
 
 func main() {
@@ -72,7 +77,7 @@ func main() {
 		<-ctx.Done()
 		stop()
 	}()
-	os.Exit(guarded(ctx, os.Args[1:]))
+	os.Exit(guarded(ctx, findConsole(os.Args[1:])))
 }
 
 // guarded runs the command line with crashes recorded. The commands that
@@ -208,101 +213,28 @@ func oneDashLong(args []string) string {
 func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int {
 	ctx, quit := context.WithCancel(ctx)
 	defer quit()
-	who, name := "hidi run", "run"
-	if app {
-		who, name = "hidi", "hidi"
-	}
-	fs := pflag.NewFlagSet(name, pflag.ContinueOnError)
-	headless, showWindow := new(bool), new(bool)
-	*headless = !app
-	if app {
-		fs.BoolVar(headless, "headless", false, "run the instruments only, without the icon in the tray and the window")
-		fs.BoolVar(showWindow, "window", false, "open the window at once, whatever the settings say")
-	}
-	verbose := fs.BoolP("verbose", "v", false, "also log details, such as every ignored device")
-	logMIDI := fs.Bool("log-midi", false, "also log every MIDI message sent, for finding faults; implies -v")
-	noStatus := fs.Bool("no-status", false, "write the log only, without the lines about HIDI's state at the bottom of the terminal")
-	toggleFlag := fs.String("toggle", defaultToggle,
-		"keys that, pressed together on one device, turn HIDI off and on;\nan empty value disables the combination")
-	toggleTap := fs.Bool("toggle-tap", false, "the toggle is one key and works by a tap; held for longer than half a second,\nthe key does what it normally does")
-	alwaysGrab := fs.Bool("always-grab", false, "on Linux, keep keyboards grabbed while HIDI is off too and pass their keys on,\nso that the tapped toggle key is hidden from the system")
-	noGrab := fs.Bool("no-grab", false, "leave keyboards usable by the rest of the system while HIDI is on")
-	grabGamepads := fs.Bool("grab-gamepads", false, "also take game controllers away from the rest of the system")
-	noColour := fs.Bool("no-color", false, "write the log without colours")
-	root, profilesDir := placeFlags(fs)
-	var connect listFlag
-	fs.Var(&connect, "connect", "also send to the existing MIDI `port` with this name or ID, as listed by \"hidi ports\"; may be repeated")
-	lightsFlag := fs.String("openrgb", "", "light the keys through the OpenRGB server at this `address`, such as "+settings.DefaultOpenRGBAddress)
-	startOff := fs.Bool("off", false, "start turned off; the toggle combination turns HIDI on")
-	socket := socketFlag(fs)
-	if ok, code := parseFlags(fs, args, stderr); !ok {
+	o, code, ok := parseRunOptions(args, stderr, app)
+	if !ok {
 		return code
 	}
-	if !*headless {
+	if !o.headless {
 		// Started by a double click on Windows, HIDI has a console
 		// window of its own that nobody asked for.
 		leaveOwnConsole()
 	}
-
-	// The settings file gives what the command line leaves open. Nothing
-	// is written yet: a HIDI that stops over its options, or because one
-	// is running already, leaves the directory as it is.
-	pl := findPlace(*root, *profilesDir, false)
-	given := map[string]bool{}
-	fs.Visit(func(f *pflag.Flag) { given[f.Name] = true })
-	toggle := pl.settings.Input.Toggle
-	if given["toggle"] {
-		var err error
-		if toggle, err = parseToggle(*toggleFlag); err != nil {
-			fmt.Fprintf(stderr, "%s: --toggle: %v\n", who, err)
-			return 2
-		}
-	}
-	if !given["no-grab"] {
-		*noGrab = !pl.settings.Input.GrabKeyboards
-	}
-	if !given["grab-gamepads"] {
-		*grabGamepads = pl.settings.Input.GrabGamepads
-	}
-	if !given["off"] {
-		*startOff = !pl.settings.Input.StartOn
-	}
-	if !given["toggle-tap"] {
-		*toggleTap = pl.settings.Input.ToggleTap
-	}
-	if !given["always-grab"] {
-		*alwaysGrab = pl.settings.Input.AlwaysGrab
-	}
-	if *toggleTap && len(toggle) != 1 {
-		fmt.Fprintln(stderr, who+": --toggle-tap needs a toggle of exactly one key, such as --toggle=KEY_CAPSLOCK")
-		return 2
-	}
-	if !given["connect"] {
-		connect = pl.settings.Output.Connect
-	}
 	var err error
-	if len(toggle) == 0 && !*noGrab {
-		// A grabbed keyboard cannot type Ctrl+C, so without the combination
-		// a user with one keyboard could not get it back.
-		fmt.Fprintln(stderr, who+": grabbing keyboards needs a toggle combination to release them; set --toggle or pass --no-grab")
-		return 2
-	}
-	if len(toggle) == 0 && *startOff {
-		fmt.Fprintln(stderr, who+": --off needs a toggle combination to turn HIDI on")
-		return 2
-	}
 
 	level := slog.LevelInfo
-	if *verbose || *logMIDI {
+	if o.verbose || o.logMIDI {
 		level = slog.LevelDebug
 	}
 	file, isFile := stderr.(*os.File)
-	colour := !*noColour && isFile && logging.TerminalColour(file)
+	colour := !o.noColour && isFile && logging.TerminalColour(file)
 	// On a terminal the last lines show the state of HIDI, and the log
 	// runs above them.
 	var footer *logging.Footer
 	logOutput := stderr
-	if !*noStatus && isFile && logging.IsTerminal(file) {
+	if !o.noStatus && isFile && logging.IsTerminal(file) {
 		footer = logging.NewFooter(stderr)
 		footer.Rows = func() int { return logging.TerminalRows(file) }
 		logOutput = footer
@@ -322,18 +254,18 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// The control socket comes first: it is also what tells a second HIDI
 	// that one is running, before it would open any device.
 	var server *ipc.Server
-	if *socket != "" {
-		server, err = ipc.Listen(*socket)
+	if o.socket != "" {
+		server, err = ipc.Listen(o.socket)
 		switch {
-		case errors.Is(err, ipc.ErrRunning) && !*headless:
+		case errors.Is(err, ipc.ErrRunning) && !o.headless:
 			// Starting the application again shows the one that runs.
-			windowArgs := []string{"--socket", *socket}
-			if given["config"] {
-				windowArgs = append(windowArgs, "--config", *root)
+			windowArgs := []string{"--socket", o.socket}
+			if o.given["config"] {
+				windowArgs = append(windowArgs, "--config", o.root)
 			}
 			return cmdGui(ctx, windowArgs, stderr)
 		case errors.Is(err, ipc.ErrRunning):
-			log.Error("HIDI is already running; see \"hidi status\"", "socket", *socket)
+			log.Error("HIDI is already running; see \"hidi status\"", "socket", o.socket)
 			return 1
 		case err != nil:
 			log.Warn("no control socket; \"hidi status\" and the like will not reach this HIDI", "error", err)
@@ -349,7 +281,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}
 	}
 	// Now HIDI's directory is made ready: filled on the first start.
-	pl = findPlace(*root, *profilesDir, true)
+	pl := findPlace(o.root, o.profilesDir, true)
 	for _, note := range pl.notes {
 		configLog.Info(note)
 	}
@@ -374,81 +306,84 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	defer source.Close()
 
-	grabPolicy := func(keyboards, gamepads bool) func(control.DeviceInfo) bool {
-		return func(d control.DeviceInfo) bool {
-			switch d.Type {
-			case control.DeviceGamepad:
-				return gamepads
-			case control.DeviceMouse:
-				return false // taking the pointer away is never wanted
-			}
-			return keyboards
-		}
-	}
-	grab := grabPolicy(!*noGrab, *grabGamepads)
+	grab := grabPolicy(o.grabKeyboards, o.grabGamepads)
 
 	log.Info("HIDI started; press Ctrl+C to stop", "version", buildinfo.Get().String())
-	if len(toggle) > 0 {
-		log.Info("press the toggle combination to turn HIDI off and on", "keys", formatToggle(toggle))
+	switch {
+	case len(o.toggle) == 0:
+		log.Info("the toggle that turns HIDI off and on is each profile's own (" + engine.ToggleName + "); the keyboard profile HIDI comes with has it on Caps Lock")
+	case o.toggleTap && len(o.toggle) == 1:
+		log.Info("tap the toggle key to turn HIDI off and on", "key", formatToggle(o.toggle))
+	default:
+		log.Info("press the toggle combination to turn HIDI off and on", "keys", formatToggle(o.toggle))
 	}
-	if !*noGrab {
+	if o.grabKeyboards {
 		log.Info("keyboards do not type while HIDI is on; turn it off to get them back")
 	}
-	openEndpoint := backend.OpenEndpoint
+	if o.startOff {
+		// Said, because a HIDI that plays nothing looks broken: without
+		// a window nothing else tells.
+		log.Info("HIDI starts turned off; turn it on with the toggle, with \"hidi on\", or start it with --on")
+	}
 	// Lighting the keys: a hub that talks to OpenRGB, and MIDI devices
 	// that other programs can send to, so that their notes show too.
-	lightsAddress := ""
-	switch {
-	case given["openrgb"]:
-		lightsAddress = *lightsFlag
-	case pl.settings.Lights.OpenRGB:
-		lightsAddress = pl.settings.Lights.Address
-	}
-	var lights func(control.DeviceInfo) instrument.Light
-	lightsDone := make(chan struct{})
-	if lightsAddress != "" {
-		hub := light.NewHub(light.Options{
-			Connect: func() (light.Server, error) { return openrgb.Connect(lightsAddress, "HIDI") },
-			Logger:  logs.Logger("lights"),
-		})
-		go func() {
-			defer close(lightsDone)
-			hub.Run(ctx)
-		}()
-		lights = func(info control.DeviceInfo) instrument.Light { return hub.Attach(info) }
-		openEndpoint = backend.OpenDuplexEndpoint
-		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
-	} else {
-		close(lightsDone)
-	}
-	plainEndpoint := openEndpoint
-	if len(connect) > 0 {
-		// A port that is not there yet is connected when it appears, so a
-		// MIDI interface can be plugged in later.
-		router := output.NewRouter(backend.Ports, output.MatchPorts(connect), logs.Logger("output"))
-		go router.Run(ctx, time.Second)
-		openEndpoint = func(name string) (output.Endpoint, error) {
-			e, err := plainEndpoint(name)
-			if err != nil {
-				return nil, err
-			}
-			return router.Add(strings.TrimPrefix(name, instrument.EndpointPrefix), e), nil
-		}
-		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(connect, ", "))
-	}
+	// The hub is always there and reaches for a server only while the
+	// lights are turned on, which the settings can change while HIDI runs.
+	lightsOn, lightsAddress := o.lightsOn, o.lightsAddress
 	var changes ipc.Notifier
+	var address atomic.Pointer[string]
+	address.Store(&lightsAddress)
+	hub := light.NewHub(light.Options{
+		Connect:  func() (light.Server, error) { return openrgb.Connect(*address.Load(), "HIDI") },
+		Colours:  pl.settings.Lights.Colours,
+		Changed:  changes.Notify,
+		Logger:   logs.Logger("lights"),
+		Disabled: !lightsOn,
+	})
+	lightsDone := make(chan struct{})
+	go func() {
+		defer close(lightsDone)
+		hub.Run(ctx)
+	}()
+	lights := func(info control.DeviceInfo) instrument.Light { return hub.Attach(info) }
+	// Two-way MIDI devices, so that the notes other programs send show on
+	// the keys when the lights are on.
+	openEndpoint := backend.OpenDuplexEndpoint
+	if lightsOn {
+		log.Info("keys are lit through OpenRGB", "address", lightsAddress)
+	}
+	// The ports every instrument also sends to. A port that is not there
+	// yet is connected when it appears, so a MIDI interface can be
+	// plugged in later; and which ports these are can change while HIDI
+	// runs.
+	plainEndpoint := openEndpoint
+	router := output.NewRouter(backend.Ports, output.MatchPorts(nil), logs.Logger("output"))
+	router.Choose(o.connect)
+	go router.Run(ctx, time.Second)
+	openEndpoint = func(name string) (output.Endpoint, error) {
+		e, err := plainEndpoint(name)
+		if err != nil {
+			return nil, err
+		}
+		return router.Add(strings.TrimPrefix(name, instrument.EndpointPrefix), e), nil
+	}
+	if len(o.connect) > 0 {
+		log.Info("instruments also send to the MIDI ports matching", "ports", strings.Join(o.connect, ", "))
+	}
 	manager := instrument.NewManager(instrument.Options{
-		Profiles:      profiles,
-		OpenEndpoint:  openEndpoint,
-		Logger:        logs.Logger("instrument"),
-		Grab:          grab,
-		Toggle:        toggle,
-		ToggleTap:     *toggleTap,
-		HideToggle:    hidesToggle(*alwaysGrab),
-		StartInactive: *startOff,
-		Lights:        lights,
-		LogMIDI:       *logMIDI,
-		Changed:       changes.Notify,
+		Allow:          allowed(pl.settings.Devices),
+		LearnThreshold: float64(pl.settings.Input.LearnThreshold) / 100,
+		Playing:        playingOf(pl.settings),
+		Profiles:       profiles,
+		OpenEndpoint:   openEndpoint,
+		Logger:         logs.Logger("instrument"),
+		Grab:           grab,
+		Toggle:         o.toggle,
+		ToggleTap:      o.toggleTap,
+		StartInactive:  o.startOff,
+		Lights:         lights,
+		LogMIDI:        o.logMIDI,
+		Changed:        changes.Notify,
 	})
 	var shownToggle atomic.Pointer[string]
 	showToggle := func(keys []control.Code) {
@@ -456,7 +391,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		shownToggle.Store(&text)
 		changes.Notify()
 	}
-	showToggle(toggle)
+	showToggle(o.toggle)
 	footerDone := make(chan struct{})
 	stopFooter := func() {}
 	if footer != nil {
@@ -485,7 +420,44 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		close(footerDone)
 	}
 	served := make(chan struct{})
-	host := controlHost(manager, logs, &changes)
+	// Profiles the window tries before they are saved take the place of
+	// their files.
+	tried := &previews{profiles: profiles, use: manager.SetProfiles}
+	host := controlHost(manager, logs, &changes, &seenDevices{})
+	// The settings HIDI runs by. The window changes them as the user
+	// does, without writing anything; a changed file changes them too.
+	live := newLiveSettings(o, pl.settings, manager, hub, &address, router, configLog, func(keys []control.Code) { showToggle(keys) }, changes.Notify)
+	host.TrySettings = func(text string) error {
+		s, err := settings.Parse([]byte(text))
+		if err != nil {
+			return err
+		}
+		live.try(s)
+		return nil
+	}
+	host.Settings = live.text
+	// The window says when it wrote a profile, so that nobody waits for
+	// the next look at the directory.
+	look := make(chan struct{}, 1)
+	if pl.profiles != "" {
+		host.Reload = func() {
+			select {
+			case look <- struct{}{}:
+			default: // a look is asked for already
+			}
+		}
+	}
+	host.Preview = func(file, text string) error {
+		if _, err := tried.set(file, text); err != nil {
+			return err
+		}
+		if text == "" {
+			configLog.Debug("a profile is no longer tried; its file counts again", "file", file)
+		} else {
+			configLog.Debug("trying a profile that is not saved", "file", file)
+		}
+		return nil
+	}
 	if server != nil {
 		go func() {
 			defer close(served)
@@ -496,15 +468,15 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	desktopDone := make(chan struct{})
 	var nothingToShow atomic.Bool
-	if *headless {
+	if o.headless {
 		close(desktopDone)
 	} else {
-		d := desktop{show: *showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
+		d := desktop{show: o.showWindow || pl.settings.Window.ShowAtStart, host: host, log: logs.Logger("desktop"), quit: quit}
 		d.failed = func() { nothingToShow.Store(true) }
 		if server != nil {
-			d.windowArgs = []string{"--socket", *socket}
-			if given["config"] {
-				d.windowArgs = append(d.windowArgs, "--config", *root)
+			d.windowArgs = []string{"--socket", o.socket}
+			if o.given["config"] {
+				d.windowArgs = append(d.windowArgs, "--config", o.root)
 			}
 		}
 		go func() {
@@ -513,53 +485,20 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 		}()
 	}
 	if pl.profiles != "" {
-		go config.Watch(ctx, pl.profiles, time.Second, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
+		go config.Watch(ctx, pl.profiles, time.Second, look, pl.load, func(profiles []*config.Profile, problems []config.Problem) {
 			configLog.Info("profiles changed; loading them again", "profiles", len(profiles))
 			reportProblems(problems)
-			manager.SetProfiles(profiles)
+			tried.loaded(profiles) // and in use
 		})
 	}
 	if pl.settingsFile != "" {
-		// Settings changed in the file, by hand or from the window, are
-		// taken over while HIDI runs, as far as they can be: the toggle
-		// combination and what is grabbed. What the command line set
-		// stays as it was set there.
 		settingsFile := pl.settingsFile
 		go settings.Watch(ctx, settingsFile, time.Second, func(s settings.Settings, err error) {
 			if err != nil {
 				configLog.Error("the changed settings have mistakes and are not used", "file", settingsFile, "error", err)
 				return
 			}
-			newToggle, keyboards, gamepads := toggle, !*noGrab, *grabGamepads
-			if !given["toggle"] {
-				newToggle = s.Input.Toggle
-			}
-			if !given["no-grab"] {
-				keyboards = s.Input.GrabKeyboards
-			}
-			if !given["grab-gamepads"] {
-				gamepads = s.Input.GrabGamepads
-			}
-			if len(newToggle) == 0 && keyboards {
-				configLog.Error("the changed settings are not used: grabbing keyboards needs a toggle combination", "file", settingsFile)
-				return
-			}
-			tap, always := *toggleTap, *alwaysGrab
-			if !given["toggle-tap"] {
-				tap = s.Input.ToggleTap
-			}
-			if !given["always-grab"] {
-				always = s.Input.AlwaysGrab
-			}
-			if tap && len(newToggle) != 1 {
-				configLog.Error("the changed settings are not used: toggle_tap needs a toggle of exactly one key", "file", settingsFile)
-				return
-			}
-			manager.SetToggleTap(tap, hidesToggle(always))
-			manager.SetInput(newToggle, grabPolicy(keyboards, gamepads))
-			showToggle(newToggle)
-			configLog.Info("settings changed",
-				"toggle", formatToggle(newToggle), "grab_keyboards", keyboards, "grab_gamepads", gamepads)
+			live.fileChanged(s)
 		})
 	}
 	manager.Run(ctx, source.Devices)
@@ -577,23 +516,9 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	return 0
 }
 
-// hidesToggle reports whether a tapped toggle key is kept from the system.
-// Windows can do that for single keys. Linux can only by holding the whole
-// keyboard and typing everything else again, which the user has to ask
-// for.
-func hidesToggle(alwaysGrab bool) bool {
-	return runtime.GOOS == "windows" || alwaysGrab
-}
-
 // footerPause is the least time between two drawings of the lines at the
 // bottom of the terminal.
 const footerPause = 100 * time.Millisecond
-
-// defaultToggle is the combination that turns HIDI off and on. It consists
-// of modifier keys only, so that pressing it while HIDI is off, when the
-// keys reach the desktop, does not trigger anything there, and every
-// keyboard has the three keys.
-const defaultToggle = "KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT"
 
 // parseToggle reads a key combination written like "KEY_A+KEY_B".
 func parseToggle(s string) ([]control.Code, error) {
@@ -678,8 +603,13 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *export {
-		if *dir == "" {
-			fmt.Fprintln(stderr, "hidi profiles: --export needs a directory; set --profiles")
+		if *profilesDir == "" {
+			// HIDI's own directory has them already, and keeps them.
+			if pl.paths.Factory != "" {
+				fmt.Fprintf(stderr, "hidi profiles: the profiles HIDI comes with are kept in\n  %s\nCopy one into\n  %s\nto change it; the window does that with \"Customise\". --export writes them into a directory named with --profiles.\n", pl.paths.Factory, pl.paths.User)
+			} else {
+				fmt.Fprintln(stderr, "hidi profiles: --export needs a directory; set --profiles")
+			}
 			return 2
 		}
 		written, skipped, err := config.WriteBuiltin(*dir)
@@ -703,7 +633,7 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	}
 	switch {
 	case pl.managed:
-		fmt.Fprintf(stdout, "The profiles are the files in %s\n\n", pl.profiles)
+		fmt.Fprintf(stdout, "The factory profiles are in %s\nYour own are in %s and come first where both fit a device\n\n", pl.paths.Factory, pl.paths.User)
 	case pl.profiles != "":
 		fmt.Fprintf(stdout, "Your profiles are read from %s, beside the built-in ones\n\n", pl.profiles)
 	default:
@@ -711,7 +641,7 @@ func cmdProfiles(args []string, stdout, stderr io.Writer) int {
 	}
 	// Later profiles take precedence, so the user's own come first here.
 	for _, p := range slices.Backward(profiles) {
-		fmt.Fprintf(stdout, "%-26q %-34s for %s\n", p.Name, p.Source, p.Match)
+		fmt.Fprintf(stdout, "%-26q %-8s %-34s for %s\n", p.Name, p.Kind, p.Source, p.Match)
 	}
 	for _, p := range problems {
 		fmt.Fprintf(stderr, "\nhidi profiles: cannot be used: %v\n", p)

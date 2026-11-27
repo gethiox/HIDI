@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gethiox/HIDI/internal/config"
 )
 
 func TestRun(t *testing.T) {
@@ -39,8 +41,7 @@ func TestRun(t *testing.T) {
 		{"doctor with an argument", []string{"doctor", "extra"}, 2, "", `unexpected argument "extra"`},
 		{"bad toggle key", []string{"run", "--toggle", "KEY_NOPE"}, 2, "", "unknown control"},
 		{"toggle with an axis", []string{"run", "--toggle", "ABS_X"}, 2, "", "not a key"},
-		{"grab without toggle", []string{"run", "--toggle", ""}, 2, "", "needs a toggle combination"},
-		{"off without toggle", []string{"run", "--toggle", "", "--no-grab", "--off"}, 2, "", "-off needs a toggle"},
+		{"on and off", []string{"run", "--on", "--off"}, 2, "", "contradict each other"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,12 +60,16 @@ func TestRun(t *testing.T) {
 }
 
 func TestParseToggle(t *testing.T) {
-	keys, err := parseToggle(defaultToggle)
-	if err != nil || len(keys) != 3 {
-		t.Fatalf("parseToggle(default) = %v, %v", keys, err)
+	keys, err := parseToggle("KEY_CAPSLOCK")
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("parseToggle of one key = %v, %v", keys, err)
 	}
-	if got := formatToggle(keys); got != defaultToggle {
-		t.Errorf("formatToggle = %q, want %q", got, defaultToggle)
+	if got := formatToggle(keys); got != "KEY_CAPSLOCK" {
+		t.Errorf("formatToggle = %q", got)
+	}
+	// No keys: the toggle is left to the profiles.
+	if keys, err := parseToggle(""); err != nil || len(keys) != 0 {
+		t.Errorf("parseToggle of nothing = %v, %v", keys, err)
 	}
 	if keys, err := parseToggle(" key_a + KEY_B "); err != nil || len(keys) != 2 {
 		t.Errorf("parseToggle with spaces and lower case = %v, %v", keys, err)
@@ -177,14 +182,35 @@ func TestConfigDirectory(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "is in use") {
 		t.Errorf("config afterwards: code %d, stdout %q", code, stdout)
 	}
-	keyboard := filepath.Join(root, "profiles", "keyboard.toml")
+	keyboard := filepath.Join(root, "profiles", "factory", "keyboard.toml")
 	if code, stdout, _ = hidi("profiles"); code != 0 || !strings.Contains(stdout, keyboard) || strings.Contains(stdout, "built-in/") {
 		t.Errorf("profiles afterwards: code %d, stdout %q", code, stdout)
 	}
-	// A removed profile is gone, not replaced by the one inside HIDI.
-	os.Remove(keyboard)
-	if _, stdout, _ = hidi("profiles"); strings.Contains(stdout, "keyboard.toml") {
-		t.Errorf("a removed profile is still listed: %q", stdout)
+	// A profile of the user's own for the same devices is listed before
+	// the factory one, as the one that is used; turned off it is not
+	// listed at all.
+	text, _ := os.ReadFile(keyboard)
+	mine := filepath.Join(root, "profiles", "user", "keyboard.toml")
+	os.WriteFile(mine, bytes.Replace(text, []byte(`name = "Default keyboard"`), []byte(`name = "My keyboard"`), 1), 0o644)
+	_, stdout, _ = hidi("profiles")
+	if at, factory := strings.Index(stdout, mine), strings.Index(stdout, keyboard); at < 0 || factory < 0 || at > factory || !strings.Contains(stdout, " user ") {
+		t.Errorf("with a profile of the user's: %q", stdout)
+	}
+	off, err := config.SetEnabled(bytes.Replace(text, []byte(`name = "Default keyboard"`), []byte(`name = "My keyboard"`), 1), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(mine, off, 0o644)
+	if _, stdout, _ = hidi("profiles"); strings.Contains(stdout, "My keyboard") || !strings.Contains(stdout, keyboard) {
+		t.Errorf("with the user's profile turned off: %q", stdout)
+	}
+	// A factory profile that was changed or removed is as HIDI has it
+	// again at the next start, which says so.
+	os.Chmod(keyboard, 0o644)
+	os.WriteFile(keyboard, []byte("schema = 1\n"), 0o644)
+	pl = findPlace(root, "", true)
+	if now, _ := os.ReadFile(keyboard); !bytes.Equal(now, text) || len(pl.notes) != 1 || !strings.Contains(pl.notes[0], "brought up to date") {
+		t.Errorf("a changed factory profile: notes %v", pl.notes)
 	}
 
 	// Mistakes in the settings are told, and the defaults used.
@@ -224,6 +250,30 @@ func TestStartsHIDI(t *testing.T) {
 	} {
 		if got := startsHIDI(c.args); got != c.want {
 			t.Errorf("startsHIDI(%q) = %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+// HIDI starts turned off unless the settings say otherwise; --on starts
+// it turned on for once, and --off says what the default says.
+func TestStartOnAndOff(t *testing.T) {
+	for _, tt := range []struct {
+		args    []string
+		wantOff bool
+	}{
+		{[]string{"--config", ""}, true},
+		{[]string{"--config", "", "--on"}, false},
+		{[]string{"--config", "", "--off"}, true},
+		{[]string{"--config", "", "--on", "--off=false"}, false},
+	} {
+		var stderr bytes.Buffer
+		o, code, ok := parseRunOptions(tt.args, &stderr, false)
+		if !ok || code != 0 {
+			t.Errorf("%v: code %d, %s", tt.args, code, stderr.String())
+			continue
+		}
+		if o.startOff != tt.wantOff {
+			t.Errorf("%v: starts off = %v, want %v", tt.args, o.startOff, tt.wantOff)
 		}
 	}
 }

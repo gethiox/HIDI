@@ -46,7 +46,8 @@ All packages live under `internal/`; HIDI does not offer a Go API.
 |---|---|---|
 | `cmd/hidi` | exists | Command line entry point. Parses arguments and calls into `internal/`. |
 | `buildinfo` | exists | Version of the running binary. |
-| `assets` | exists | Files embedded into the binary. |
+| `assets` | exists | Files embedded into the binary. `assets/icon` holds the shapes of HIDI's icon, from the drawing `hidi.svg` beside it, and fills them at any size in the colours of a state: for the tray, the window and the Windows program file. |
+| `update` | exists | Asks GitHub for the newest release and compares versions. Only the window uses it, and only where the settings allow. |
 | `midi` | exists | MIDI message types and encoding (MIDI 1.0 bytes and UMP). No I/O. |
 | `control` | exists | Platform-neutral input model: device identity, control codes, events. |
 | `engine` | exists | Turns control events into MIDI messages for one instrument. Pure and deterministic. |
@@ -148,8 +149,19 @@ service for a while that grows from ten seconds to five minutes.
 it is a pure function of what the keys do in the selected layout, the
 instrument's state, the notes that sound and whether HIDI is on. A hub owns
 the connection to OpenRGB, finds for each instrument the keyboard among the
-server's controllers, and sends colours only when they changed, a few dozen
-times a second at most. OpenRGB says where it reaches a keyboard, not which
+server's controllers, and sends colours only when they changed.
+
+A keyboard takes some tens of milliseconds to be written, and how OpenRGB
+deals with updates that come faster differs between its versions. Released
+ones note that there is something to write and forget the note when the
+write in progress ends, so an update that arrives during a write is lost
+until the next one. Newer ones take an update only when the write before is
+done, so updates queue up in the connection and the lights fall behind. The
+hub is safe against both: it sends a change at once, then asks the server a
+question that is answered in order and waits for the answer before it sends
+the next change, which is then the newest scene; and it sends what it sent
+last a few more times over the following second. What the hub last sent is
+also what the window draws as the glow of the keys. OpenRGB says where it reaches a keyboard, not which
 input device that is, so the two are matched by model and, on Linux, by the
 port the system reports for both.
 
@@ -176,6 +188,13 @@ While an instrument is active its device does not type or click.
   (`rawinput.claims`). Windows has no way to keep a game controller from
   other programs, so `--grab-gamepads` has no effect there.
 
+A profile can leave single keys to the system while the others play
+(`"passthrough"`). The device is then shared instead of grabbed
+(`input.Passer.Share`): on Windows the hook lets those keys through; on
+Linux, where a device is grabbed whole or not at all, HIDI types them again
+on a keyboard of its own, as it does to hide the toggle key. Which keys are open
+follows the selected layout.
+
 Game controllers on Windows are read in two ways, because no single
 interface serves all of them well:
 
@@ -185,12 +204,17 @@ interface serves all of them well:
   axis. XInput has no notifications, so HIDI asks it for the state of each
   connected controller every few milliseconds, and once a second whether
   another appeared. It knows four controllers at most.
-- Every other controller, old ones included, through Raw Input
-  (`input/rawinput`), which hands over the HID reports exactly as the
+- Every other controller, old ones included, from its HID device
+  (`input/rawinput`): the controllers are found in the list Raw Input
+  keeps, looked through once a second, and each is then opened and read
+  by a goroutine of its own, which gets the HID reports exactly as the
   controller sends them; `hid.dll` takes the buttons and axes out of a
-  report. Values are told apart by the index Windows gives each, not by
+  report. They are not asked for through Raw Input itself: Windows takes
+  input it delivers that way for somebody using the machine, so a stick
+  that reports all the time, as one with a little play does, kept the
+  screen from turning off for as long as HIDI ran. Values are told apart by the index Windows gives each, not by
   their usage, since a stick with four hats has four values of one usage.
-  Raw Input also reads Xbox controllers, with the shared trigger
+  The same way also reads Xbox controllers, with the shared trigger
   axis split in two, should XInput be missing.
 
 The newer interfaces of Windows for controllers were not chosen: they
@@ -231,14 +255,29 @@ settings in `settings.toml`, and the profiles as files in `profiles`. The two
 are kept apart on purpose: a profile says how one kind of device plays, the
 settings say how HIDI behaves.
 
-HIDI carries its default settings and profiles inside the binary and writes
-them into the directory on the first start. From then on the files are all
-there is; the copies inside HIDI are used only without a directory. So that
-a later HIDI can improve a profile it wrote, it records a fingerprint of
-every file it writes: a file that still has the fingerprint is the user's
-untouched copy and may be replaced, any other is left alone, and a recorded
-file that is gone was removed on purpose. A directory without that record
-and with anything HIDI 2 does not keep there is never written to.
+What HIDI notes for itself is kept apart from both, in a state directory
+(`%LocalAppData%\HIDI`, `$XDG_STATE_HOME/HIDI`): the record of the files
+it wrote, by which it knows a directory for its own, and how the window
+was left. On Windows the settings follow the user between machines and
+this does not. Nothing is kept about the devices HIDI has met.
+
+HIDI carries its default settings and profiles inside the binary. The
+profiles are written into `profiles/factory` and kept there exactly as the
+binary has them, on every start: missing ones written, differing ones
+replaced, ones HIDI no longer has removed. That directory is HIDI's, and
+its files are marked read-only. The user's profiles are in `profiles/user`,
+which HIDI creates and never writes to by itself; a profile there comes
+before a factory profile that fits a device equally well, and can say
+`enabled = false` to be left out. Keeping the two apart is what lets a new
+HIDI improve its profiles without asking whether a file was changed, and
+lets the window show which is which. The copies inside HIDI are used
+directly only without a directory.
+
+The first HIDI 2 builds kept everything in `profiles` itself and recorded a
+fingerprint of every file they wrote. Such a directory is converted once:
+a file that still has its fingerprint was never changed and is dropped, any
+other moves to `profiles/user`. A directory without that record and with
+anything HIDI 2 does not keep there is never written to.
 
 The profile directory is polled once
 a second and loaded again when it changes; polling keeps this code free of
@@ -295,8 +334,15 @@ driver does stays away from the instruments, and a closed window gives all
 its memory back. Started while HIDI runs, `hidi` finds the socket answered
 and opens the window of the HIDI that runs. Where the desktop shows no
 icons, the window is opened in place of the icon and closing it ends HIDI.
-On Windows the program is a console program, so that its commands work in a
-terminal; started by a double click it leaves the console Windows gave it.
+On Windows a release is built as a program without a console
+(`-H windowsgui`), so that a double click opens no console window. Such a
+program starts with nowhere to write; `findConsole` joins the console of
+the command line that started it, if there is one, and gives the standard
+streams that lead nowhere to that console, leaving redirected ones alone.
+`--console` opens a console of HIDI's own. The price is that a command
+line does not wait for such a program. A build without the linker flag is a
+console program as before, and leaves the console Windows gave it when
+started by a double click.
 
 The socket is a Unix domain socket, which Windows has as well, in a directory
 only the user can enter: `$XDG_RUNTIME_DIR/hidi/control.sock` on Linux. The
@@ -342,10 +388,46 @@ The window follows the decisions on the roadmap:
 
 To show what is played, the state HIDI reports for an instrument names the
 notes that are on. To show what the device itself does, it also lists the
-buttons and axes the device has reported so far and where each stands;
-`instrument` keeps that list from the events it passes to the engine. A
-control appears once the device has reported it, since not every input
-backend can say beforehand which controls a device has.
+buttons and axes of the device and where each stands; `instrument` keeps
+that list. A game controller says what it has when it is opened
+(`input.Describer`): the kernel's lists on Linux, the HID capabilities and
+the fixed set of XInput on Windows. The list is seeded with that, so the
+window shows and numbers every control from the start, and it says which
+axes are those of a hat. An axis that was only listed has no position yet,
+and is not among those sent again when an instrument starts playing.
+
+The same list is what a profile's `[generate]` rule works on. The engine
+knows nothing of rules: `config.Profile.For` takes the controls of a device
+and returns an engine profile in which every layout has, beside the
+bindings the file names, one for each control that neither the layout nor
+the toggle of `[global]` names. The manager builds a device's engine from that. Since the
+rule sees nothing but the device's own list, in the order of its codes, the
+same device gets the same instrument on every start, and the window can
+work out for itself what the running HIDI plays.
+
+What turns HIDI off and on is a command of the profile, `hidi_toggle`, and
+the one command the engine does nothing for: the engine does not run while
+HIDI is off, which is when the key matters most. The parser lifts the keys
+of that binding out of the profile (`config.Profile.Toggle`), and the
+manager makes them the rule for each device that plays with the profile,
+unless the settings name one toggle for all. The loop of the device watches
+the keys in both states, as it always did. A keyboard for which the rule
+comes out empty is not grabbed.
+
+The settings in use are the running HIDI's (`liveSettings` in `cmd/hidi`),
+not the file's and not the window's. They start as the file's. The window
+hands over what its sheet shows, change by change, and asks for them when
+it opens; a file changed by hand is taken over in what it changed, compared
+with how it was last read. Saving in the window writes the file and nothing
+more, so that a write is never a reason for anything to be applied.
+
+What moves in the window moves by time, not by frames. The curves are
+placed by how old the newest step was when HIDI reported it plus the time
+since that report arrived, so a frame that comes late draws them where
+they are by then. A frame limit that is the monitor's rate divided by a
+whole number is paced at the middle between two of the monitor's pictures,
+so that the wait for the monitor lands every frame on the same picture and
+they come at even distances (`FrameRate`).
 
 A profile is changed from the window in its text. `config.Set` and
 `config.Remove` find the line of one key in one section and change that
@@ -355,6 +437,30 @@ text written in a way they do not follow is left alone and the window says
 so. The result is parsed as a profile before it is written, so the window
 cannot write a file HIDI would refuse. The running HIDI learns of the
 change like of any other, by watching the directory.
+
+Whether a page has something to save is asked of the profiles, not of the
+text: `config.Same` compares what is shown with what the file says as
+parsed profiles, setting aside the order of lines. A change that is taken
+back by hand leaves nothing to save.
+
+The page names what it changes by a `Spot`: a control, or one half of an
+axis. One function writes a role out as the right side of a binding, and
+every change goes through it.
+
+What the page shows of the device at work comes from an engine of its own
+(`gui.Shadow`): the same `engine.Engine`, made of the profile as it is
+shown and the one layout that is shown, fed with the buttons and axes of
+the snapshot. The page asks it what is held, what each control sends and
+where each axis rests. There is no second reckoning of dead zones, trigger
+points or hysteresis for the eye, and what is shown is right while HIDI is
+off as well.
+
+The window's own widgets are a small kit over raylib (`kit` in `ui/gui`):
+buttons, switches, fields and steppers that take the pointer and the scale
+of the interface from one place, a layout helper that wraps rows, an
+overlay for a question that has to be answered before anything else is
+touched, and a hint that appears beside a widget the pointer rests on. The
+hint is there for any widget to use; no text has been given to one yet.
 
 The socket also makes HIDI a single instance. A second HIDI finds the first
 one answering and stops before it opens any device, or opens the first

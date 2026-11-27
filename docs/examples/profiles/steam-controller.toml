@@ -1,0 +1,79 @@
+schema = 2
+name = "Steam Controller"
+
+# For Valve's controllers as the Linux kernel presents them: the Steam
+# Controller of 2015, the one of 2026, and the controls of a Steam Deck.
+# They differ in what they have; a control that is not there is never
+# pressed.
+#
+# The trackpads send where the thumb is, and rest in the middle when they
+# are not touched.
+
+[match]
+type = "gamepad"
+vendor = 0x28de
+
+[defaults]
+octave = 0
+transpose = 0
+channel = 1
+velocity = 64
+layout = "Default"
+collision = "interrupt"
+
+[[layout]]
+name = "Default"
+
+[layout.bindings]
+BTN_SELECT = "channel_down"
+BTN_START = "channel_up"
+BTN_MODE = "panic"
+
+BTN_A = 0
+BTN_B = 1
+BTN_X = 2
+BTN_Y = 3
+BTN_TL = 11
+BTN_TR = 12
+# The triggers pulled all the way.
+BTN_TL2 = 7
+BTN_TR2 = 8
+# The stick pressed, and the right pad or the right stick pressed.
+BTN_THUMBL = 9
+BTN_THUMBR = 10
+# The paddles at the back. Kernels before 6.17 call the first two
+# BTN_GEAR_DOWN and BTN_GEAR_UP.
+BTN_GRIPL = 13
+BTN_GRIPR = 14
+BTN_GEAR_DOWN = 13
+BTN_GEAR_UP = 14
+BTN_GRIPL2 = 15
+BTN_GRIPR2 = 16
+# The button with the three dots.
+BTN_BASE = 17
+
+# The directions of the left pad when it is pressed, or the direction pad.
+BTN_DPAD_RIGHT = "octave_up"
+BTN_DPAD_LEFT = "octave_down"
+BTN_DPAD_UP = "layout_next"
+BTN_DPAD_DOWN = "layout_previous"
+
+# The stick.
+ABS_X = { cc = 0, centered = true, deadzone = 0.1 }
+ABS_Y = { pitch_bend = true, centered = true, invert = true, deadzone = 0.1 }
+
+# The right pad of the controller of 2015; the right stick of the others.
+"ABS_RX+" = { cc = 1, deadzone = 0.1 }
+"ABS_RX-" = { cc = 2, deadzone = 0.1 }
+"ABS_RY-" = { cc = 3, deadzone = 0.1 }
+"ABS_RY+" = { cc = 4, deadzone = 0.1 }
+
+# The triggers, by how far they are pulled.
+ABS_HAT2Y = { cc = 5 }
+ABS_HAT2X = { cc = 6 }
+
+# The left pad, and the right pad where there is a right stick too.
+ABS_HAT0X = { cc = 16, centered = true }
+ABS_HAT0Y = { cc = 17, centered = true, invert = true }
+ABS_HAT1X = { cc = 18, centered = true }
+ABS_HAT1Y = { cc = 19, centered = true, invert = true }

@@ -21,7 +21,8 @@ type Router struct {
 	match func(Port) bool
 	log   *slog.Logger
 
-	mu        sync.Mutex
+	mu        sync.Mutex // guards what follows, and match
+	none      bool       // no port is chosen; see Choose
 	endpoints map[*routed]struct{}
 	listErr   string // the last failure to list ports that was logged
 }
@@ -33,6 +34,26 @@ func NewRouter(list func() ([]Port, error), match func(Port) bool, log *slog.Log
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Router{list: list, match: match, log: log, endpoints: map[*routed]struct{}{}}
+}
+
+// SetMatch changes which ports the endpoints are connected to, and brings
+// the connections in line at once: new ones are made, and those to ports
+// that are no longer chosen are ended where the endpoint can end them.
+func (r *Router) SetMatch(match func(Port) bool) {
+	r.mu.Lock()
+	r.match = match
+	r.mu.Unlock()
+	r.Sync()
+}
+
+// Choose is SetMatch for the ports a user named; see [MatchPorts]. With
+// none named, an endpoint that cannot be connected to ports is no cause
+// for complaint.
+func (r *Router) Choose(patterns []string) {
+	r.mu.Lock()
+	r.none = len(patterns) == 0
+	r.mu.Unlock()
+	r.SetMatch(MatchPorts(patterns))
 }
 
 // MatchPorts returns a match function for the ports a user named. A
@@ -76,7 +97,12 @@ func (e *routed) Close() error {
 func (r *Router) Add(name string, e Endpoint) Endpoint {
 	c, ok := e.(Connector)
 	if !ok {
-		r.log.Warn("this kind of MIDI device cannot be connected to existing ports", "instrument", name)
+		r.mu.Lock()
+		none := r.none
+		r.mu.Unlock()
+		if !none {
+			r.log.Warn("this kind of MIDI device cannot be connected to existing ports", "instrument", name)
+		}
 		return e
 	}
 	added := &routed{Connector: c, router: r, name: name, connected: map[string]string{}, failed: map[string]bool{}}
@@ -128,18 +154,35 @@ func (r *Router) Sync() {
 	}
 	r.listErr = ""
 
-	chosen := map[string]string{}
+	chosen, there := map[string]string{}, map[string]bool{}
 	for _, p := range ports {
+		there[p.ID] = true
 		if r.match(p) {
 			chosen[p.ID] = p.Name
 		}
 	}
 	for e := range r.endpoints {
 		for id, name := range e.connected {
-			if _, there := chosen[id]; !there {
+			if _, still := chosen[id]; still {
+				continue
+			}
+			if !there[id] {
 				delete(e.connected, id)
 				r.log.Info("MIDI port is gone", "instrument", e.name, "port", name)
+				continue
 			}
+			// The port is there and no longer chosen. One that cannot be
+			// let go of stays connected, and is tried again the next
+			// time: forgotten, the instrument would go on sending to it
+			// with nobody to know.
+			if d, ok := e.Connector.(Disconnector); ok {
+				if err := d.Disconnect(id); err != nil {
+					r.log.Warn("disconnecting from the MIDI port failed; trying again", "instrument", e.name, "port", name, "error", err)
+					continue
+				}
+			}
+			delete(e.connected, id)
+			r.log.Info("disconnected from MIDI port", "instrument", e.name, "port", name)
 		}
 		for id := range e.failed {
 			if _, there := chosen[id]; !there {

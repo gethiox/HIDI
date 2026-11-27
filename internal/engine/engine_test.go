@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -67,6 +68,14 @@ func (r *rig) set(code control.Code, value float64, want string) {
 func (r *rig) press(code control.Code, want string)   { r.t.Helper(); r.set(code, 1, want) }
 func (r *rig) release(code control.Code, want string) { r.t.Helper(); r.set(code, 0, want) }
 
+// expect checks the messages something other than an event produced.
+func (r *rig) expect(what string, msgs []midi.Message, want string) {
+	r.t.Helper()
+	if got := render(msgs); got != want {
+		r.t.Errorf("%s\n got: %s\nwant: %s", what, got, want)
+	}
+}
+
 func (r *rig) reset(want string) {
 	r.t.Helper()
 	if got := render(r.e.Reset(nil)); got != want {
@@ -120,6 +129,68 @@ func TestStateChangesWhileHolding(t *testing.T) {
 	r.press(keyPanic, "")
 	r.press(keyA, "NoteOn ch=2 note=C#4 velocity=100")
 	r.release(keyA, "NoteOff ch=2 note=C#4 velocity=0")
+}
+
+// Every layout has its own commands. A key that changes the layout does
+// nothing in the new one when it is let go of, whatever the key does
+// there; a key that plays a note turns it off when let go of, in whatever
+// layout that happens.
+func TestLayoutsHaveTheirOwnCommands(t *testing.T) {
+	p := Profile{
+		Layouts: []Layout{
+			{Name: "main", Bindings: []Binding{
+				key(keyA, CommandLayoutNext),
+				key(keyB, Note{Note: 60}),
+				key(keyC, CommandLayoutNext, keyShift),
+			}},
+			{Name: "other", Bindings: []Binding{
+				key(keyA, Note{Note: 62}),
+				key(keyB, CommandLayoutPrevious),
+				key(keyC, Note{Note: 64}),
+				key(keyShift, CommandOctaveUp),
+			}},
+		},
+		Defaults: Defaults{Velocity: 100},
+	}
+	r := newRig(t, p)
+	layout := func(want string) {
+		t.Helper()
+		if got := r.e.State().Layout; got != want {
+			t.Errorf("layout %q, want %q", got, want)
+		}
+	}
+
+	r.press(keyA, "") // to the other layout, where the key plays a note
+	layout("other")
+	r.release(keyA, "")
+	r.press(keyA, "NoteOn ch=1 note=D3 velocity=100")
+	r.release(keyA, "NoteOff ch=1 note=D3 velocity=0")
+
+	r.press(keyB, "") // back, where the key plays a note
+	layout("main")
+	r.release(keyB, "")
+
+	// A note held across a change of layout ends when its key is let go.
+	r.press(keyB, "NoteOn ch=1 note=C3 velocity=100")
+	r.press(keyA, "")
+	layout("other")
+	r.release(keyB, "NoteOff ch=1 note=C3 velocity=0")
+	r.release(keyA, "")
+
+	// With a modifier: Shift does nothing in the first layout by itself,
+	// raises the octave in the other, and C changes the layout with it.
+	r.press(keyB, "") // back to main
+	r.release(keyB, "")
+	r.press(keyShift, "")
+	r.press(keyC, "")
+	layout("other")
+	r.release(keyShift, "") // pressed in main, where it did nothing
+	r.release(keyC, "")     // no note to turn off
+	if got := r.e.State().Octave; got != 0 {
+		t.Errorf("octave %d: a key let go of in another layout ran that layout's command", got)
+	}
+	r.press(keyC, "NoteOn ch=1 note=E3 velocity=100")
+	r.release(keyC, "NoteOff ch=1 note=E3 velocity=0")
 }
 
 func TestNoteOutOfRangeIsSilent(t *testing.T) {
@@ -181,7 +252,7 @@ func TestCommands(t *testing.T) {
 		{CommandTransposeUp, CommandTransposeDown, func(s State) any { return s.Transpose }, 3, 1, 2},
 		{CommandChannelUp, CommandChannelDown, func(s State) any { return s.Channel }, uint8(4), uint8(2), uint8(3)},
 		{CommandLayoutNext, CommandLayoutPrevious, func(s State) any { return s.Layout }, "second", "main", "main"},
-		{CommandVelocityUp, CommandVelocityDown, func(s State) any { return s.Velocity }, uint8(108), uint8(92), uint8(100)},
+		{CommandVelocityUp, CommandVelocityDown, func(s State) any { return s.Velocity }, uint8(116), uint8(84), uint8(100)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.up.String(), func(t *testing.T) {
@@ -210,6 +281,57 @@ func TestCommands(t *testing.T) {
 			r.release(down, "")
 			check("releasing the combination", tt.afterReset)
 		})
+	}
+}
+
+// The velocity moves along a ladder from the profile's velocity: a step
+// past an end stops there, and the step back goes to the value before,
+// so the profile's velocity is always reached again.
+func TestVelocityLadder(t *testing.T) {
+	p := baseProfile(key(keyUp, CommandVelocityUp), key(keyDown, CommandVelocityDown))
+	p.Defaults.Velocity = 64
+	r := newRig(t, p)
+	walk := func(code control.Code, want ...uint8) {
+		t.Helper()
+		for i, w := range want {
+			r.press(code, "")
+			r.release(code, "")
+			if got := r.e.State().Velocity; got != w {
+				t.Errorf("press %d of %v: velocity %d, want %d", i+1, code, got, w)
+			}
+		}
+	}
+	walk(keyUp, 80, 96, 112, 127, 127, 127)
+	walk(keyDown, 112, 96, 80, 64, 48, 32, 16, 1, 1)
+	walk(keyUp, 16, 32, 48, 64)
+
+	// Another step: the velocity goes to the nearest place on the new
+	// ladder, and the profile's velocity is on it.
+	walk(keyUp, 80)
+	r.e.SetVelocityStep(10)
+	if got := r.e.State().Velocity; got != 84 {
+		t.Errorf("velocity after the step changed: %d, want 84", got)
+	}
+	walk(keyDown, 74, 64, 54)
+	walk(keyUp, 64)
+	r.e.SetVelocityStep(100)
+	walk(keyUp, 127, 127)
+	walk(keyDown, 64, 1, 1)
+	walk(keyUp, 64)
+	r.e.SetVelocityStep(0) // the default
+	walk(keyUp, 80)
+	// From the top, a smaller step lands below 127 again.
+	walk(keyUp, 96, 112, 127)
+	r.e.SetVelocityStep(1)
+	if got := r.e.State().Velocity; got != 127 {
+		t.Errorf("velocity at the top with a step of 1: %d", got)
+	}
+	walk(keyDown, 126)
+	// 126 with a step of 10 is nearest to the top, which the ladder of
+	// that step reaches only by stopping there.
+	r.e.SetVelocityStep(10)
+	if got := r.e.State().Velocity; got != 127 {
+		t.Errorf("velocity near the top with a step of 10: %d, want 127", got)
 	}
 }
 
@@ -374,9 +496,9 @@ func TestNotesFromAxis(t *testing.T) {
 		Binding{Source: Source{Code: stickX, Range: RangeUpper}, Action: Note{Note: 60}},
 		Binding{Source: Source{Code: stickX, Range: RangeLower}, Action: Note{Note: 62}},
 	))
-	r.set(stickX, 0.74, "") // 0.48 of the upper half
-	r.set(stickX, 0.75, "NoteOn ch=1 note=C3 velocity=100")
-	r.set(stickX, 0.74, "") // still above the release threshold
+	r.set(stickX, 0.75, "") // the trigger point itself: half the hysteresis short
+	r.set(stickX, 0.76, "NoteOn ch=1 note=C3 velocity=100")
+	r.set(stickX, 0.75, "") // back at the point: still held
 	r.set(stickX, 0.76, "")
 	r.set(stickX, 0, "NoteOff ch=1 note=C3 velocity=0; NoteOn ch=1 note=D3 velocity=100")
 	r.set(stickX, 0.5, "NoteOff ch=1 note=D3 velocity=0")
@@ -651,8 +773,9 @@ func TestChord(t *testing.T) {
 	chord("+7")
 }
 
-// While the learn command is held, an axis gets through only when it is
-// moved more than halfway; a key that drives a controller always does.
+// In learning mode an axis stands still where it stood when the mode
+// began, until it is moved by more than the threshold; back within it, it
+// stands there again. A key that drives a controller always gets through.
 func TestLearn(t *testing.T) {
 	r := newRig(t, baseProfile(
 		key(keyUp, CommandLearn),
@@ -660,23 +783,50 @@ func TestLearn(t *testing.T) {
 		Binding{Source: Source{Code: trigger}, Action: ControlChange{Controller: 7}},
 		Binding{Source: Source{Code: stickX, Centered: true}, Action: ControlChange{Controller: 10}},
 	))
-	r.set(trigger, 0.25, "ControlChange ch=1 controller=7 value=32")
-	r.press(keyUp, "")
-	if !r.e.State().Learning {
-		t.Error("Learning is not set while the command is held")
+	learn := func(on bool, want string) {
+		t.Helper()
+		r.expect("SetLearning", r.e.SetLearning(on, 0.2, nil), want)
 	}
-	r.set(trigger, 0.3, "") // merely touched
-	r.set(stickX, 0.55, "") // does not rest quite still
-	r.set(stickX, 0.7, "")  // less than halfway out
+	r.set(trigger, 0.25, "ControlChange ch=1 controller=7 value=32")
+
+	// The command only asks; the mode is the owner's to turn on.
+	r.press(keyUp, "")
+	r.release(keyUp, "")
+	if !r.e.LearnRequested() || r.e.LearnRequested() || r.e.State().Learning {
+		t.Error("the command should ask once, and change nothing by itself")
+	}
+	learn(true, "")
+	if !r.e.State().Learning {
+		t.Error("Learning is not set")
+	}
+
+	r.set(trigger, 0.3, "")  // trembling
+	r.set(trigger, 0.44, "") // not a fifth of the range yet
+	r.set(trigger, 0.5, "ControlChange ch=1 controller=7 value=64")
 	r.set(trigger, 0.75, "ControlChange ch=1 controller=7 value=95")
-	r.set(stickX, 0.1, "ControlChange ch=1 controller=10 value=12")
+	r.set(trigger, 0.4, "ControlChange ch=1 controller=7 value=32") // back: where it stood
+	r.set(trigger, 0.2, "")
+	r.set(trigger, 0.0, "ControlChange ch=1 controller=7 value=0") // the other way out
+
+	// An axis that says its first word during learning stands there. A
+	// stick's range is twice as long, from one end to the other.
+	r.set(stickX, 0.55, "ControlChange ch=1 controller=10 value=70")
+	r.set(stickX, 0.7, "")
+	r.set(stickX, 0.4, "")
+	r.set(stickX, 0.8, "ControlChange ch=1 controller=10 value=102")
+	r.set(stickX, 0.6, "ControlChange ch=1 controller=10 value=70")
+
 	r.press(keyA, "ControlChange ch=1 controller=64 value=127")
 	r.release(keyA, "ControlChange ch=1 controller=64 value=0")
-	r.release(keyUp, "")
+
+	// The mode ends: every axis is where it really is.
+	r.set(trigger, 0.3, "ControlChange ch=1 controller=7 value=32")
+	learn(false, "ControlChange ch=1 controller=7 value=38; ControlChange ch=1 controller=10 value=76")
 	if r.e.State().Learning {
 		t.Error("Learning stayed set")
 	}
-	r.set(trigger, 0.3, "ControlChange ch=1 controller=7 value=38")
+	r.set(trigger, 0.31, "ControlChange ch=1 controller=7 value=39")
+	learn(false, "") // again changes nothing
 }
 
 func TestNewCommandNames(t *testing.T) {
@@ -808,19 +958,416 @@ func TestHalvesShareATarget(t *testing.T) {
 	r.reset("")
 }
 
-// A position kept back while learn is held arrives when learn is let go
-// of: a stick that went out and came back must not leave the pitch bent.
-func TestLearnCatchesUp(t *testing.T) {
+// One half of a stick that stops bending the pitch, because a held key
+// gives it another part, leaves the bend of the other half alone.
+func TestHalfLettingGoKeepsTheOtherHalfsBend(t *testing.T) {
 	r := newRig(t, baseProfile(
-		key(keyUp, CommandLearn),
+		Binding{Source: Source{Code: stickX, Range: RangeUpper}, Action: PitchBend{}},
+		Binding{Source: Source{Code: stickX, Range: RangeLower}, Action: PitchBend{Down: true}},
+		Binding{Source: Source{Code: stickX, Range: RangeLower, Modifiers: []control.Code{keyShift}}, Action: Note{Note: 60}},
+	))
+	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
+	r.press(keyShift, "")
+	r.set(stickX, 1, "") // still pushed right: the bend stays
+	r.set(stickX, 0.75, "PitchBend ch=1 bend=+4096")
+	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
+	r.set(stickX, 0, "NoteOn ch=1 note=C3 velocity=100")
+}
+
+// A stick that was pushed out during learning and let go of ends at rest,
+// and what stands still does so through turning HIDI off and on.
+func TestLearnAtRestAndThroughReset(t *testing.T) {
+	r := newRig(t, baseProfile(
 		Binding{Source: Source{Code: stickX, Centered: true}, Action: PitchBend{}},
 	))
-	r.press(keyUp, "")
+	r.set(stickX, 0.5, "PitchBend ch=1 bend=+0")
+	r.expect("on", r.e.SetLearning(true, 0.2, nil), "") // a fifth
+	r.set(stickX, 0.65, "")                             // 0.3 of the range of 2: within
 	r.set(stickX, 1, "PitchBend ch=1 bend=+8191")
-	r.set(stickX, 0.6, "") // on its way back: kept
-	r.set(stickX, 0.5, "") // at rest: kept
-	r.release(keyUp, "PitchBend ch=1 bend=+0")
-	// Nothing is owed after that.
-	r.press(keyUp, "")
-	r.release(keyUp, "")
+	r.set(stickX, 0.6, "PitchBend ch=1 bend=+0") // back within: at rest
+	r.set(stickX, 0.5, "")
+	// Turned off and on, the stick starts from where it is then.
+	r.reset("")
+	if !r.e.State().Learning {
+		t.Error("a reset ended learning")
+	}
+	r.set(stickX, 0.75, "PitchBend ch=1 bend=+4096")
+	r.set(stickX, 0.8, "")
+	r.expect("off", r.e.SetLearning(false, 0, nil), "PitchBend ch=1 bend=+4915")
+}
+
+// A passed key sends nothing, and the engine tells which keys are passed
+// in the layout that is selected.
+func TestPassthrough(t *testing.T) {
+	space, a, next := control.Key(57), control.Key(30), control.Key(88)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Global:   []Binding{{Source: Source{Code: next}, Action: CommandLayoutNext}},
+		Layouts: []Layout{
+			{Name: "Open", Bindings: []Binding{
+				{Source: Source{Code: space}, Action: Passthrough{}},
+				{Source: Source{Code: a}, Action: Note{Note: 60}},
+			}},
+			{Name: "Closed", Bindings: []Binding{{Source: Source{Code: a}, Action: Note{Note: 60}}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.Passed(); len(got) != 1 || got[0] != space {
+		t.Errorf("Passed() = %v", got)
+	}
+	if out := e.Handle(control.Event{Code: space, Value: 1}, nil); len(out) != 0 {
+		t.Errorf("a passed key sent %v", out)
+	}
+	if out := e.Handle(control.Event{Code: space, Value: 0}, nil); len(out) != 0 {
+		t.Errorf("its release sent %v", out)
+	}
+	e.Handle(control.Event{Code: next, Value: 1}, nil)
+	if got := e.Passed(); len(got) != 0 {
+		t.Errorf("Passed() in a layout without one = %v", got)
+	}
+}
+
+// A control that is told to do nothing does nothing, also where a binding
+// for every layout would give it something to do; and it is not among the
+// keys that have a part.
+func TestNothing(t *testing.T) {
+	a, b, next := control.Key(30), control.Key(48), control.Key(88)
+	x := control.Axis(0)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Global: []Binding{
+			{Source: Source{Code: next}, Action: CommandLayoutNext},
+			{Source: Source{Code: a}, Action: Note{Note: 60}},
+			{Source: Source{Code: x}, Action: ControlChange{Controller: 7}},
+		},
+		Layouts: []Layout{
+			{Name: "Quiet", Bindings: []Binding{
+				{Source: Source{Code: a}, Action: Nothing{}},
+				{Source: Source{Code: x}, Action: Nothing{}},
+				{Source: Source{Code: b}, Action: Note{Note: 62}},
+			}},
+			{Name: "Loud"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range []control.Event{{Code: a, Value: 1}, {Code: a, Value: 0}, {Code: x, Value: 0.7}, {Code: x, Value: 0.2}} {
+		if out := e.Handle(ev, nil); len(out) != 0 {
+			t.Errorf("%v of a control that does nothing sent %v", ev, out)
+		}
+	}
+	keys, _, _ := e.Keys()
+	for _, k := range keys {
+		if k.Code == a {
+			t.Errorf("a key that does nothing has a part: %+v", k)
+		}
+	}
+	if len(keys) != 2 {
+		t.Errorf("keys with a part: %+v, want the note and the command", keys)
+	}
+	// In the other layout the bindings for every layout count again.
+	e.Handle(control.Event{Code: next, Value: 1}, nil)
+	e.Handle(control.Event{Code: next, Value: 0}, nil)
+	if out := e.Handle(control.Event{Code: a, Value: 1}, nil); len(out) != 1 {
+		t.Errorf("the key in the layout that does not silence it sent %v", out)
+	}
+	if out := e.Handle(control.Event{Code: x, Value: 1}, nil); len(out) != 1 {
+		t.Errorf("the axis in the layout that does not silence it sent %v", out)
+	}
+}
+
+// An axis as a button triggers where its binding says, and lets go a
+// little below that; a key is down or not, whatever it says.
+func TestThreshold(t *testing.T) {
+	x, z, a := control.Axis(0), control.Axis(2), control.Key(30)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Layouts: []Layout{{Name: "L", Bindings: []Binding{
+			{Source: Source{Code: z, Threshold: 0.2}, Action: Note{Note: 60}},
+			{Source: Source{Code: x, Range: RangeUpper, Threshold: 0.8}, Action: Note{Note: 62}},
+			{Source: Source{Code: x, Range: RangeLower}, Action: Note{Note: 64}},
+			{Source: Source{Code: a, Threshold: 0.9}, Action: Note{Note: 65}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := func(ev control.Event) string {
+		var b strings.Builder
+		for _, m := range e.Handle(ev, nil) {
+			b.WriteString(m.String() + "; ")
+		}
+		return b.String()
+	}
+	for _, step := range []struct {
+		ev   control.Event
+		want string
+	}{
+		{control.Event{Code: z, Value: 0.2}, ""}, // at the point: half the hysteresis short
+		{control.Event{Code: z, Value: 0.22}, "NoteOn"},
+		{control.Event{Code: z, Value: 0.2}, ""}, // back at the point: still held
+		{control.Event{Code: z, Value: 0.18}, "NoteOff"},
+		// The upper half of the stick at four fifths of its way, the
+		// lower at the usual half.
+		{control.Event{Code: x, Value: 0.85}, ""},
+		{control.Event{Code: x, Value: 0.91}, "NoteOn"},
+		{control.Event{Code: x, Value: 0.5}, "NoteOff"},
+		{control.Event{Code: x, Value: 0.24}, "NoteOn"},
+		{control.Event{Code: x, Value: 0.5}, "NoteOff"},
+		{control.Event{Code: a, Value: 1}, "NoteOn"},
+		{control.Event{Code: a, Value: 0}, "NoteOff"},
+	} {
+		got := notes(step.ev)
+		if (step.want == "") != (got == "") || !strings.Contains(got, step.want) {
+			t.Errorf("%v at %v: sent %q, want %q", step.ev.Code, step.ev.Value, got, step.want)
+		}
+	}
+	if _, err := New(Profile{Layouts: []Layout{{Name: "L", Bindings: []Binding{{Source: Source{Code: z, Threshold: 1}, Action: Note{Note: 60}}}}}}); err == nil {
+		t.Error("a threshold of 1 was accepted")
+	}
+}
+
+// What a layout sends by the position of controls is listed in the order
+// of the controls, axes first, each target once, with what was last sent.
+func TestControllers(t *testing.T) {
+	x, y, z, key, next := control.Axis(0), control.Axis(1), control.Axis(2), control.Key(57), control.Key(88)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100, Channel: 2},
+		Global: []Binding{
+			{Source: Source{Code: next}, Action: CommandLayoutNext},
+			{Source: Source{Code: key}, Action: ControlChange{Controller: 64}},
+		},
+		Layouts: []Layout{
+			{Name: "One", Bindings: []Binding{
+				{Source: Source{Code: z}, Action: ControlChange{Controller: 7, ChannelOffset: 1}},
+				{Source: Source{Code: y, Centered: true}, Action: PitchBend{}},
+				{Source: Source{Code: x, Range: RangeUpper}, Action: ControlChange{Controller: 20}},
+				{Source: Source{Code: x, Range: RangeLower}, Action: ControlChange{Controller: 21}},
+				{Source: Source{Code: control.Key(30)}, Action: Note{Note: 60}},
+			}},
+			{Name: "Two", Bindings: []Binding{{Source: Source{Code: z}, Action: PitchBend{}}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := func() string {
+		var b strings.Builder
+		for _, s := range e.Controllers() {
+			name := fmt.Sprintf("cc%d", s.Controller)
+			if s.PitchBend {
+				name = "bend"
+			}
+			value := "?"
+			if s.Known && s.PitchBend {
+				value = fmt.Sprint(int(midi.To14(s.Value)) - 8192)
+			} else if s.Known {
+				value = fmt.Sprint(midi.To7(s.Value))
+			}
+			fmt.Fprintf(&b, "%s ch%d=%s ", name, s.Channel+1, value)
+		}
+		return strings.TrimSpace(b.String())
+	}
+	if got, want := list(), "cc20 ch3=? cc21 ch3=? bend ch3=? cc7 ch4=? cc64 ch3=?"; got != want {
+		t.Errorf("before anything moved:\n %s\nwant\n %s", got, want)
+	}
+	e.Handle(control.Event{Code: z, Value: 1}, nil)
+	e.Handle(control.Event{Code: y, Value: 0.5}, nil)
+	e.Handle(control.Event{Code: x, Value: 0.75}, nil)
+	e.Handle(control.Event{Code: key, Value: 1}, nil)
+	if got, want := list(), "cc20 ch3=64 cc21 ch3=0 bend ch3=0 cc7 ch4=127 cc64 ch3=127"; got != want {
+		t.Errorf("after moving:\n %s\nwant\n %s", got, want)
+	}
+	// Another layout: what it sends, and the pitch bend once.
+	e.Handle(control.Event{Code: next, Value: 1}, nil)
+	if got := list(); !strings.HasPrefix(got, "bend ch3=") || strings.Count(got, "bend") != 1 || !strings.Contains(got, "cc64") || strings.Contains(got, "cc7") {
+		t.Errorf("in the second layout: %s", got)
+	}
+}
+
+// An axis that acts as a button has to pass its trigger point by half the
+// hysteresis to count as pressed and to come back behind it by as much to
+// be let go. Neither end leaves the travel of the axis, so whatever the
+// two are set to, the note can be played and ended.
+func TestHysteresis(t *testing.T) {
+	z := control.Axis(2)
+	for _, tt := range []struct {
+		name           string
+		threshold, h   float64
+		press, release float64 // where it begins and ends
+		between        float64 // a place where it stays as it is
+	}{
+		{"as HIDI comes", 0, DefaultHysteresis, 0.51, 0.49, 0.5},
+		{"a tenth", 0, 0.1, 0.55, 0.45, 0.5},
+		{"the whole travel", 0, 1, 1, 0, 0.5},
+		{"more than the travel has above the point", 0.9, 0.5, 1, 0.65, 0.8},
+		{"more than the travel has below the point", 0.1, 0.5, 0.35, 0, 0.2},
+		{"none", 0.3, 0, 0.3, 0.3, 0.3},
+	} {
+		e, err := New(Profile{
+			Defaults: Defaults{Velocity: 100},
+			Layouts: []Layout{{Name: "L", Bindings: []Binding{
+				{Source: Source{Code: z, Threshold: tt.threshold}, Action: Note{Note: 60}},
+			}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.SetHysteresis(tt.h)
+		sent := func(v float64) int { return len(e.Handle(control.Event{Code: z, Value: v}, nil)) }
+		const hair = 0.001
+		if tt.press-hair > tt.release && sent(tt.press-hair) != 0 {
+			t.Errorf("%s: pressed a hair before %v", tt.name, tt.press)
+		}
+		if sent(tt.press) != 1 {
+			t.Errorf("%s: not pressed at %v", tt.name, tt.press)
+		}
+		if sent(tt.between) != 0 {
+			t.Errorf("%s: let go at %v, between the two", tt.name, tt.between)
+		}
+		if tt.release+hair < tt.press && sent(tt.release+hair) != 0 {
+			t.Errorf("%s: let go a hair before %v", tt.name, tt.release)
+		}
+		down := tt.release
+		if tt.release == tt.press {
+			down -= hair // with no hysteresis the point itself is pressed
+		}
+		if sent(down) != 1 {
+			t.Errorf("%s: not let go at %v", tt.name, down)
+		}
+		if tt.between > tt.release && tt.between < tt.press && sent(tt.between) != 0 {
+			t.Errorf("%s: pressed at %v, between the two", tt.name, tt.between)
+		}
+	}
+	// A key is down or not, whatever the hysteresis.
+	a := control.Key(30)
+	e, _ := New(Profile{Layouts: []Layout{{Name: "L", Bindings: []Binding{{Source: Source{Code: a}, Action: Note{Note: 60}}}}}, Defaults: Defaults{Velocity: 100}})
+	e.SetHysteresis(1)
+	if len(e.Handle(control.Event{Code: a, Value: 1}, nil)) != 1 || len(e.Handle(control.Event{Code: a, Value: 0}, nil)) != 1 {
+		t.Error("a key did not play with the hysteresis at its most")
+	}
+}
+
+// Turned off, an instrument ends its notes, and puts back to rest what it
+// is told to: the pitch bend, the controllers, both or neither. What is
+// left alone is not sent again when its axis is where it was.
+func TestSilence(t *testing.T) {
+	x, y, a := control.Axis(0), control.Axis(1), control.Key(30)
+	profile := Profile{
+		Defaults: Defaults{Velocity: 100},
+		Layouts: []Layout{{Name: "L", Bindings: []Binding{
+			{Source: Source{Code: x}, Action: ControlChange{Controller: 7}},
+			{Source: Source{Code: y, Centered: true}, Action: PitchBend{}},
+			{Source: Source{Code: a}, Action: Note{Note: 60}},
+		}}},
+	}
+	text := func(msgs []midi.Message) string {
+		var parts []string
+		for _, m := range msgs {
+			parts = append(parts, m.String())
+		}
+		return strings.Join(parts, "; ")
+	}
+	for _, tt := range []struct {
+		rest    Rest
+		off, on string
+	}{
+		{Rest{PitchBend: true}, "NoteOff ch=1 note=C3 velocity=0; PitchBend ch=1 bend=+0", "PitchBend ch=1 bend=+8191"},
+		{Rest{Controllers: true}, "NoteOff ch=1 note=C3 velocity=0; ControlChange ch=1 controller=7 value=0", "ControlChange ch=1 controller=7 value=95"},
+		{Rest{}, "NoteOff ch=1 note=C3 velocity=0", ""},
+		{Rest{Controllers: true, PitchBend: true}, "NoteOff ch=1 note=C3 velocity=0; ControlChange ch=1 controller=7 value=0; PitchBend ch=1 bend=+0", "ControlChange ch=1 controller=7 value=95; PitchBend ch=1 bend=+8191"},
+	} {
+		e, err := New(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.Handle(control.Event{Code: x, Value: 0.75}, nil)
+		e.Handle(control.Event{Code: y, Value: 1}, nil)
+		e.Handle(control.Event{Code: a, Value: 1}, nil)
+		if got := text(e.Silence(tt.rest, nil)); got != tt.off {
+			t.Errorf("%+v, turned off:\n got %s\nwant %s", tt.rest, got, tt.off)
+		}
+		// Turned on again, the axes say where they stand.
+		on := e.Handle(control.Event{Code: x, Value: 0.75}, nil)
+		on = e.Handle(control.Event{Code: y, Value: 1}, on)
+		if got := text(on); got != tt.on {
+			t.Errorf("%+v, turned on again:\n got %s\nwant %s", tt.rest, got, tt.on)
+		}
+	}
+}
+
+// What the engine holds and sends can be asked control by control, for
+// whoever shows it, and where each axis rests.
+func TestHeldSendsAndNeutral(t *testing.T) {
+	x, y, z, rz, a := control.Axis(0), control.Axis(1), control.Axis(2), control.Axis(5), control.Key(30)
+	e, err := New(Profile{
+		Defaults: Defaults{Velocity: 100},
+		Layouts: []Layout{{Name: "L", Bindings: []Binding{
+			{Source: Source{Code: z, Threshold: 0.3}, Action: Note{Note: 60}},
+			{Source: Source{Code: x, Range: RangeUpper}, Action: PitchBend{}},
+			{Source: Source{Code: x, Range: RangeLower}, Action: PitchBend{Down: true}},
+			{Source: Source{Code: y, Centered: true}, Action: ControlChange{Controller: 7}},
+			{Source: Source{Code: rz, Invert: true}, Action: ControlChange{Controller: 8}},
+			{Source: Source{Code: a}, Action: Note{Note: 62}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.SetHysteresis(0.2)
+	// Held follows the hysteresis: pressed a tenth past the point, let
+	// go a tenth behind it.
+	for _, step := range []struct {
+		v    float64
+		held bool
+	}{{0.35, false}, {0.41, true}, {0.3, true}, {0.21, true}, {0.19, false}, {0.35, false}} {
+		e.Handle(control.Event{Code: z, Value: step.v}, nil)
+		if got := e.Held(z, "", RangeWhole); got != step.held {
+			t.Errorf("the axis at %v: held %v, want %v", step.v, got, step.held)
+		}
+	}
+	e.Handle(control.Event{Code: a, Value: 1}, nil)
+	if !e.Held(a, "", RangeWhole) || e.Held(a, "", RangeUpper) || e.Held(control.Key(31), "", RangeWhole) {
+		t.Error("Held of a key that is down, of a half of it, and of a key nobody touched")
+	}
+
+	// Sends: nothing known before anything was sent, then the value;
+	// the two halves that bend the pitch send to the same place.
+	if s, ok := e.Sends(y, "", RangeWhole); !ok || s.Known || s.Controller != 7 {
+		t.Errorf("before the axis moved: %+v, %v", s, ok)
+	}
+	e.Handle(control.Event{Code: y, Value: 1}, nil)
+	if s, ok := e.Sends(y, "", RangeWhole); !ok || !s.Known || midi.To7(s.Value) != 127 {
+		t.Errorf("after the axis moved: %+v, %v", s, ok)
+	}
+	e.Handle(control.Event{Code: x, Value: 0}, nil)
+	up, _ := e.Sends(x, "", RangeUpper)
+	down, _ := e.Sends(x, "", RangeLower)
+	if !up.PitchBend || !down.PitchBend || !up.Known || up.Value != down.Value || int(midi.To14(up.Value))-8192 != -8192 {
+		t.Errorf("the halves of the pitch bend: %+v, %+v", up, down)
+	}
+	if _, ok := e.Sends(z, "", RangeWhole); ok {
+		t.Error("an axis that plays a note is said to send a controller")
+	}
+
+	// Where the axes rest.
+	want := map[control.Code]float64{x: 0.5, y: 0.5, z: 0, rz: 1}
+	got := e.Neutrals()
+	if len(got) != len(want) {
+		t.Fatalf("Neutrals: %+v", got)
+	}
+	for _, n := range got {
+		if n.At != want[n.Code] {
+			t.Errorf("%s rests at %v, want %v", n.Code, n.At, want[n.Code])
+		}
+		if at, ok := e.Neutral(n.Code, ""); !ok || at != n.At {
+			t.Errorf("Neutral(%s) = %v, %v", n.Code, at, ok)
+		}
+	}
+	if _, ok := e.Neutral(control.Axis(9), ""); ok {
+		t.Error("an axis nothing reads has a place to rest")
+	}
 }

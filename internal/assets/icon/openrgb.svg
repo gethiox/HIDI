@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  The sign HIDI uses for OpenRGB (https://openrgb.org), after that
+  project's logo and reduced to its simplest: a ring of colour with a
+  slice cut out of it at the bottom, which with the hole in the middle
+  makes a keyhole. What is cut out is clear.
+
+  The colour is a mesh gradient (SVG 2; Inkscape draws it). It has six
+  patches in one row that goes once around the middle: each is a slice of
+  sixty degrees between two of red, yellow, green, cyan, blue and magenta.
+  The upper edge of a patch is the arc at the rim, the lower one a tiny
+  arc at the middle, so that colour changes with the angle only. Where
+  mesh gradients are not drawn, the ring is grey.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="164" height="164" viewBox="0 0 164 164" version="1.1">
+  <defs>
+    <meshgradient id="wheel" gradientUnits="userSpaceOnUse" x="1" y="82">
+      <meshrow>
+      <meshpatch>
+        <stop path="c 0,-28.939 15.439,-55.679 40.5,-70.148" stop-color="#ff0000" />
+        <stop path="l 40,69.282" stop-color="#ffff00" />
+        <stop path="c -0.309,0.179 -0.5,0.509 -0.5,0.866" stop-color="#ffff00" />
+        <stop path="l -80,0" stop-color="#ff0000" />
+      </meshpatch>
+      <meshpatch>
+        <stop path="c 25.061,-14.469 55.939,-14.469 81,0" />
+        <stop path="l -40,69.282" stop-color="#00ff00" />
+        <stop path="c -0.309,-0.179 -0.691,-0.179 -1,0" stop-color="#00ff00" />
+      </meshpatch>
+      <meshpatch>
+        <stop path="c 25.061,14.469 40.5,41.21 40.5,70.148" />
+        <stop path="l -80,0" stop-color="#00ffff" />
+        <stop path="c 0,-0.357 -0.191,-0.687 -0.5,-0.866" stop-color="#00ffff" />
+      </meshpatch>
+      <meshpatch>
+        <stop path="c 0,28.939 -15.439,55.679 -40.5,70.148" />
+        <stop path="l -40,-69.282" stop-color="#0000ff" />
+        <stop path="c 0.309,-0.179 0.5,-0.509 0.5,-0.866" stop-color="#0000ff" />
+      </meshpatch>
+      <meshpatch>
+        <stop path="c -25.061,14.469 -55.939,14.469 -81,0" />
+        <stop path="l 40,-69.282" stop-color="#ff00ff" />
+        <stop path="c 0.309,0.179 0.691,0.179 1,0" stop-color="#ff00ff" />
+      </meshpatch>
+      <meshpatch>
+        <stop path="c -25.061,-14.469 -40.5,-41.21 -40.5,-70.148" />
+        <stop path="l 80,-0" stop-color="#ff0000" />
+        <stop path="c 0,0.357 0.191,0.687 0.5,0.866" stop-color="#ff0000" />
+      </meshpatch>
+      </meshrow>
+    </meshgradient>
+  </defs>
+  <path d="M 114.539,155.084 A 80,80 0 1 0 49.461,155.084 L 71.018,106.666 A 27,27 0 1 1 92.982,106.666 Z" fill="url(#wheel) #808080" />
+</svg>

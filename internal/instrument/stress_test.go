@@ -13,9 +13,16 @@ import (
 )
 
 func TestStress(t *testing.T) {
-	oldR, oldH, oldT, oldP := RetryOutput, healthPeriod, TapHold, ratePeriod
+	oldR, oldH, oldT, oldP, oldM := RetryOutput, healthPeriod, TapHold, ratePeriod, maxRetryOutput
 	RetryOutput, healthPeriod, TapHold, ratePeriod = 3*time.Millisecond, 3*time.Millisecond, 2*time.Millisecond, 5*time.Millisecond
-	t.Cleanup(func() { RetryOutput, healthPeriod, TapHold, ratePeriod = oldR, oldH, oldT, oldP })
+	// The wait between tries doubles with every failure. Without a bound
+	// that fits this test, an instrument that failed ten times in a row
+	// waits seconds for its next try, longer than the test gives it to
+	// settle: seen once as "HIDI is on but the device is not grabbed".
+	maxRetryOutput = 40 * time.Millisecond
+	t.Cleanup(func() {
+		RetryOutput, healthPeriod, TapHold, ratePeriod, maxRetryOutput = oldR, oldH, oldT, oldP, oldM
+	})
 
 	before := runtime.NumGoroutine()
 	var lmu sync.Mutex
@@ -79,12 +86,12 @@ func TestStress(t *testing.T) {
 		switch rng.Intn(3) {
 		case 0:
 			r.manager.SetInput(toggleKeys, func(control.DeviceInfo) bool { return true })
-			r.manager.SetToggleTap(false, false)
+			r.manager.SetToggleTap(false)
 		case 1:
 			r.manager.SetInput([]control.Code{keyZ}, func(control.DeviceInfo) bool { return true })
-			r.manager.SetToggleTap(true, true)
+			r.manager.SetToggleTap(true)
 		case 2:
-			r.manager.SetToggleTap(true, false)
+			r.manager.SetToggleTap(true)
 		}
 		time.Sleep(2 * time.Millisecond)
 	})
@@ -124,7 +131,7 @@ func TestStress(t *testing.T) {
 	}
 	r.mu.Unlock()
 	r.manager.SetInput(toggleKeys, func(control.DeviceInfo) bool { return true })
-	r.manager.SetToggleTap(false, false)
+	r.manager.SetToggleTap(false)
 	r.manager.SetProfiles(append(builtin(t), profile(t, "Pedal", "vendor = 0x1234\nproduct = 1", "D3")))
 	for _, d := range devs {
 		for len(d.events) > 0 {

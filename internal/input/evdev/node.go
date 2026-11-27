@@ -60,6 +60,9 @@ type Info struct {
 	// Keys and Axes list the keys, buttons and absolute axes the device
 	// has, in ascending order.
 	Keys, Axes []control.Code
+	// Hats are those of Axes that are a direction pair of a hat: their
+	// range is a step to either side of the middle.
+	Hats []control.Code
 	// Relative reports whether the device has relative axes, as a mouse
 	// does.
 	Relative bool
@@ -226,6 +229,9 @@ func (n *Node) describe() error {
 					return fmt.Errorf("reading the range of %v: %w", control.Axis(a), err)
 				}
 				n.info.Axes = append(n.info.Axes, control.Axis(a))
+				if r.max-r.min <= 2 {
+					n.info.Hats = append(n.info.Hats, control.Axis(a))
+				}
 				n.ranges[a] = r
 				n.absValue[a] = value
 			}

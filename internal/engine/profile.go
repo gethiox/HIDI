@@ -56,6 +56,12 @@ type Source struct {
 	// ignored, from 0 up to but not including 1. The remaining travel is
 	// stretched to cover the full output range.
 	Deadzone float64
+	// Threshold is how far the control has to be moved, as a fraction of
+	// the travel that is left after shaping, for a note, a program
+	// change or a command to trigger: an axis as a button. Zero means
+	// the usual half. A key, which is either down or not, triggers
+	// whatever it says.
+	Threshold float64
 	// Modifiers are keys that must all be held for the binding to apply.
 	// When several bindings match a control, the one with the most
 	// modifiers wins.
@@ -73,7 +79,8 @@ func (s *Source) selfCentering() bool {
 func (s *Source) bipolar() bool { return s.Range == RangeWhole && s.Centered }
 
 // Action is what a binding does. The implementations are [Note],
-// [ControlChange], [PitchBend], [ProgramChange] and [Command].
+// [ControlChange], [PitchBend], [ProgramChange], [Command] and
+// [Passthrough] and [Nothing].
 type Action interface {
 	// momentary reports whether the action reads its source as pressed or
 	// released, as opposed to following its position.
@@ -131,6 +138,27 @@ type ProgramChange struct {
 	ChannelOffset uint8
 }
 
+// Passthrough leaves a key to the rest of the system: the key plays
+// nothing and types what it always types, also while HIDI is on and the
+// other keys of the device do not. That is for the keys a program needs
+// while it is played into, the space bar that starts and stops a
+// recording for one. The engine does nothing for it; whoever holds the
+// device passes the key on (see [Engine.Passed]).
+type Passthrough struct{}
+
+// PassthroughName is how a passed key is written in a profile.
+const PassthroughName = "passthrough"
+
+// Nothing is the action of a control that is to do nothing. A control
+// without a binding does nothing either; Nothing says so where something
+// else would otherwise give it a part: a binding that applies in every
+// layout, or the rule by which a profile binds the controls it does not
+// name.
+type Nothing struct{}
+
+// NothingName is how a control that does nothing is written in a profile.
+const NothingName = "nothing"
+
 // Command changes the state of the instrument when the source is pressed.
 //
 // The Up and Down commands of a pair reset the value to the profile's
@@ -152,7 +180,8 @@ const (
 	CommandLayoutNext
 	CommandLayoutPrevious
 	// CommandVelocityUp and CommandVelocityDown change the velocity of
-	// notes that do not set their own.
+	// notes that do not set their own, a step at a time: see
+	// [Engine.SetVelocityStep].
 	CommandVelocityUp
 	CommandVelocityDown
 	// CommandPanic silences the instrument: it releases every held note and
@@ -163,15 +192,23 @@ const (
 	// every note played sounds with those intervals above it. Pressed
 	// while fewer notes are held, it forgets the chord.
 	CommandChord
-	// CommandLearn, while held, lets an axis through only when it is moved
-	// more than halfway. That is for teaching a program which controller
-	// to listen to: the program takes the first one it hears, and an axis
-	// that is merely touched, or does not rest quite still, must not be
-	// that one.
+	// CommandLearn asks for learning mode to be turned on, or off if it
+	// is on: see [Engine.SetLearning]. The mode is one for all
+	// instruments, so the engine only notes the wish
+	// ([Engine.LearnRequested]).
 	CommandLearn
+	// CommandToggle turns HIDI off and on, for all instruments. The
+	// engine does nothing for it: it does not run while HIDI is off, and
+	// the key has to work then. Whoever holds the device watches the key
+	// or the keys of the binding itself.
+	CommandToggle
 
 	commandCount
 )
+
+// ToggleName is how the command that turns HIDI off and on is written in
+// a profile.
+const ToggleName = "hidi_toggle"
 
 var commandNames = [commandCount]string{
 	CommandOctaveUp: "octave_up", CommandOctaveDown: "octave_down",
@@ -180,6 +217,7 @@ var commandNames = [commandCount]string{
 	CommandLayoutNext: "layout_next", CommandLayoutPrevious: "layout_previous",
 	CommandVelocityUp: "velocity_up", CommandVelocityDown: "velocity_down",
 	CommandPanic: "panic", CommandChord: "chord", CommandLearn: "learn",
+	CommandToggle: ToggleName,
 }
 
 // String returns the name used for the command in configuration files, such
@@ -217,6 +255,8 @@ func (c Command) opposite() Command {
 func (Note) momentary() bool          { return true }
 func (ProgramChange) momentary() bool { return true }
 func (Command) momentary() bool       { return true }
+func (Passthrough) momentary() bool   { return true }
+func (Nothing) momentary() bool       { return true }
 func (ControlChange) momentary() bool { return false }
 func (PitchBend) momentary() bool     { return false }
 
@@ -285,8 +325,6 @@ const (
 	MaxOctave = 10
 	// MaxTranspose bounds the transposition in both directions.
 	MaxTranspose = 127
-	// velocityStep is how far the velocity commands move the velocity.
-	velocityStep = 8
 )
 
 // Defaults is the state an instrument starts in and the state the reset
@@ -311,7 +349,9 @@ type Profile struct {
 	// Layouts are the switchable binding sets. There must be at least one.
 	Layouts []Layout
 	// Global bindings apply in every layout. When a layout binding and a
-	// global binding match equally well, the layout binding wins.
+	// global binding match equally well, the layout binding wins. The
+	// profiles HIDI reads put the binding of [CommandToggle] here and
+	// nothing else; every layout holds the rest of its bindings itself.
 	Global []Binding
 	// Defaults is the initial state.
 	Defaults Defaults
@@ -393,6 +433,8 @@ func (b *Binding) validate() error {
 		return fmt.Errorf("%v: dead zone %v is outside 0 to 1", s.Code, s.Deadzone)
 	case s.Centered && s.Range != RangeWhole:
 		return fmt.Errorf("%v: centered applies to the whole range only", s.Code)
+	case !(s.Threshold >= 0 && s.Threshold < 1):
+		return fmt.Errorf("%v: threshold %v is outside 0 to 1", s.Code, s.Threshold)
 	}
 	for _, m := range s.Modifiers {
 		if m.Kind != control.KindKey {
@@ -426,6 +468,11 @@ func (b *Binding) validate() error {
 		if a == 0 || a >= commandCount {
 			return fmt.Errorf("%v: invalid command %d", s.Code, a)
 		}
+	case Passthrough:
+		if s.Code.Kind != control.KindKey || s.Part != "" || len(s.Modifiers) != 0 {
+			return fmt.Errorf("%v: only a key of the main part, pressed alone, can be passed through", s.Code)
+		}
+	case Nothing:
 	default:
 		return fmt.Errorf("%v: unsupported action type %T", s.Code, a)
 	}

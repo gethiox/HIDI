@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,15 +33,37 @@ type fakeDevice struct {
 	err     error
 	closed  bool
 	grabbed bool
+	grabs   int // how often it was grabbed
 	grabErr error
+	// has is what the device says it has.
+	has []control.Input
+}
+
+// padControls is what a game controller of the tests says it has: the
+// buttons and axes of an ordinary pad, the last two axes those of its hat.
+func padControls() []control.Input {
+	var out []control.Input
+	for _, n := range []uint16{0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c, 0x13d, 0x13e} {
+		out = append(out, control.Input{Code: control.Key(n)})
+	}
+	for _, n := range []uint16{0, 1, 2, 3, 4, 5} {
+		out = append(out, control.Input{Code: control.Axis(n)})
+	}
+	return append(out, control.Input{Code: control.Axis(0x10), Hat: true}, control.Input{Code: control.Axis(0x11), Hat: true})
 }
 
 func newFakeDevice(name string, typ control.DeviceType) *fakeDevice {
-	return &fakeDevice{
+	d := &fakeDevice{
 		info:   control.DeviceInfo{Name: name, Type: typ},
 		events: make(chan control.Event, 16),
 	}
+	if typ == control.DeviceGamepad {
+		d.has = padControls()
+	}
+	return d
 }
+
+func (d *fakeDevice) Controls() []control.Input { return d.has }
 
 func (d *fakeDevice) Info() control.DeviceInfo     { return d.info }
 func (d *fakeDevice) Events() <-chan control.Event { return d.events }
@@ -52,6 +75,7 @@ func (d *fakeDevice) Grab() error {
 		return d.grabErr
 	}
 	d.grabbed = true
+	d.grabs++
 	return nil
 }
 
@@ -173,6 +197,7 @@ type rig struct {
 	endpoints map[string]*fakeEndpoint
 	openErr   error
 	failures  int // attempts to open an endpoint that failed
+	opened    int // endpoints opened
 }
 
 func (r *rig) openFailures() int {
@@ -210,6 +235,7 @@ func newRigWith(t *testing.T, opts Options, extra ...*config.Profile) *rig {
 		}
 		e := &fakeEndpoint{name: name, incoming: make(chan []midi.Message, 8), gone: make(chan struct{})}
 		r.endpoints[name] = e
+		r.opened++
 		return e, nil
 	}
 	r.manager = NewManager(opts)
@@ -772,7 +798,7 @@ func builtin(t *testing.T) []*config.Profile {
 // A changed profile takes over a playing instrument: the held note is
 // released, the MIDI device stays, and the next press plays the new note.
 func TestSetProfilesReplacesProfile(t *testing.T) {
-	r := newRigWith(t, Options{Grab: GrabKeyboards}, profile(t, "Mine", `type = "keyboard"`, "C3"))
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys}, profile(t, "Mine", `type = "keyboard"`, "C3"))
 	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
 	e := r.plug(kbd)
 	kbd.set(keyZ, 1)
@@ -1038,6 +1064,8 @@ type fakeLight struct {
 	scene  light.Scene
 	shown  int
 	closed bool
+	// dark says that the keyboard's lights are not HIDI's to set.
+	dark bool
 }
 
 func (l *fakeLight) Show(s light.Scene) {
@@ -1045,6 +1073,25 @@ func (l *fakeLight) Show(s light.Scene) {
 	l.scene = s
 	l.shown++
 	l.mu.Unlock()
+}
+
+func (l *fakeLight) Preview() (map[control.Code]light.RGB, light.RGB) {
+	return map[control.Code]light.RGB{control.Key(30): {R: 1, G: 2, B: 3}}, light.RGB{R: 9}
+}
+
+func (l *fakeLight) Painted() (map[control.Code]light.RGB, light.RGB, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.dark {
+		return nil, light.RGB{}, false
+	}
+	// What a lamp would tell: one colour for a key that is down while
+	// HIDI is off, another for every other key.
+	keys := map[control.Code]light.RGB{}
+	for _, code := range l.scene.Pressed {
+		keys[code] = light.RGB{R: 255}
+	}
+	return keys, light.RGB{B: 1}, l.shown > 0 && !l.closed
 }
 
 func (l *fakeLight) Close() {
@@ -1231,9 +1278,23 @@ func TestRatesAndMIDILog(t *testing.T) {
 			st := r.manager.Status()
 			return len(st) == 1 && st[0].InputRate > 0 && st[0].MIDIRate > 0
 		})
+		// The trail has the step in which it happened, as a rate of that
+		// step alone: one event in a tenth of the period is ten a period.
+		eventually(t, "the event in the trail", func() bool {
+			st := r.manager.Status()
+			if len(st) != 1 || len(st[0].Trail.Input) != TrailLen || len(st[0].Trail.MIDI) != TrailLen || st[0].Trail.Step != ratePeriod/rateSteps {
+				return false
+			}
+			return slices.Max(st[0].Trail.Input) == rateSteps && slices.Max(st[0].Trail.MIDI) == rateSteps
+		})
+		seq := r.manager.Status()[0].Trail.Seq
 		eventually(t, "the rate to fall back to nothing", func() bool {
 			st := r.manager.Status()
 			return len(st) == 1 && st[0].InputRate == 0 && st[0].MIDIRate == 0
+		})
+		eventually(t, "the event to leave the trail, which goes on", func() bool {
+			tr := r.manager.Status()[0].Trail
+			return slices.Max(tr.Input) == 0 && slices.Max(tr.MIDI) == 0 && tr.Seq > seq+TrailLen
 		})
 		r.stop()
 		if got := strings.Contains(buf.String(), "NoteOn"); got != logMIDI {
@@ -1262,11 +1323,15 @@ func (s *syncBuffer) String() string {
 // passingDevice is a fake device that can also hide keys from the system.
 type passingDevice struct {
 	*fakeDevice
-	pmu     sync.Mutex
-	passing bool
-	hidden  []control.Code
-	typed   []string
-	passErr error
+	pmu      sync.Mutex
+	passing  bool
+	hidden   []control.Code
+	open     []control.Code // the keys a grab lets through
+	shares   int
+	passes   int
+	shareErr error
+	typed    []string
+	passErr  error
 }
 
 func (d *passingDevice) Pass(hidden []control.Code) error {
@@ -1276,20 +1341,38 @@ func (d *passingDevice) Pass(hidden []control.Code) error {
 		return d.passErr
 	}
 	d.passing, d.hidden = true, hidden
+	d.passes++
 	d.fakeDevice.Release()
 	return nil
 }
 
+func (d *passingDevice) Share(open []control.Code) error {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	if d.shareErr != nil {
+		return d.shareErr
+	}
+	d.passing, d.open = false, open
+	d.shares++
+	return d.fakeDevice.Grab()
+}
+
+func (d *passingDevice) openKeys() []control.Code {
+	d.pmu.Lock()
+	defer d.pmu.Unlock()
+	return d.open
+}
+
 func (d *passingDevice) Grab() error {
 	d.pmu.Lock()
-	d.passing = false
+	d.passing, d.open = false, nil
 	d.pmu.Unlock()
 	return d.fakeDevice.Grab()
 }
 
 func (d *passingDevice) Release() error {
 	d.pmu.Lock()
-	d.passing = false
+	d.passing, d.open = false, nil
 	d.pmu.Unlock()
 	return d.fakeDevice.Release()
 }
@@ -1358,7 +1441,7 @@ func TestHiddenToggle(t *testing.T) {
 	TapHold = 60 * time.Millisecond
 	t.Cleanup(func() { TapHold = old })
 
-	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true, StartInactive: true})
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, StartInactive: true})
 	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
 	r.devices <- kbd
 	eventually(t, "the keyboard to be passed on while HIDI is off", kbd.isPassing)
@@ -1387,15 +1470,16 @@ func TestHiddenToggle(t *testing.T) {
 		t.Error("the long press turned HIDI off")
 	}
 
-	// Without the setting the device is simply released while off.
-	r.manager.SetToggleTap(true, false)
+	// A toggle of several keys is not kept from the system: the device
+	// is simply released while off.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
 	r.manager.SetActive(false)
 	eventually(t, "the keyboard to be released", func() bool { return !kbd.isGrabbed() && !kbd.isPassing() })
 }
 
 // A device that cannot hide the key is released while HIDI is off.
 func TestHiddenToggleFallsBack(t *testing.T) {
-	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true})
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true})
 	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard), passErr: errors.New("no uinput")}
 	r.devices <- kbd
 	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
@@ -1404,4 +1488,87 @@ func TestHiddenToggleFallsBack(t *testing.T) {
 	if kbd.isPassing() {
 		t.Error("passing although it failed")
 	}
+}
+
+// The toggle is the profile's own where the settings name none: the key
+// the profile binds to hidi_toggle turns HIDI off and on from a device
+// that plays with it, and a toggle the settings name comes before it.
+func TestToggleOfTheProfile(t *testing.T) {
+	capsLock := control.Key(58)
+	r := newRigWith(t, Options{Grab: GrabKeyboards})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	if st := r.manager.Status(); len(st) != 1 || !slices.Equal(st[0].Toggle, []control.Code{capsLock}) || st[0].Left {
+		t.Fatalf("the status: %+v", st)
+	}
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	eventually(t, "HIDI to be off", func() bool { return !r.manager.Active() && !kbd.isGrabbed() })
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	eventually(t, "HIDI to be on again", func() bool { return r.manager.Active() && kbd.isGrabbed() })
+
+	// The settings name a toggle for every device: the profile's key
+	// is one no longer.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
+	eventually(t, "the toggle of the settings", func() bool {
+		st := r.manager.Status()
+		return len(st) == 1 && slices.Equal(st[0].Toggle, toggleKeys)
+	})
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	kbd.set(keyCtrl, 1)
+	kbd.set(keyAlt, 1)
+	eventually(t, "HIDI to be off by the combination", func() bool { return !r.manager.Active() })
+	kbd.set(keyAlt, 0)
+	kbd.set(keyCtrl, 0)
+	// And leaves it to the profiles again.
+	r.manager.SetInput(nil, GrabKeyboards)
+	kbd.set(capsLock, 1)
+	kbd.set(capsLock, 0)
+	eventually(t, "HIDI to be on by the profile's key", r.manager.Active)
+}
+
+// A keyboard with nothing on it that turns HIDI off is not taken from the
+// system, whatever the settings say about keyboards: it keeps typing
+// while it plays, and the status says so.
+func TestKeyboardWithoutToggleIsLeft(t *testing.T) {
+	plain := profile(t, "Plain", `type = "keyboard"`+"\nvendor = 0x1234", "C3")
+	r := newRigWith(t, Options{Grab: GrabKeyboards}, plain)
+	kbd := newFakeDevice("Bare Keyboard", control.DeviceKeyboard)
+	kbd.info.Hardware.Vendor = 0x1234
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	e := r.plug(kbd)
+	r.plug(pad)
+	kbd.set(keyZ, 1)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=100")
+	if kbd.isGrabbed() {
+		t.Fatal("a keyboard without a toggle was taken from the system")
+	}
+	left := func(name string) (is, found bool) {
+		for _, st := range r.manager.Status() {
+			if st.Device.Name == name {
+				return st.Left, true
+			}
+		}
+		return false, false
+	}
+	if is, found := left("Bare Keyboard"); !found || !is {
+		t.Errorf("the status of the keyboard: left %v, found %v", is, found)
+	}
+	// A game controller has no toggle either and is not a keyboard: it
+	// is simply not grabbed, which is what the settings say.
+	if is, found := left("Test Pad"); !found || is {
+		t.Errorf("the status of the pad: left %v, found %v", is, found)
+	}
+	// With a toggle for every device the keyboard is taken like the
+	// others, and given back without one.
+	r.manager.SetInput(toggleKeys, GrabKeyboards)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	if is, _ := left("Bare Keyboard"); is {
+		t.Error("the status still says the keyboard is left typing")
+	}
+	r.manager.SetInput(nil, GrabKeyboards)
+	eventually(t, "the keyboard to be let go of", func() bool { return !kbd.isGrabbed() })
 }

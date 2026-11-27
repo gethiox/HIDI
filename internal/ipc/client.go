@@ -41,15 +41,31 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	return conn, nil
 }
 
+// requestTimeout is the longest one request may take, when the context
+// given allows longer.
+const requestTimeout = 5 * time.Second
+
+// bound makes a connection give up when ctx ends, or after requestTimeout
+// at the most, and returns what ends the watch on ctx.
+func bound(ctx context.Context, conn net.Conn) (stop func() bool) {
+	conn.SetDeadline(time.Now().Add(requestTimeout))
+	return context.AfterFunc(ctx, func() { conn.SetDeadline(time.Now()) })
+}
+
 // ask sends a request that is answered with one snapshot.
 func (c *Client) ask(ctx context.Context, op string) (Snapshot, error) {
+	return c.send(ctx, request{Op: op})
+}
+
+// send makes one request and returns the state HIDI answers with.
+func (c *Client) send(ctx context.Context, req request) (Snapshot, error) {
 	conn, err := c.dial(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if err := json.NewEncoder(conn).Encode(request{Op: op}); err != nil {
+	defer bound(ctx, conn)()
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Snapshot{}, fmt.Errorf("asking HIDI: %w", err)
 	}
 	var resp response
@@ -63,6 +79,94 @@ func (c *Client) ask(ctx context.Context, op string) (Snapshot, error) {
 		return Snapshot{}, errors.New("HIDI's answer has no state in it")
 	}
 	return *resp.Snapshot, nil
+}
+
+// Preview makes the running HIDI use text in place of a profile file,
+// without the file being written: for trying a change before it is saved.
+// It lasts until the file changes on disk; an empty text ends it at once.
+func (c *Client) Preview(ctx context.Context, file, text string) error {
+	return c.long(ctx, previewHead, struct {
+		File string `json:"file"`
+		Text string `json:"text"`
+	}{file, text})
+}
+
+// TrySettings makes HIDI behave by settings, written as the settings file
+// is, without saving them.
+func (c *Client) TrySettings(ctx context.Context, text string) error {
+	return c.long(ctx, settingsHead, struct {
+		Text string `json:"text"`
+	}{text})
+}
+
+// Settings returns the settings the running HIDI goes by, written as the
+// settings file is. They are the file's unless something was changed
+// since and not saved.
+func (c *Client) Settings(ctx context.Context) (string, error) {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	defer bound(ctx, conn)()
+	if err := json.NewEncoder(conn).Encode(request{Op: "current_settings"}); err != nil {
+		return "", fmt.Errorf("asking HIDI: %w", err)
+	}
+	var resp response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return "", fmt.Errorf("reading HIDI's answer: %w", err)
+	}
+	if resp.Error != "" {
+		return "", errors.New("HIDI answered: " + resp.Error)
+	}
+	return resp.Settings, nil
+}
+
+// long makes a request that may be longer than a line of the ordinary
+// kind: it begins with head, by which the server tells, and goes on with
+// the fields.
+func (c *Client) long(ctx context.Context, head string, fields any) error {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	defer bound(ctx, conn)()
+	// Written by hand so that it begins the way the server tells it by.
+	rest, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.Write(append([]byte(head+","), append(rest[1:], '\n')...)); err != nil {
+		return fmt.Errorf("asking HIDI: %w", err)
+	}
+	var resp response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return fmt.Errorf("reading HIDI's answer: %w", err)
+	}
+	if resp.Error != "" {
+		return errors.New("HIDI answered: " + resp.Error)
+	}
+	return nil
+}
+
+// ToggleLearning turns learning mode on if it is off and off if it is on,
+// and returns the state afterwards.
+func (c *Client) ToggleLearning(ctx context.Context) (Snapshot, error) { return c.ask(ctx, "learn") }
+
+// Reload asks HIDI to look at its profile files now: one of them was
+// written, and waiting for HIDI to notice by itself takes a second or two.
+func (c *Client) Reload(ctx context.Context) error {
+	_, err := c.send(ctx, request{Op: "reload"})
+	return err
+}
+
+// Simulate asks HIDI to show, or to stop showing, what the lights of an
+// instrument's keyboard would show, for a keyboard whose lights HIDI does
+// not control. The instrument is named as a snapshot names it.
+func (c *Client) Simulate(ctx context.Context, name, kind, location string, on bool) error {
+	_, err := c.send(ctx, request{Op: "simulate", Name: name, Type: kind, Location: location, On: on})
+	return err
 }
 
 // Status returns the current state.

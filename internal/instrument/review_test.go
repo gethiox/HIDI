@@ -2,6 +2,7 @@ package instrument
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/light"
 	"github.com/gethiox/HIDI/internal/midi"
 )
@@ -101,7 +103,7 @@ func TestTapAcrossABrokenDevice(t *testing.T) {
 	t.Cleanup(func() { TapHold = old })
 	keyX := control.Key(45)
 
-	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, HideToggle: true})
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true})
 	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
 	r.devices <- kbd
 	name := EndpointPrefix + "Test Keyboard"
@@ -184,7 +186,9 @@ func TestHeardNotesGoWithTheDevice(t *testing.T) {
 	}
 }
 
-// Found in review: a lever at rest is not sent again after HIDI was off and on.
+// Found in review: a lever at rest is not sent again after HIDI was off and
+// on. That is where turning off puts the controllers to rest; where it
+// leaves them, as HIDI comes, see TestOffKeepsControllers.
 func TestRestingAxisIsSentAfterOffAndOn(t *testing.T) {
 	lever, err := config.Parse([]byte(`
 schema = 1
@@ -201,7 +205,7 @@ ABS_Z = { cc = 7 }
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRig(t, lever)
+	r := newRigWith(t, Options{Playing: Playing{Rest: engine.Rest{Controllers: true, PitchBend: true}}}, lever)
 	pad := newFakeDevice("Throttle", control.DeviceGamepad)
 	e := r.plug(pad)
 	pad.set(control.Axis(2), 0.75)
@@ -246,5 +250,259 @@ func TestParkedInputIsNotPlayedLater(t *testing.T) {
 	sent, _ := r.endpoint(name).state()
 	if sent != "" {
 		t.Errorf("the new instrument played %d old notes at once", strings.Count(sent, "NoteOn"))
+	}
+}
+
+// Turned off, an instrument puts back to rest what the settings say and
+// leaves the rest as it was sent: the pitch bend goes, a controller stays
+// and is not sent again when HIDI is turned on with its axis where it
+// was. Changed while HIDI runs, the settings count from the next time.
+func TestOffKeepsControllers(t *testing.T) {
+	stick, err := config.Parse([]byte(`
+schema = 1
+name = "Stick"
+[match]
+type = "gamepad"
+[defaults]
+axis_rate = 0
+[[layout]]
+name = "Main"
+[layout.bindings]
+ABS_Z = { cc = 7 }
+ABS_Y = { pitch_bend = true, centered = true }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRigWith(t, Options{Playing: Playing{Rest: engine.Rest{PitchBend: true}}}, stick)
+	pad := newFakeDevice("Stick", control.DeviceGamepad)
+	e := r.plug(pad)
+	pad.set(control.Axis(2), 0.75)
+	pad.set(control.Axis(1), 1)
+	const played = "ControlChange ch=1 controller=7 value=95; PitchBend ch=1 bend=+8191"
+	r.expectSent(e, played)
+	pad.drain(t)
+
+	r.manager.SetActive(false)
+	r.expectSent(e, played+"; PitchBend ch=1 bend=+0")
+	// The output view keeps showing what the controller stands at.
+	shows := func(want string) bool {
+		for _, st := range r.manager.Status() {
+			var got []string
+			for _, c := range st.Controllers {
+				if c.Known && c.PitchBend {
+					got = append(got, fmt.Sprint("bend ", int(midi.To14(c.Value))-8192))
+				} else if c.Known {
+					got = append(got, fmt.Sprint("cc", c.Controller, " ", midi.To7(c.Value)))
+				}
+			}
+			if strings.Join(got, ", ") == want {
+				return true
+			}
+		}
+		return false
+	}
+	eventually(t, "the status after turning off", func() bool { return shows("bend 0, cc7 95") })
+
+	// On again: the stick is still pushed, so the pitch is bent again;
+	// the controller is where it was and says nothing.
+	r.manager.SetActive(true)
+	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191")
+
+	// The other way round, set while HIDI runs.
+	r.manager.SetPlaying(Playing{Rest: engine.Rest{Controllers: true}})
+	r.manager.SetActive(false)
+	r.expectSent(e, played+"; PitchBend ch=1 bend=+0; PitchBend ch=1 bend=+8191; ControlChange ch=1 controller=7 value=0")
+}
+
+// Reported by the maintainer: a profile of one's own that was made of a
+// factory profile was not used by a device that was playing until HIDI
+// was started again. The copy reads the same as what it was made of, and
+// a device was only given another profile when the content differed.
+func TestCopyOfAProfileTakesOverAtOnce(t *testing.T) {
+	factory := profile(t, "Pads", `type = "gamepad"`, "C3")
+	factory.Source, factory.Kind = "/hidi/profiles/factory/pads.toml", config.KindFactory
+	r := newRigWith(t, Options{Profiles: nil}, factory)
+	pad := newFakeDevice("Test Pad", control.DeviceGamepad)
+	r.plug(pad)
+	plays := func(source, kind string) func() bool {
+		return func() bool {
+			st := r.manager.Status()
+			return len(st) == 1 && st[0].ProfileSource == source && st[0].ProfileKind == kind
+		}
+	}
+	eventually(t, "the device to play with the factory profile", plays(factory.Source, config.KindFactory))
+
+	// The user's copy: the same text, another file, and the user's.
+	own := profile(t, "Pads", `type = "gamepad"`, "C3")
+	own.Source, own.Kind = "/hidi/profiles/user/pads.toml", config.KindUser
+	if own.Digest != factory.Digest {
+		t.Fatal("the copy does not read the same as the factory profile")
+	}
+	r.manager.SetProfiles(append(builtin(t), factory, own))
+	eventually(t, "the device to play with the copy", plays(own.Source, config.KindUser))
+	// The same profiles again disturb nothing.
+	before := r.manager.Status()[0].Trail.Seq
+	r.manager.SetProfiles(append(builtin(t), factory, own))
+	time.Sleep(20 * time.Millisecond)
+	if !plays(own.Source, config.KindUser)() || r.manager.Status()[0].Trail.Seq < before {
+		t.Error("the same profiles again changed what the device plays with")
+	}
+}
+
+// The step of the velocity commands comes from the settings, at the start
+// and while HIDI runs.
+func TestVelocityStepFromSettings(t *testing.T) {
+	p, err := config.Parse([]byte("schema = 2\nname = \"Steps\"\n[match]\ntype = \"keyboard\"\n[defaults]\nvelocity = 100\n" +
+		"[[layout]]\nname = \"Main\"\n[layout.bindings]\nKEY_Z = \"C3\"\nKEY_X = \"velocity_up\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys, Playing: Playing{VelocityStep: 10}}, p)
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	velocity := func(want uint8) {
+		t.Helper()
+		eventually(t, fmt.Sprintf("the velocity to be %d", want), func() bool {
+			st := r.manager.Status()
+			return len(st) == 1 && st[0].State.Velocity == want
+		})
+	}
+	keyX := control.Key(45)
+	kbd.set(keyX, 1)
+	kbd.set(keyX, 0)
+	velocity(110)
+	kbd.set(keyZ, 1)
+	kbd.set(keyZ, 0)
+	r.expectSent(e, "NoteOn ch=1 note=C3 velocity=110; NoteOff ch=1 note=C3 velocity=0")
+
+	// 110 is as far from 100 as from 120: the nearer to the profile's.
+	r.manager.SetPlaying(Playing{VelocityStep: 20})
+	velocity(100)
+	kbd.set(keyX, 1)
+	kbd.set(keyX, 0)
+	velocity(120)
+}
+
+// Toggles from several devices at once each count: an even number of
+// them leaves HIDI as it was. Read and flipped in two steps, two toggles
+// at the same moment could both read "on" and turn it off once.
+func TestTogglesAtOnceAllCount(t *testing.T) {
+	m := NewManager(Options{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				m.Toggle()
+				m.ToggleLearning()
+			}
+		}()
+	}
+	wg.Wait()
+	if !m.Active() || m.Learning() {
+		t.Errorf("after 2000 toggles: active %v, learning %v", m.Active(), m.Learning())
+	}
+}
+
+// A MIDI device that could not be created is tried for again after a
+// while. When a new profile comes first and the device is created then,
+// the try that was waiting creates no second one over it.
+func TestNoSecondEndpointAfterAWaitingTry(t *testing.T) {
+	old := RetryOutput
+	RetryOutput = 150 * time.Millisecond
+	t.Cleanup(func() { RetryOutput = old })
+
+	r := newRig(t)
+	r.mu.Lock()
+	r.openErr = errors.New("the service is starting")
+	r.mu.Unlock()
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	r.devices <- kbd
+	eventually(t, "the first try", func() bool { return r.openFailures() == 1 })
+
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	r.manager.SetProfiles(append(builtin(t), profile(t, "Mine", `type = "keyboard"`, "C3")))
+	eventually(t, "the MIDI device", func() bool { return r.endpoint(EndpointPrefix+"Test Keyboard") != nil })
+	time.Sleep(3 * RetryOutput)
+	r.mu.Lock()
+	opened := r.opened
+	r.mu.Unlock()
+	if opened != 1 {
+		t.Errorf("%d MIDI devices were created for one keyboard", opened)
+	}
+}
+
+// A change of settings that are not about the toggle or the grab, such
+// as the hysteresis, leaves a device as it is held: a keyboard that hides
+// its toggle while HIDI is off is not let go of and taken again.
+func TestPlayingSettingsLeaveTheGrab(t *testing.T) {
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: []control.Code{keyZ}, ToggleTap: true, StartInactive: true})
+	kbd := &passingDevice{fakeDevice: newFakeDevice("Test Keyboard", control.DeviceKeyboard)}
+	r.devices <- kbd
+	eventually(t, "the keyboard to be passed on", kbd.isPassing)
+	kbd.pmu.Lock()
+	before := kbd.passes
+	kbd.pmu.Unlock()
+	for i := range 5 {
+		r.manager.SetPlaying(Playing{Hysteresis: float64(i) / 10, VelocityStep: i + 1})
+	}
+	r.manager.SetToggleTap(true) // as it was: the same hold
+	time.Sleep(100 * time.Millisecond)
+	kbd.pmu.Lock()
+	after := kbd.passes
+	kbd.pmu.Unlock()
+	if after != before || !kbd.isPassing() {
+		t.Errorf("passed on anew %d times, passing %v", after-before, kbd.isPassing())
+	}
+	// Another toggle does start over.
+	keyX := control.Key(45)
+	r.manager.SetInput([]control.Code{keyX}, GrabKeyboards)
+	eventually(t, "the new toggle to be hidden", func() bool {
+		kbd.pmu.Lock()
+		defer kbd.pmu.Unlock()
+		return kbd.passes > after && len(kbd.hidden) == 1 && kbd.hidden[0] == keyX
+	})
+}
+
+// HIDI turned off while an instrument waits for a new MIDI device: when
+// the device is there, the keyboard is not taken again, not even for a
+// moment, and nothing but the rest of the turning off is sent.
+func TestRecoveryAfterTurningOff(t *testing.T) {
+	old := RetryOutput
+	RetryOutput = 20 * time.Millisecond
+	t.Cleanup(func() { RetryOutput = old })
+
+	r := newRigWith(t, Options{Grab: GrabKeyboards, Toggle: toggleKeys})
+	kbd := newFakeDevice("Test Keyboard", control.DeviceKeyboard)
+	e := r.plug(kbd)
+	eventually(t, "the keyboard to be grabbed", kbd.isGrabbed)
+	r.mu.Lock()
+	r.openErr = errors.New("the service is away")
+	r.mu.Unlock()
+	e.mu.Lock()
+	e.sendErr = errors.New("broken")
+	e.mu.Unlock()
+	kbd.set(keyZ, 1)
+	eventually(t, "the keyboard to be given back", func() bool { return !kbd.isGrabbed() })
+	kbd.set(keyZ, 0)
+	kbd.drain(t)
+
+	r.manager.SetActive(false)
+	kbd.mu.Lock()
+	grabs := kbd.grabs
+	kbd.mu.Unlock()
+	r.mu.Lock()
+	r.openErr = nil
+	r.mu.Unlock()
+	eventually(t, "the new endpoint", func() bool { return r.endpoint(e.name) != e })
+	time.Sleep(50 * time.Millisecond)
+	kbd.mu.Lock()
+	defer kbd.mu.Unlock()
+	if kbd.grabs != grabs || kbd.grabbed {
+		t.Errorf("the keyboard was taken %d times after HIDI was turned off", kbd.grabs-grabs)
 	}
 }

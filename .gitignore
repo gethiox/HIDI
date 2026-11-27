@@ -7,3 +7,7 @@
 # editors
 .idea/
 .vscode/
+
+# made by "go generate ./cmd/hidi": the icon of the Windows program
+/cmd/hidi/*.syso
+/cmd/hidi/winres/*.png

@@ -11,8 +11,9 @@
 // A [Profile] describes the instrument as a list of bindings. A [Binding]
 // connects a [Source], which is a control or part of an axis's travel, to an
 // [Action] such as playing a note or sending a controller. Bindings are
-// grouped into layouts the player switches between, plus a global group that
-// applies in every layout. A binding may require other keys to be held
+// grouped into layouts the player switches between, each with all of its
+// own, plus a global group that applies in every layout; profiles put no
+// more than the binding of [CommandToggle] there. A binding may require other keys to be held
 // ([Source.Modifiers]), which is how key combinations are expressed.
 //
 // Keys and axes go through the same path. A source reduces whatever its

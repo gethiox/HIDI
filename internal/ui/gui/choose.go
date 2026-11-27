@@ -106,3 +106,11 @@ func absentPorts(connect []string, ports []output.Port) []string {
 	}
 	return out
 }
+
+// flip adds a name to a list, or removes it if it is there.
+func flip(list []string, name string) []string {
+	if i := slices.Index(list, name); i >= 0 {
+		return slices.Delete(slices.Clone(list), i, i+1)
+	}
+	return append(slices.Clone(list), name)
+}

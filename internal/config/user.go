@@ -81,7 +81,8 @@ func isProfileFile(name string) bool {
 
 // Load returns the built-in profiles followed by those in dir, the order
 // in which [Select] gives the user's profiles precedence. An empty dir
-// means built-in profiles only.
+// means built-in profiles only. Those of dir are the user's, and those
+// that say "enabled = false" are left out, as [Enabled] does.
 func Load(dir string) ([]*Profile, []Problem, error) {
 	profiles, err := Builtin()
 	if err != nil {
@@ -91,7 +92,10 @@ func Load(dir string) ([]*Profile, []Problem, error) {
 		return profiles, nil, nil
 	}
 	user, problems := LoadDir(dir)
-	return append(profiles, user...), problems, nil
+	for _, p := range user {
+		p.Kind = KindUser
+	}
+	return Enabled(append(profiles, user...)), problems, nil
 }
 
 // WriteBuiltin writes the built-in profiles into dir as files to start
@@ -148,19 +152,26 @@ func WriteBuiltin(dir string) (written, skipped []string, err error) {
 //
 // load reads the profiles anew; it is [Load] of the directory, or
 // [LoadDir] where the built-in profiles are not wanted beside it.
-func Watch(ctx context.Context, dir string, interval time.Duration, load func() ([]*Profile, []Problem, error), changed func([]*Profile, []Problem)) {
+//
+// A value on look makes it look at once and take what is there without
+// waiting for it to settle: whoever sends it has written a file whole and
+// says so, where an editor that saves is only noticed. look may be nil.
+func Watch(ctx context.Context, dir string, interval time.Duration, look <-chan struct{}, load func() ([]*Profile, []Problem, error), changed func([]*Profile, []Problem)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	loaded := fingerprint(dir)
 	seen := loaded
 	for {
+		told := false
 		select {
 		case <-ctx.Done():
 			return
+		case <-look:
+			told = true
 		case <-ticker.C:
 		}
 		now := fingerprint(dir)
-		settled := now == seen
+		settled := now == seen || told
 		seen = now
 		if !settled || now == loaded {
 			continue
@@ -174,16 +185,57 @@ func Watch(ctx context.Context, dir string, interval time.Duration, load func() 
 	}
 }
 
+// LoadKinds reads the factory profiles and the user's from their two
+// directories, the factory ones first, which is the order in which
+// [Select] lets a profile of the user's come before a factory profile
+// that fits a device as well. Every profile is returned with its kind,
+// those that are not enabled too; [Enabled] leaves those out.
+func LoadKinds(factory, user string) ([]*Profile, []Problem) {
+	profiles, problems := LoadDir(factory)
+	for _, p := range profiles {
+		p.Kind = KindFactory
+	}
+	own, more := LoadDir(user)
+	for _, p := range own {
+		p.Kind = KindUser
+	}
+	return append(profiles, own...), append(problems, more...)
+}
+
+// Enabled returns the profiles that are to be used: all but those of the
+// user's that say "enabled = false". A factory profile is always used;
+// what it says about that is of no interest.
+func Enabled(profiles []*Profile) []*Profile {
+	out := make([]*Profile, 0, len(profiles))
+	for _, p := range profiles {
+		if p.Enabled || p.Kind != KindUser {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // fingerprint describes the profile files of a directory by name, size and
 // modification time. It changes whenever one is added, removed or written.
-func fingerprint(dir string) string {
+func fingerprint(dir string) string { return fingerprintIn(dir, true) }
+
+// fingerprintIn is fingerprint, with the profiles one level down or not:
+// HIDI keeps the factory profiles and the user's in two directories of
+// one, and nothing deeper.
+func fingerprintIn(dir string, deeper bool) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "unreadable: " + err.Error()
 	}
 	var b strings.Builder
 	for _, entry := range entries {
-		if entry.IsDir() || !isProfileFile(entry.Name()) {
+		if entry.IsDir() {
+			if deeper {
+				fmt.Fprintf(&b, "%q:\n%s", entry.Name(), fingerprintIn(filepath.Join(dir, entry.Name()), false))
+			}
+			continue
+		}
+		if !isProfileFile(entry.Name()) {
 			continue
 		}
 		// Of the file itself, also where the entry is a link to it: the

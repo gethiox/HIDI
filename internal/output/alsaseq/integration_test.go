@@ -306,6 +306,17 @@ func TestEndpointConnect(t *testing.T) {
 		t.Errorf("received %+v", got)
 	}
 
+	// Disconnected, the port hears nothing more; and that can be said
+	// twice.
+	for range 2 {
+		if err := ep.Disconnect(p.ID); err != nil {
+			t.Fatalf("Disconnect: %v", err)
+		}
+	}
+	if already, err := ep.Connect(p.ID); err != nil || already {
+		t.Errorf("Connect after Disconnect = %v, %v; want a new connection", already, err)
+	}
+
 	if _, err := ep.Connect("not a port"); err == nil {
 		t.Error("a malformed port ID was accepted")
 	}

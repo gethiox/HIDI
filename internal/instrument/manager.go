@@ -8,7 +8,6 @@ package instrument
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -44,19 +43,35 @@ type Options struct {
 	// system while HIDI is active. Nil grabs nothing.
 	Grab func(control.DeviceInfo) bool
 	// Toggle is a set of keys that, pressed together on one device, turns
-	// HIDI off and on again. Empty disables the combination.
+	// HIDI off and on again, whatever the device and its profile. Empty
+	// leaves it to the profiles: each device then goes by the toggle of
+	// its own ([config.Profile.Toggle]), and one whose profile has none
+	// cannot turn HIDI off or on.
 	Toggle []control.Code
-	// ToggleTap makes a Toggle of one key work by tapping it: pressed and
-	// let go within [TapHold], it turns HIDI off or on. The key plays
-	// nothing. Held for longer it does not toggle.
+	// ToggleTap passes a toggle of one key through to the system when it
+	// is held. A toggle of one key is kept from the rest of the system,
+	// while HIDI is off too, on a device that is grabbed and can do that
+	// (see [input.Passer]). With ToggleTap it works by tapping: pressed
+	// and let go within [TapHold], it turns HIDI off or on; held for
+	// longer, it does not toggle and is passed on to the system, so that
+	// it still does what it normally does. Without, it turns HIDI off or
+	// on as it is pressed and is HIDI's alone: Caps Lock as the toggle
+	// then never changes the keyboard's state.
 	ToggleTap bool
-	// HideToggle keeps the tapped key from the rest of the system, also
-	// while HIDI is off, on devices that can do that (see [input.Passer]).
-	// Held for longer than [TapHold], the key is passed on to the system,
-	// so that it can still do what it normally does.
-	HideToggle bool
 	// StartInactive makes the manager start turned off.
 	StartInactive bool
+	// Allow decides whether a device may become an instrument at all.
+	// Nil allows every device. [Manager.SetAllow] replaces it while the
+	// manager runs.
+	Allow func(control.DeviceInfo) bool
+	// Playing is how every instrument plays beside what its profile
+	// says. [Manager.SetPlaying] changes it.
+	Playing Playing
+	// LearnThreshold is how far an axis has to move to get through in
+	// learning mode, as a part of its range. Zero means
+	// [engine.DefaultLearnThreshold]. [Manager.SetLearnThreshold] changes
+	// it while the manager runs.
+	LearnThreshold float64
 	// Lights, if set, returns the lights of a keyboard that became an
 	// instrument, or nil if it has none to offer.
 	Lights func(control.DeviceInfo) Light
@@ -68,6 +83,19 @@ type Options struct {
 	// [Manager.Active] report has changed. It is called from several
 	// goroutines and must return quickly.
 	Changed func()
+}
+
+// Playing is how every instrument plays beside what its profile says.
+type Playing struct {
+	// Hysteresis is the hysteresis of axes that act as buttons, as a
+	// part of their travel; see [engine.Engine.SetHysteresis].
+	Hysteresis float64
+	// VelocityStep is how far the velocity commands move the velocity;
+	// see [engine.Engine.SetVelocityStep]. Zero is the engine's default.
+	VelocityStep int
+	// Rest is what turning HIDI off returns to rest beside the notes: the
+	// pitch bend, the controllers, both or neither.
+	Rest engine.Rest
 }
 
 // GrabKeyboards is a grab policy that takes keyboards and leaves every
@@ -84,8 +112,12 @@ type Manager struct {
 	running  map[*runner]struct{} // every connected device, parked ones too
 	names    map[string]bool      // the names of MIDI devices in use
 	active   bool
-	done     sync.WaitGroup
-	quit     chan struct{} // closed when Run ends
+	learning bool
+	// simulated are the keyboards whose lights are to be shown though
+	// HIDI does not control them, by lightKey.
+	simulated map[string]bool
+	done      sync.WaitGroup
+	quit      chan struct{} // closed when Run ends
 }
 
 // NewManager returns a manager with no instruments.
@@ -115,6 +147,11 @@ func (m *Manager) Active() bool {
 func (m *Manager) SetActive(active bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.setActive(active)
+}
+
+// setActive is SetActive for a caller that holds m.mu.
+func (m *Manager) setActive(active bool) {
 	if m.active == active {
 		return
 	}
@@ -123,9 +160,9 @@ func (m *Manager) SetActive(active bool) {
 		r.setWanted(active)
 	}
 	if active {
-		m.log.Info("HIDI is on")
+		m.log.Debug("HIDI is on")
 	} else {
-		m.log.Info("HIDI is off; devices are released")
+		m.log.Debug("HIDI is off; devices are released")
 	}
 	m.changed()
 }
@@ -136,9 +173,63 @@ func (m *Manager) changed() {
 	}
 }
 
-// toggle flips between on and off.
-func (m *Manager) toggle() {
-	m.SetActive(!m.Active())
+// Toggle flips between on and off, in one step: two devices that toggle
+// at the same moment turn HIDI over twice, not once.
+func (m *Manager) Toggle() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setActive(!m.active)
+}
+
+// Learning reports whether learning mode is on: see
+// [engine.Engine.SetLearning].
+func (m *Manager) Learning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.learning
+}
+
+// SetLearning turns learning mode on or off, for all instruments at once.
+func (m *Manager) SetLearning(on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setLearning(on)
+}
+
+// setLearning is SetLearning for a caller that holds m.mu.
+func (m *Manager) setLearning(on bool) {
+	if m.learning == on {
+		return
+	}
+	m.learning = on
+	for r := range m.running {
+		r.setLearning(on, m.opts.LearnThreshold)
+	}
+	if on {
+		m.log.Debug("learning mode is on: axes stand still until they are moved far")
+	} else {
+		m.log.Debug("learning mode is off")
+	}
+	m.changed()
+}
+
+// SetLearnThreshold changes how far an axis has to move to get through
+// in learning mode, as a part of its range.
+func (m *Manager) SetLearnThreshold(threshold float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.LearnThreshold = threshold
+	for r := range m.running {
+		r.setLearning(m.learning, threshold)
+	}
+}
+
+// ToggleLearning turns learning mode over, in one step like Toggle; the
+// learn command of an instrument calls it.
+func (m *Manager) ToggleLearning() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setLearning(!m.learning)
 }
 
 // Run starts an instrument for every usable device that arrives on devices.
@@ -146,7 +237,7 @@ func (m *Manager) toggle() {
 // every instrument: held notes are released and the MIDI devices are
 // removed.
 func (m *Manager) Run(ctx context.Context, devices <-chan input.Device) {
-	rates := time.NewTicker(ratePeriod)
+	rates := time.NewTicker(ratePeriod / rateSteps)
 	defer rates.Stop()
 loop:
 	for {
@@ -173,7 +264,32 @@ loop:
 }
 
 // ratePeriod is the time over which the rates in a [Status] are counted.
+// They are worked out anew rateSteps times in that time, each time over
+// the whole period that just ended, so that they move evenly and can be
+// drawn as a curve.
 var ratePeriod = time.Second
+
+const rateSteps = 10
+
+// TrailLen is how many steps of the past a [Trail] holds.
+const TrailLen = 122
+
+// Trail is how busy an instrument was over the last while, step by step:
+// one value for every tenth of [ratePeriod], the newest last, each the
+// number of events of that step alone, as a rate per period. Nothing is
+// averaged; that is what the rates in a [Status] are for.
+type Trail struct {
+	// Seq counts the steps since the instrument's device was connected:
+	// it tells whoever draws the trail when a step was added.
+	Seq uint64
+	// Step is the time one value covers, and Age how long ago the newest
+	// was added: whoever draws the trail moving evenly from step to step
+	// needs to know where between two steps the time is, and that is
+	// better told than guessed from when a step was noticed.
+	Step, Age time.Duration
+	// Input and MIDI are what came in from the device and what went out.
+	Input, MIDI []int
+}
 
 // measure works out how much every instrument did since the last time.
 func (m *Manager) measure() {
@@ -201,21 +317,32 @@ func (m *Manager) SetProfiles(profiles []*config.Profile) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.profiles = profiles
+	m.rematch()
+}
+
+// rematch gives every device the profile it is to have now, where that
+// is another. The caller holds m.mu.
+func (m *Manager) rematch() {
 	for r := range m.running {
-		a := m.choose(r.info, r.log)
+		a := m.choose(r.info, r.has, r.log)
 		if sameProfile(a.profile, r.assigned) {
 			continue
 		}
-		r.assign(a)
+		m.assign(r, a)
 	}
 }
 
-// sameProfile reports whether two profiles make the same instrument.
+// sameProfile reports whether two profiles are the same profile: the same
+// file with the same content. A copy of a factory profile that the user
+// made and has not changed yet reads the same and is another profile all
+// the same: a device that goes over to it has to be told, or it would be
+// shown, and opened for changing, as playing with the factory one until
+// HIDI starts again.
 func sameProfile(a, b *config.Profile) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.Digest == b.Digest
+	return a.Digest == b.Digest && a.Source == b.Source && a.Kind == b.Kind
 }
 
 // assignment is what a device is to be: an instrument with a profile and
@@ -225,14 +352,53 @@ type assignment struct {
 	engine  *engine.Engine
 }
 
-// choose decides what a device is to be with the current profiles. The
-// caller holds m.mu.
-func (m *Manager) choose(info control.DeviceInfo, log *slog.Logger) assignment {
+// SetAllow replaces what decides whether a device may become an
+// instrument; nil allows every device. Instruments of devices that may
+// not be one any more stop, and devices that may now become instruments.
+func (m *Manager) SetAllow(allow func(control.DeviceInfo) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opts.Allow = allow
+	m.rematch()
+}
+
+// Device is a connected device that a profile selects.
+type Device struct {
+	Info control.DeviceInfo
+	// Allowed says whether the device may be an instrument (see
+	// [Options.Allow]).
+	Allowed bool
+}
+
+// Devices returns the connected devices that are instruments or would be
+// if they were allowed to, in no particular order.
+func (m *Manager) Devices() []Device {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Device, 0, len(m.running))
+	for r := range m.running {
+		if profile := config.Select(m.profiles, r.info); profile == nil || !usable(r.info, profile) {
+			continue
+		}
+		out = append(out, Device{Info: r.info, Allowed: m.opts.Allow == nil || m.opts.Allow(r.info)})
+	}
+	return out
+}
+
+// choose decides what a device with these controls is to be with the
+// current profiles. The caller holds m.mu.
+func (m *Manager) choose(info control.DeviceInfo, has []control.Input, log *slog.Logger) assignment {
 	profile := config.Select(m.profiles, info)
 	if profile == nil || !usable(info, profile) {
 		return assignment{}
 	}
-	eng, err := engine.New(profile.Engine)
+	if m.opts.Allow != nil && !m.opts.Allow(info) {
+		return assignment{}
+	}
+	if profile.Generate.Any() && len(has) == 0 {
+		log.Debug("the device does not say what it has; only what the profile names plays", "profile", profile.Name)
+	}
+	eng, err := engine.New(profile.For(has))
 	if err != nil {
 		log.Error("profile cannot be used", "profile", profile.Name, "source", profile.Source, "error", err)
 		return assignment{}
@@ -257,22 +423,31 @@ func usable(info control.DeviceInfo, p *config.Profile) bool {
 // later can still turn it into an instrument.
 func (m *Manager) add(dev input.Device) {
 	info := dev.Info()
+	// What a game controller says it has is listed from the start. A
+	// keyboard's keys are known by what it is.
+	var has []control.Input
+	if d, ok := dev.(input.Describer); ok && info.Type != control.DeviceKeyboard {
+		has = d.Controls()
+	}
 	r := &runner{
-		device: dev, info: info, log: m.log.With("device", info.Name),
+		device: dev, info: info, has: has, log: m.log.With("device", info.Name),
 		open:     m.opts.OpenEndpoint,
 		lights:   m.opts.Lights,
-		onToggle: m.toggle,
+		onToggle: m.Toggle,
+		onLearn:  m.ToggleLearning,
 		wake:     make(chan struct{}, 1),
 		quit:     m.quit,
 		changed:  m.changed,
 		logMIDI:  m.opts.LogMIDI,
 	}
+	r.input.seed(has)
 	m.mu.Lock()
 	m.running[r] = struct{}{}
 	r.endpointName = m.takeName(EndpointPrefix + info.Name)
-	r.rules.Store(m.rulesFor(info))
 	r.wanted.Store(m.active)
-	r.assign(m.choose(info, r.log))
+	r.learn.Store(&learnWish{m.learning, m.opts.LearnThreshold})
+	r.simulate = m.simulated[lightKey(info.Name, info.Type.String(), info.Location)]
+	m.assign(r, m.choose(info, r.has, r.log))
 	m.mu.Unlock()
 
 	m.done.Add(1)
@@ -290,47 +465,104 @@ func (m *Manager) add(dev input.Device) {
 // count as a tap.
 var TapHold = 500 * time.Millisecond
 
-// inputRules is what the settings say about one device.
+// inputRules is what the settings and its profile say about one device.
 type inputRules struct {
 	grab   bool
 	toggle []control.Code
-	// tap says that the toggle is one key and works by a tap, and hide
-	// that the key is kept from the system.
+	// tap says that the toggle is one key and works by a tap, and is
+	// passed on when held; hide that the toggle is one key, which is
+	// kept from the system.
 	tap, hide bool
+	// left says that the device would be kept from the system and is
+	// not, because nothing on it turns HIDI off again.
+	left    bool
+	playing Playing
 }
 
-func (m *Manager) rulesFor(info control.DeviceInfo) *inputRules {
-	tap := m.opts.ToggleTap && len(m.opts.Toggle) == 1
-	return &inputRules{
-		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: m.opts.Toggle,
-		tap: tap, hide: tap && m.opts.HideToggle,
+// sameInput reports whether two rules take the device and its toggle
+// alike, whatever else differs.
+func (r *inputRules) sameInput(o *inputRules) bool {
+	return r != nil && o != nil && r.grab == o.grab && r.tap == o.tap && r.hide == o.hide && slices.Equal(r.toggle, o.toggle)
+}
+
+// rulesFor works out the rules for a device that plays with a profile, or
+// with none. The toggle is the one the settings name for every device, or
+// else the profile's own. A keyboard without either is not kept from the
+// system, whatever the settings say: with nothing on it to turn HIDI off,
+// whoever has only that keyboard could not type again.
+func (m *Manager) rulesFor(info control.DeviceInfo, profile *config.Profile) *inputRules {
+	toggle := m.opts.Toggle
+	if len(toggle) == 0 && profile != nil {
+		toggle = profile.Toggle
 	}
+	tap := m.opts.ToggleTap && len(toggle) == 1
+	r := &inputRules{
+		grab: m.opts.Grab != nil && m.opts.Grab(info), toggle: toggle,
+		tap: tap, hide: len(toggle) == 1,
+		playing: m.opts.Playing,
+	}
+	if r.grab && len(toggle) == 0 && info.Type == control.DeviceKeyboard {
+		r.grab, r.left = false, profile != nil
+	}
+	return r
 }
 
-// SetToggleTap changes whether the toggle works by a tap and whether its
-// key is hidden from the system, while the manager runs. See
-// [Options.ToggleTap] and [Options.HideToggle].
-func (m *Manager) SetToggleTap(tap, hide bool) {
+// rule gives a device the rules that go with a profile, and says so when
+// they leave a keyboard typing that was to be kept from it. The caller
+// holds m.mu.
+func (m *Manager) rule(r *runner, profile *config.Profile) {
+	rules := m.rulesFor(r.info, profile)
+	if was := r.rules.Load(); rules.left && (was == nil || !was.left) {
+		r.log.Warn("this keyboard keeps typing while it plays: its profile has no "+engine.ToggleName+" and the settings name no toggle, so nothing on it could turn HIDI off again",
+			"profile", profile.Name)
+	}
+	r.rules.Store(rules)
+}
+
+// assign gives a device what it is to be, with the rules that go with
+// it. The caller holds m.mu.
+func (m *Manager) assign(r *runner, a assignment) {
+	m.rule(r, a.profile)
+	r.assign(a)
+}
+
+// reconfigure changes the options and gives every device the rules that
+// follow from them, in one step.
+func (m *Manager) reconfigure(change func(*Options)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.opts.ToggleTap, m.opts.HideToggle = tap, hide
+	change(&m.opts)
 	for r := range m.running {
-		r.rules.Store(m.rulesFor(r.info))
+		m.rule(r, r.assigned)
 		r.poke()
 	}
+}
+
+// SetToggleTap changes whether a toggle of one key works by a tap and is
+// passed through to the system when held, while the manager runs; see
+// [Options.ToggleTap].
+func (m *Manager) SetToggleTap(tap bool) {
+	m.reconfigure(func(o *Options) { o.ToggleTap = tap })
+}
+
+// SetPlaying changes how every instrument plays beside what its profile
+// says, while the manager runs; see [Playing].
+func (m *Manager) SetPlaying(p Playing) {
+	m.reconfigure(func(o *Options) { o.Playing = p })
 }
 
 // SetInput replaces the toggle combination and the grab policy while the
 // manager runs. Devices that are grabbed and should not be any more are
 // released at once, and the other way round.
 func (m *Manager) SetInput(toggle []control.Code, grab func(control.DeviceInfo) bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.opts.Toggle, m.opts.Grab = toggle, grab
-	for r := range m.running {
-		r.rules.Store(m.rulesFor(r.info))
-		r.poke()
-	}
+	m.reconfigure(func(o *Options) { o.Toggle, o.Grab = toggle, grab })
+}
+
+// SetToggleAndGrab is SetInput and SetToggleTap at once: a device never
+// goes by the new toggle with the old way of tapping it, nor the other
+// way round.
+func (m *Manager) SetToggleAndGrab(toggle []control.Code, grab func(control.DeviceInfo) bool, tap bool) {
+	m.reconfigure(func(o *Options) { o.Toggle, o.Grab, o.ToggleTap = toggle, grab, tap })
 }
 
 // takeName returns a name for a MIDI device that no other device of this
@@ -357,8 +589,14 @@ type Status struct {
 	// Profile is the name of the profile in use.
 	Profile string
 	// ProfileSource is where that profile comes from: its file, or a name
-	// that begins with "built-in/".
+	// that begins with "built-in/". ProfileKind is the profile's kind: a
+	// factory profile or one of the user's.
 	ProfileSource string
+	ProfileKind   string
+	// Generated says that the profile is a factory profile with a rule
+	// for what it does not name: most of what the device plays is made
+	// for this device by that rule.
+	Generated bool
 	// State is the current state of the instrument.
 	State engine.State
 	// Input is what the device itself reports, before any profile is
@@ -367,6 +605,63 @@ type Status struct {
 	// InputRate is how many events the device reported in the last
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate, MIDIRate int
+	// Trail is how busy the instrument was over the last seconds.
+	Trail Trail
+	// Keys is what every bound key does in the selected layout.
+	Keys []engine.KeyRole
+	// Neutrals is where every axis rests that the selected layout reads.
+	// It must not be changed.
+	Neutrals []engine.Neutral
+	// Controllers is what the selected layout sends by the position of
+	// controls, in the order of those controls, with the values last
+	// sent. It must not be changed.
+	Controllers []engine.Sent
+	// Lit says that the lights of the keyboard show the instrument. Then
+	// Lights is the colour of every key that has one of its own, and
+	// LightRest the colour of the other keys. Lights must not be changed.
+	Lit       bool
+	Lights    map[control.Code]light.RGB
+	LightRest light.RGB
+	// Simulated says that the lights are not the keyboard's own: HIDI
+	// does not control them, and Lights and LightRest are what it would
+	// show, as [Manager.SetSimulated] asked for.
+	Simulated bool
+	// Toggle is the key, or the keys pressed together, that turn HIDI
+	// off and on from this device; none if it has no way to.
+	Toggle []control.Code
+	// Left says that the device would be kept from the rest of the
+	// system while it plays and is not, because it has no toggle: a
+	// keyboard that keeps typing.
+	Left bool
+}
+
+// lightKey names a device for [Manager.SetSimulated].
+func lightKey(name, kind, location string) string { return name + "\x00" + kind + "\x00" + location }
+
+// SetSimulated turns the showing of lights on or off for a keyboard whose
+// lights HIDI does not control: its status then carries what the lights
+// would show. The device is named as its status names it. It lasts while
+// HIDI runs, also while the device is away.
+func (m *Manager) SetSimulated(name, kind, location string, on bool) {
+	key := lightKey(name, kind, location)
+	m.mu.Lock()
+	if m.simulated == nil {
+		m.simulated = map[string]bool{}
+	}
+	if on {
+		m.simulated[key] = true
+	} else {
+		delete(m.simulated, key)
+	}
+	for r := range m.running {
+		if lightKey(r.info.Name, r.info.Type.String(), r.info.Location) == key {
+			r.mu.Lock()
+			r.simulate = on
+			r.mu.Unlock()
+		}
+	}
+	m.mu.Unlock()
+	m.changed()
 }
 
 // Status returns the running instruments, in no particular order.
@@ -376,6 +671,9 @@ func (m *Manager) Status() []Status {
 	out := make([]Status, 0, len(m.running))
 	for r := range m.running {
 		if status, ok := r.snapshot(); ok {
+			if rules := r.rules.Load(); rules != nil {
+				status.Toggle, status.Left = rules.toggle, rules.left
+			}
 			out = append(out, status)
 		}
 	}
@@ -408,8 +706,10 @@ const parkedQuiet = 2 * time.Millisecond
 type runner struct {
 	device input.Device
 	info   control.DeviceInfo
-	log    *slog.Logger
-	open   func(name string) (output.Endpoint, error)
+	// has is what the device says it has, if it says.
+	has  []control.Input
+	log  *slog.Logger
+	open func(name string) (output.Endpoint, error)
 
 	// rules says whether the device is grabbed while the instrument is on,
 	// and which keys turn HIDI off and on. The manager replaces it when
@@ -419,6 +719,10 @@ type runner struct {
 	endpointName string
 	// onToggle is what the toggle combination calls.
 	onToggle func()
+	// onLearn is what the learn command calls, and learn what the
+	// manager wants of learning mode.
+	onLearn func()
+	learn   atomic.Pointer[learnWish]
 	// lights gives the lights of the device, and heard holds the notes
 	// other programs send to the instrument, which the lights show.
 	lights func(control.DeviceInfo) Light
@@ -446,27 +750,70 @@ type runner struct {
 	// of the instrument since the start; measured is where they stood
 	// when the rates were last worked out.
 	seen, sent atomic.Uint64
-	measured   [2]uint64
+	measured   [rateSteps][2]uint64
+	measuredAt int
+	// trail holds the last steps, input and MIDI, the newest last, and
+	// trailSeq counts them; r.mu guards both. trailBusy says that some
+	// value in it is not zero.
+	trail     [2][TrailLen]int
+	trailSeq  uint64
+	trailAt   time.Time // when the newest step was added
+	trailBusy bool
 
 	mu         sync.Mutex
 	status     Status
 	instrument bool // whether status describes a running instrument
 	input      inputTracker
+	lamp       Light // the lights in use, if any
+	simulate   bool  // show what the lights would show; see SetSimulated
+}
+
+// learnWish is what the manager wants of learning mode.
+type learnWish struct {
+	on        bool
+	threshold float64
+}
+
+func (r *runner) setLearning(on bool, threshold float64) {
+	r.learn.Store(&learnWish{on, threshold})
+	r.poke()
 }
 
 // measure works out the rates of the last period from the counters and
 // reports whether they differ from those before.
 func (r *runner) measure() bool {
 	now := [2]uint64{r.seen.Load(), r.sent.Load()}
-	in, out := int(now[0]-r.measured[0]), int(now[1]-r.measured[1])
-	r.measured = now
+	// The oldest of the kept counts is from one period ago.
+	then := r.measured[r.measuredAt]
+	last := r.measured[(r.measuredAt+rateSteps-1)%rateSteps]
+	in, out := int(now[0]-then[0]), int(now[1]-then[1])
+	r.measured[r.measuredAt] = now
+	r.measuredAt = (r.measuredAt + 1) % rateSteps
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.instrument || (r.status.InputRate == in && r.status.MIDIRate == out) {
+	// The step that just ended joins the trail, as a rate.
+	step := [2]int{int(now[0]-last[0]) * rateSteps, int(now[1]-last[1]) * rateSteps}
+	was := r.trailBusy
+	r.trailBusy = false
+	for i := range r.trail {
+		copy(r.trail[i][:], r.trail[i][1:])
+		r.trail[i][TrailLen-1] = step[i]
+		for _, v := range r.trail[i] {
+			if v != 0 {
+				r.trailBusy = true
+			}
+		}
+	}
+	r.trailSeq++
+	r.trailAt = time.Now()
+	if !r.instrument {
 		return false
 	}
+	// A trail with something in it moves with every step, until what
+	// was in it has left it.
+	changed := was || r.trailBusy || r.status.InputRate != in || r.status.MIDIRate != out
 	r.status.InputRate, r.status.MIDIRate = in, out
-	return true
+	return changed
 }
 
 // snapshot returns the status of the instrument, if the device is one.
@@ -476,6 +823,17 @@ func (r *runner) snapshot() (Status, bool) {
 	status := r.status
 	if r.instrument {
 		status.Input = r.input.snapshot()
+		status.Trail = Trail{
+			Seq: r.trailSeq, Step: ratePeriod / rateSteps, Age: time.Since(r.trailAt),
+			Input: slices.Clone(r.trail[0][:]), MIDI: slices.Clone(r.trail[1][:]),
+		}
+		if r.lamp != nil {
+			status.Lights, status.LightRest, status.Lit = r.lamp.Painted()
+			if !status.Lit && r.simulate {
+				status.Lights, status.LightRest = r.lamp.Preview()
+				status.Simulated = true
+			}
+		}
 	}
 	return status, r.instrument
 }
@@ -522,518 +880,13 @@ func (r *runner) assign(a assignment) {
 
 // run feeds the device's input through the engine to the endpoint until the
 // device stops, then leaves the instrument silent and removes its endpoint.
-func (r *runner) run() {
-	var (
-		eng      *engine.Engine  // nil while parked
-		endpoint output.Endpoint // nil while parked
-		profile  *config.Profile
-		state    engine.State
-		out      []midi.Message
-		active   = false // the instrument is on, and grabbed if it should be
-		failed   = false // the endpoint broke; a new one is being tried for
+func (r *runner) run() { newSession(r).run() }
 
-		// limit thins out axis input; due collects what it releases, and
-		// release fires when it next has something.
-		limit = newLimiter(0)
-		// steady drops the trembling of resting axes.
-		steady  = newSteadier(0)
-		due     []control.Event
-		release <-chan time.Time
-	)
-	// held tracks which keys of the toggle combination are down.
-	held := map[control.Code]bool{}
-
-	// retry fires when a new MIDI device is to be tried for after the old
-	// one broke, and health when the one in use is next asked how it is.
-	var (
-		retry     <-chan time.Time
-		retryWait time.Duration
-		health    <-chan time.Time
-	)
-	var regrab, endTap, replay func()
-	// openFailed is the assignment whose MIDI device could not be made;
-	// it is tried again when retry fires, not at every wake-up.
-	var openFailed *assignment
-	// stale says that the device has been parked for a while: what it
-	// reported meanwhile is old, and must not be played when a profile
-	// takes the device after all.
-	stale := false
-	fail := func() {
-		// The MIDI device broke, which on Windows happens when the MIDI
-		// service is restarted. The instrument plays nothing until a new
-		// device could be created, and gives its keys back meanwhile.
-		if failed {
-			return
-		}
-		failed = true
-		if endpoint != nil {
-			go endpoint.Close() // may wait for a service that is gone
-			endpoint = nil
-		}
-		limit.drop()
-		// A toggle key that is being held, and passed on to the system,
-		// is let go of there; and what other programs sent to the device
-		// that is gone does not stay lit.
-		if endTap != nil {
-			endTap()
-		}
-		r.heard.clear()
-		retryWait = RetryOutput
-		retry = time.After(retryWait)
-		if regrab != nil {
-			regrab()
-		}
-	}
-	// rules are the input rules in force, and hold says how the device is
-	// held now. regrab makes that fit the rules and the state.
-	rules := r.rules.Load()
-	const (
-		holdFree    = iota // the system has the device
-		holdGrabbed        // only HIDI has it
-		holdPassing        // the system has it, except for the toggle key
-	)
-	hold := holdFree
-	passer, _ := r.device.(input.Passer)
-	cannotPass := false // passing was tried and failed; it is not tried again
-	regrab = func() {
-		want := holdFree
-		switch {
-		case eng == nil || !rules.grab || failed:
-		case active:
-			want = holdGrabbed
-		case rules.hide && passer != nil && !cannotPass:
-			want = holdPassing
-		}
-		if want == hold {
-			return
-		}
-		if want == holdPassing {
-			if err := passer.Pass(rules.toggle); err != nil {
-				cannotPass = true
-				r.log.Warn("the toggle key cannot be hidden from the system on this device", "error", err)
-				want = holdFree
-				if hold == holdFree {
-					return
-				}
-			}
-		}
-		switch want {
-		case holdGrabbed:
-			if err := r.device.Grab(); errors.Is(err, input.ErrGrabbedElsewhere) {
-				// Not a fault: the user runs a program that takes the
-				// device and passes its input on through one of its own.
-				r.log.Info("another program has this device to itself, such as an input remapper; its input reaches HIDI through that program's device", "error", err)
-			} else if err != nil {
-				r.log.Warn("the device cannot be grabbed; it stays usable by other programs", "error", err)
-			}
-		case holdFree:
-			if err := r.device.Release(); err != nil {
-				r.log.Warn("the device cannot be released", "error", err)
-			}
-		}
-		hold = want
-	}
-	ungrab := func() {
-		active = false
-		regrab()
-	}
-
-	// A tapped toggle: tapDown says its key is down, tapTimer fires when
-	// it has been down too long for a tap, and typed says that the key
-	// was then passed on to the system, which still awaits its release.
-	var (
-		tapDown, tapLong, typed bool
-		tapTimer                <-chan time.Time
-	)
-	endTap = func() {
-		if typed && passer != nil {
-			passer.Type(rules.toggle[0], false)
-		}
-		tapDown, tapLong, typed, tapTimer = false, false, false, nil
-	}
-	// tap handles an event of the toggle key and reports whether it was a
-	// tap that toggles.
-	tap := func(ev control.Event) bool {
-		switch {
-		case ev.Pressed() && !tapDown:
-			tapDown, tapLong, tapTimer = true, false, time.After(TapHold)
-		case !ev.Pressed() && tapDown:
-			toggles := !tapLong
-			endTap()
-			return toggles
-		}
-		return false
-	}
-
-	// lamp is the lights of the device while it is an instrument. show
-	// makes them fit the instrument; what every key does is worked out
-	// anew only for another engine or layout.
-	var (
-		lamp        Light
-		shownFor    *engine.Engine
-		shownName   string
-		keys        []engine.KeyRole
-		at, layouts int
-	)
-	show := func() {
-		if lamp == nil || eng == nil {
-			return
-		}
-		if shownFor != eng || shownName != state.Layout {
-			keys, at, layouts = eng.Keys()
-			shownFor, shownName = eng, state.Layout
-		}
-		lamp.Show(light.Scene{Active: active, Keys: keys, Layout: at, Layouts: layouts, State: state, External: r.heard.snapshot()})
-	}
-	dark := func() {
-		if lamp != nil {
-			lamp.Close()
-			lamp = nil
-		}
-		r.heard.clear()
-	}
-
-	// reassign makes the device what the manager last asked for.
-	reassign := func() {
-		if failed {
-			return // what is pending is taken up once there is an output again
-		}
-		a := r.pending.Swap(nil)
-		if a == nil {
-			return
-		}
-		// What cannot be done now is put back, unless the manager has
-		// asked for something newer meanwhile: the manager believes the
-		// device has what it assigned, and would never assign it again.
-		keep := func() { r.pending.CompareAndSwap(nil, a) }
-		if a == openFailed && retry != nil {
-			keep() // its next try has a time
-			return
-		}
-		if eng != nil && active && !r.send(endpoint, eng.Reset(out[:0])) {
-			keep()
-			fail() // the old profile's notes could not be released
-			return
-		}
-		if a.engine == nil {
-			if eng == nil {
-				r.log.Debug("device not used", "type", r.info.Type.String(), "hardware", r.info.Hardware.String())
-				return
-			}
-			if active {
-				ungrab()
-			}
-			limit.drop()
-			if err := endpoint.Close(); err != nil {
-				r.log.Warn("closing the MIDI device failed", "error", err)
-			}
-			dark()
-			eng, endpoint, profile = nil, nil, nil
-			clear(held)
-			r.setStatus(Status{}, false)
-			r.log.Info("instrument stopped", "reason", "no profile selects the device any more")
-			return
-		}
-		if endpoint == nil {
-			// Before the MIDI device is there for anyone to see: from then
-			// on, what the device reports counts.
-			if stale {
-				stale = false
-				r.discard()
-			}
-			e, err := r.open(r.endpointName)
-			if err != nil {
-				// Tried again, like for a MIDI device that broke: the
-				// MIDI service of the system may only be starting.
-				if a != openFailed {
-					r.log.Error("MIDI device cannot be created; trying again", "error", err)
-					openFailed, retryWait = a, RetryOutput
-				} else {
-					r.log.Debug("the MIDI device cannot be created yet", "error", err)
-					retryWait = min(retryWait*2, maxRetryOutput)
-				}
-				retry = time.After(retryWait)
-				keep()
-				return
-			}
-			openFailed = nil
-			endpoint = e
-			health = time.After(healthPeriod)
-			if r.lights != nil && r.info.Type == control.DeviceKeyboard {
-				lamp = r.lights(r.info)
-			}
-			if receiver, ok := e.(output.Receiver); ok {
-				go r.listen(receiver)
-			}
-			r.log.Info("instrument started",
-				"type", r.info.Type.String(), "hardware", r.info.Hardware.String(),
-				"location", r.info.Location, "profile", a.profile.Name, "source", a.profile.Source)
-		} else {
-			r.log.Info("profile changed", "profile", a.profile.Name, "source", a.profile.Source, "was", profile.Name)
-		}
-		eng, profile = a.engine, a.profile
-		limit = newLimiter(profile.AxisRate)
-		steady = newSteadier(profile.AxisThreshold)
-		state = eng.State()
-		r.setStatus(Status{Device: r.info, Profile: profile.Name, ProfileSource: profile.Source, State: state}, true)
-		replay() // where the axes stand, for the new profile
-	}
-
-	// apply brings the device to the state the manager wants.
-	apply := func() {
-		defer show() // whatever changed, the lights follow
-		reassign()
-		if now := r.rules.Load(); now != rules {
-			// Changed settings: another combination starts with no key
-			// of it held, and the grab follows at once.
-			if tapDown {
-				endTap()
-			}
-			rules = now
-			clear(held)
-			cannotPass = false
-			if hold == holdPassing {
-				// The keys to hide may be others now.
-				if err := r.device.Release(); err != nil {
-					r.log.Warn("the device cannot be released", "error", err)
-				}
-				hold = holdFree
-			}
-			regrab()
-		}
-		want := r.wanted.Load()
-		if eng == nil || want == active || failed {
-			regrab() // a new instrument, or one that stopped being one
-			return
-		}
-		active = want
-		if active {
-			regrab()
-			replay() // turning off put every controller to rest
-			return
-		}
-		// Turning off: the device goes back to the system, and nothing
-		// may keep sounding. The device first: whatever holds up the
-		// sending must not keep a keyboard from its owner.
-		limit.drop() // a position from before must not arrive after
-		regrab()
-		if !r.send(endpoint, eng.Reset(out[:0])) {
-			fail()
-		}
-		r.publish(eng, &state)
-	}
-
-	// play passes one event through the engine to the endpoint.
-	play := func(ev control.Event) {
-		out = eng.Handle(ev, out[:0])
-		if !r.send(endpoint, out) {
-			fail()
-			return
-		}
-		r.publish(eng, &state)
-		show()
-	}
-	// replay sends where every axis stands, as far as the device has
-	// said. Turning off, another profile and a new MIDI device all leave
-	// the controllers at rest, while a lever stays where it was put; and
-	// a lever that rests would not speak up by itself, since its
-	// trembling is dropped.
-	replay = func() {
-		if eng == nil || !active || failed {
-			return
-		}
-		steady = newSteadier(profile.AxisThreshold)
-		r.mu.Lock()
-		axes := r.input.axesNow()
-		r.mu.Unlock()
-		now := time.Now()
-		for _, a := range axes {
-			if failed {
-				return
-			}
-			play(control.Event{Code: a.Code, Part: a.Part, Value: a.Value, Time: now})
-		}
-	}
-	// flush plays the axis events the limiter held back long enough, and
-	// arranges to be called again for those it still holds.
-	flush := func() {
-		var wait time.Duration
-		due, wait = limit.due(time.Now(), due[:0])
-		for _, ev := range due {
-			if failed {
-				break
-			}
-			play(ev)
-		}
-		release = nil
-		if wait > 0 {
-			release = time.After(wait)
-		}
-	}
-
-	apply()
-	events := r.device.Events()
-loop:
-	for {
-		if eng == nil && !failed {
-			// Parked: wait for a profile, and notice the device going.
-			stale = true
-			select {
-			case <-r.wake:
-				apply()
-			case <-retry:
-				retry = nil
-				apply() // the MIDI device is tried for again
-			case <-r.quit:
-				break loop
-			case <-time.After(parkedPoll):
-				// Everything that has gathered is thrown away, not one
-				// event: only Linux drops for a reader that falls behind,
-				// and what is left to pile up elsewhere holds up the
-				// reading of other devices, or would be played in one
-				// burst when a profile takes the device after all.
-				// A queue behind the channel fills it again a moment after
-				// it was emptied, so the emptying ends only when nothing
-				// has come for a moment, or after a while at the most.
-				quiet, enough := time.NewTimer(parkedQuiet), time.After(parkedPoll/5)
-				for drained := false; !drained; {
-					select {
-					case _, ok := <-events:
-						if !ok {
-							break loop
-						}
-						quiet.Reset(parkedQuiet)
-					case <-quiet.C:
-						drained = true
-					case <-enough:
-						drained = true
-					}
-				}
-				quiet.Stop()
-			}
-			continue
-		}
-		select {
-		case <-r.wake:
-			apply()
-		case ev, ok := <-events:
-			if !ok {
-				break loop
-			}
-			// A request from the manager may be waiting behind this
-			// event; it comes first.
-			apply()
-			if failed || eng == nil {
-				continue // draining, or parked a moment ago
-			}
-			r.saw(ev)
-			if rules.tap {
-				if ev.Code == rules.toggle[0] {
-					if tap(ev) {
-						r.onToggle()
-						apply()
-					}
-					continue // the key of a tapped toggle plays nothing
-				}
-			} else if toggled(rules.toggle, held, ev) {
-				r.onToggle()
-				apply()
-				continue
-			}
-			if !active {
-				continue
-			}
-			now := time.Now()
-			if !steady.admit(ev, now) {
-				continue
-			}
-			if !limit.admit(ev, now) {
-				if release == nil {
-					flush()
-				}
-				continue
-			}
-			play(ev)
-		case <-tapTimer:
-			// Held too long for a tap: the key does what it normally
-			// does, which takes passing it on where it is hidden.
-			tapTimer = nil
-			if tapDown {
-				tapLong = true
-				if rules.hide && passer != nil && hold != holdFree {
-					typed = passer.Type(rules.toggle[0], true) == nil
-				}
-			}
-		case <-release:
-			release = nil
-			apply()
-			if eng != nil && active && !failed {
-				flush()
-			}
-		case <-health:
-			health = nil
-			if endpoint == nil {
-				break
-			}
-			if checker, ok := endpoint.(output.Checker); ok {
-				if err := checker.Check(); err != nil {
-					r.log.Error("the MIDI device was lost; it is created anew", "error", err)
-					fail()
-					break
-				}
-				health = time.After(healthPeriod)
-			}
-		case <-retry:
-			retry = nil
-			e, err := r.open(r.endpointName)
-			if err != nil {
-				r.log.Debug("the MIDI device cannot be created yet", "error", err)
-				retryWait = min(retryWait*2, maxRetryOutput)
-				retry = time.After(retryWait)
-				break
-			}
-			endpoint, failed = e, false
-			health = time.After(healthPeriod)
-			if receiver, ok := e.(output.Receiver); ok {
-				go r.listen(receiver)
-			}
-			// Whatever was held when the old device broke is forgotten.
-			eng.Reset(out[:0])
-			clear(held)
-			r.log.Info("the MIDI device is back")
-			regrab()
-			replay() // the new device knows nothing of where the axes stand
-			apply()
-			if eng != nil {
-				r.publish(eng, &state)
-			}
-		}
-	}
-
-	if tapDown {
-		endTap()
-	}
-	if eng == nil {
-		r.log.Debug("unused device gone", "reason", r.device.Err())
-		return
-	}
-	if !failed && active {
-		// Release whatever is still held, so that nothing keeps sounding.
-		r.send(endpoint, eng.Reset(out[:0]))
-	}
-	if endpoint != nil {
-		if err := endpoint.Close(); err != nil {
-			r.log.Warn("closing the MIDI device failed", "error", err)
-		}
-	}
-	dark()
-	r.setStatus(Status{}, false)
-	r.log.Info("instrument stopped", "reason", r.device.Err())
-}
-
-// discard throws away what the device has reported and nobody took, until
-// nothing has come for a moment.
-func (r *runner) discard() {
+// discard throws away what the device has reported and nobody took. A
+// queue behind the channel fills it again a moment after it was emptied,
+// so the emptying ends only when nothing has come for a moment, or after a
+// while at the most. It reports whether the device is gone.
+func (r *runner) discard() (gone bool) {
 	events := r.device.Events()
 	quiet, enough := time.NewTimer(parkedQuiet), time.After(parkedPoll/5)
 	defer quiet.Stop()
@@ -1041,13 +894,13 @@ func (r *runner) discard() {
 		select {
 		case _, ok := <-events:
 			if !ok {
-				return // the device is gone, which the caller finds out
+				return true
 			}
 			quiet.Reset(parkedQuiet)
 		case <-quiet.C:
-			return
+			return false
 		case <-enough:
-			return
+			return false
 		}
 	}
 }
@@ -1107,15 +960,15 @@ func (r *runner) publish(eng *engine.Engine, last *engine.State) {
 	r.mu.Unlock()
 	r.changed()
 	if changed {
-		r.log.Info("instrument changed",
+		r.log.Debug("instrument changed",
 			"octave", now.Octave, "transpose", now.Transpose,
 			"channel", now.Channel+1, "velocity", now.Velocity, "layout", now.Layout)
 	}
 	switch {
 	case chord && now.Chord == "":
-		r.log.Info("chord forgotten")
+		r.log.Debug("chord forgotten")
 	case chord:
-		r.log.Info("chord remembered", "intervals", now.Chord)
+		r.log.Debug("chord remembered", "intervals", now.Chord)
 	}
 }
 

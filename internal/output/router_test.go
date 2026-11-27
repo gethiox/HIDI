@@ -213,3 +213,65 @@ func TestRouterRun(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// fakeDisconnector is a connector that can also end connections.
+type fakeDisconnector struct {
+	fakeConnector
+	ended []string
+	// refuse is how many disconnections fail before they work.
+	refuse int
+}
+
+func (c *fakeDisconnector) Disconnect(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.refuse > 0 {
+		c.refuse--
+		return errors.New("busy")
+	}
+	c.ended = append(c.ended, id)
+	delete(c.connected, id)
+	return nil
+}
+
+func TestRouterChangesItsPorts(t *testing.T) {
+	s := &system{ports: []Port{usb, synth}}
+	r, log := newTestRouter(s, "usb")
+	c := &fakeDisconnector{}
+	r.Add("Keyboard", c)
+	if c.calls(usb.ID) != 1 || c.calls(synth.ID) != 0 {
+		t.Fatalf("at first: usb %d, synth %d", c.calls(usb.ID), c.calls(synth.ID))
+	}
+	// Another port is chosen while the router runs: the new one is
+	// connected and the old one, which is still there, let go of.
+	r.SetMatch(MatchPorts([]string{"synth"}))
+	if c.calls(synth.ID) != 1 || len(c.ended) != 1 || c.ended[0] != usb.ID {
+		t.Fatalf("after the change: synth %d, ended %v", c.calls(synth.ID), c.ended)
+	}
+	if !strings.Contains(log.String(), "disconnected from MIDI port") || strings.Contains(log.String(), "MIDI port is gone") {
+		t.Errorf("the log:\n%s", log)
+	}
+	// None chosen: everything is let go of, once.
+	r.SetMatch(MatchPorts(nil))
+	r.Sync()
+	if len(c.ended) != 2 || c.ended[1] != synth.ID {
+		t.Errorf("after choosing none: ended %v", c.ended)
+	}
+}
+
+// A port that cannot be let go of is tried again, not forgotten while the
+// instrument still sends to it.
+func TestRouterTriesAgainToDisconnect(t *testing.T) {
+	s := &system{ports: []Port{usb}}
+	r, log := newTestRouter(s, "usb")
+	c := &fakeDisconnector{refuse: 1}
+	r.Add("Keyboard", c)
+	r.SetMatch(MatchPorts(nil))
+	if len(c.ended) != 0 || !strings.Contains(log.String(), "disconnecting from the MIDI port failed") {
+		t.Fatalf("the first try: ended %v\n%s", c.ended, log)
+	}
+	r.Sync()
+	if len(c.ended) != 1 || c.ended[0] != usb.ID {
+		t.Errorf("the second try: ended %v", c.ended)
+	}
+}

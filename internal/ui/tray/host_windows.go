@@ -43,6 +43,7 @@ const (
 	wmNull      = 0x0000
 	wmLButtonUp = 0x0202
 	wmRButtonUp = 0x0205
+	wmMButtonUp = 0x0208
 	wmApp       = 0x8000
 	wmTray      = wmApp + 1 // what the icon reports with
 	wmShow      = wmApp + 2 // a new view is waiting
@@ -67,6 +68,7 @@ const (
 	cmdToggle = 1
 	cmdQuit   = 2
 	cmdOpen   = 3
+	cmdLearn  = 4
 )
 
 // Structures from the Windows headers, as laid out on 64-bit Windows.
@@ -250,6 +252,10 @@ func trayWindowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 				h.act(h.shown.click())
 			case wmRButtonUp:
 				h.menu()
+			case wmMButtonUp:
+				// The middle button turns HIDI off and on, whatever a
+				// plain click does.
+				h.act(ActionToggle)
 			}
 			return 0
 		case wmShow:
@@ -365,6 +371,9 @@ func (h *windowsHost) menu() {
 	if h.shown.Toggle != "" {
 		add(mfString, cmdToggle, h.shown.Toggle)
 	}
+	if h.shown.Learn != "" {
+		add(mfString, cmdLearn, h.shown.Learn)
+	}
 	add(mfSeparator, 0, "")
 	add(mfString, cmdQuit, h.shown.quit())
 
@@ -380,6 +389,8 @@ func (h *windowsHost) menu() {
 		h.act(ActionToggle)
 	case cmdOpen:
 		h.act(ActionOpen)
+	case cmdLearn:
+		h.act(ActionLearn)
 	case cmdQuit:
 		h.act(ActionQuit)
 	}

@@ -192,6 +192,34 @@ func TestInstanceID(t *testing.T) {
 	}
 }
 
+// An open key gets through a grab, with its release; closed again, it is
+// swallowed like the others.
+func TestGateLetsOpenKeysThrough(t *testing.T) {
+	const space, a = 0x20, 0x41
+	var g gate
+	g.grabs.Add(1)
+	open := map[uint16]bool{57: true} // KEY_SPACE
+	g.open.Store(&open)
+	if g.swallowKey(space, 57, true, false) {
+		t.Error("the open key was swallowed")
+	}
+	if !g.swallowKey(a, 30, true, false) {
+		t.Error("another key got through the grab")
+	}
+	if g.swallowKey(space, 57, true, true) || !g.swallowKey(a, 30, true, true) {
+		t.Error("the releases did not follow the presses")
+	}
+	// A key whose code is not known cannot be an open one.
+	if !g.swallow(space, false) {
+		t.Error("a key without a known code got through")
+	}
+	g.swallow(space, true)
+	g.open.Store(nil)
+	if !g.swallowKey(space, 57, true, false) {
+		t.Error("the key still gets through after the grab was closed")
+	}
+}
+
 // A hidden key is swallowed without any grab; other keys pass.
 func TestGateHidesKeys(t *testing.T) {
 	var g gate
@@ -292,5 +320,52 @@ func TestClaims(t *testing.T) {
 	c.remove("keyboard")
 	if got := ask(32, true); got != "" {
 		t.Fatalf("a key went to %q after every keyboard was unplugged", got)
+	}
+}
+
+// Two keyboards that let different keys through a grab, or hide
+// different ones: the hook goes by what both ask for, and one that stops
+// asking takes nothing from the other.
+func TestGateKeysOfSeveralKeyboards(t *testing.T) {
+	const vkSpace, vkLeft, vkCaps, vkScroll = 0x20, 0x25, 0x14, 0x91
+	var g gate
+	a, b := "keyboard a", "keyboard b"
+	g.grabs.Add(2)
+	g.letThrough(a, map[uint16]bool{57: true})  // KEY_SPACE
+	g.letThrough(b, map[uint16]bool{105: true}) // KEY_LEFT
+	if g.swallowKey(vkSpace, 57, true, false) || g.swallowKey(vkLeft, 105, true, false) {
+		t.Error("a key one of the keyboards opens was swallowed")
+	}
+	g.swallowKey(vkSpace, 57, true, true)
+	g.swallowKey(vkLeft, 105, true, true)
+	g.grabs.Add(-1)
+	g.letThrough(b, nil) // b is let go of
+	if g.swallowKey(vkSpace, 57, true, false) {
+		t.Error("the open key of the keyboard still grabbed was swallowed after the other was let go of")
+	}
+	g.swallowKey(vkSpace, 57, true, true)
+	if !g.swallowKey(vkLeft, 105, true, false) {
+		t.Error("the key of the keyboard let go of still gets through the grab")
+	}
+	g.swallowKey(vkLeft, 105, true, true)
+	g.letThrough(a, nil)
+	g.grabs.Add(-1)
+
+	g.hides.Add(2)
+	g.hide(a, map[uint16]bool{58: true}) // KEY_CAPSLOCK
+	g.hide(b, map[uint16]bool{70: true}) // KEY_SCROLLLOCK
+	if !g.swallowKey(vkCaps, 58, true, false) || !g.swallowKey(vkScroll, 70, true, false) {
+		t.Error("a key one of the keyboards hides got through")
+	}
+	g.swallowKey(vkCaps, 58, true, true)
+	g.swallowKey(vkScroll, 70, true, true)
+	g.hides.Add(-1)
+	g.hide(b, nil)
+	if !g.swallowKey(vkCaps, 58, true, false) {
+		t.Error("the toggle of the keyboard still passed got through after the other stopped")
+	}
+	g.swallowKey(vkCaps, 58, true, true)
+	if g.swallowKey(vkScroll, 70, true, false) {
+		t.Error("the key of the keyboard that stopped is still hidden")
 	}
 }

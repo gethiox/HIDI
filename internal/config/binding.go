@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 
 // bindings reads a table of bindings. Entries are processed in sorted order
 // so that the result does not depend on map iteration.
-func (r *reader) bindings(where string, values map[string]any) []engine.Binding {
+func (r *reader) bindings(where, layout string, values map[string]any) []engine.Binding {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -40,6 +41,16 @@ func (r *reader) bindings(where string, values map[string]any) []engine.Binding 
 		action, ok := r.action(at, &source, values[key])
 		if !ok {
 			continue
+		}
+		// An axis has the dead zone of the profile unless its binding
+		// names one.
+		if table, _ := values[key].(map[string]any); table["deadzone"] != nil {
+			if r.own == nil {
+				r.own = map[ownKey]bool{}
+			}
+			r.own[ownKey{layout, id}] = true
+		} else if source.Code.Kind == control.KindAxis {
+			source.Deadzone = r.deadzone
 		}
 		out = append(out, engine.Binding{Source: source, Action: action})
 	}
@@ -100,6 +111,26 @@ func parseSource(key string) (engine.Source, error) {
 	return s, nil
 }
 
+// SourceKey writes a source as the key of its binding, the way
+// parseSource reads it: "KEY_LEFTSHIFT+KEY_F1", "ABS_Y-", "Touchpad:ABS_X".
+func SourceKey(s engine.Source) string {
+	var b strings.Builder
+	if s.Part != "" {
+		b.WriteString(s.Part + ":")
+	}
+	for _, m := range s.Modifiers {
+		b.WriteString(m.String() + "+")
+	}
+	b.WriteString(s.Code.String())
+	switch s.Range {
+	case engine.RangeUpper:
+		b.WriteString("+")
+	case engine.RangeLower:
+		b.WriteString("-")
+	}
+	return b.String()
+}
+
 // actionKeys are the settings that choose what a binding does. Exactly one
 // must be present in a binding written as a table.
 var actionKeys = []string{"note", "cc", "pitch_bend", "program", "command"}
@@ -109,13 +140,20 @@ var actionKeys = []string{"note", "cc", "pitch_bend", "program", "command"}
 func (r *reader) action(at string, source *engine.Source, raw any) (engine.Action, bool) {
 	switch v := raw.(type) {
 	case string:
-		// A bare string is a command name or a note name.
+		// A bare string is "passthrough", "nothing", a command name or a
+		// note name.
+		switch v {
+		case engine.PassthroughName:
+			return engine.Passthrough{}, true
+		case engine.NothingName:
+			return engine.Nothing{}, true
+		}
 		if command, err := engine.ParseCommand(v); err == nil {
 			return command, true
 		}
 		note, err := midi.ParseNote(v)
 		if err != nil {
-			r.failf(at, "%q is neither a command nor a note (%v)", v, err)
+			r.failf(at, "%q is neither a command, a note, %q nor %q (%v)", v, engine.PassthroughName, engine.NothingName, err)
 			return nil, false
 		}
 		return engine.Note{Note: note}, true
@@ -153,6 +191,21 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 	source.Deadzone = t.number("deadzone", 0)
 	offset := uint8(t.integer("channel_offset", 0, 0, 15))
 	allowed := []string{chosen[0], "channel_offset", "centered", "invert", "deadzone"}
+	// Where an axis triggers what a key would: a note, a program change
+	// or a command.
+	threshold := func() {
+		allowed = append(allowed, "threshold")
+		if !t.has("threshold") {
+			return
+		}
+		source.Threshold = t.number("threshold", 0)
+		switch {
+		case source.Code.Kind == control.KindKey:
+			r.failf(at, "threshold is for an axis; %s is a key, which is down or not", source.Code)
+		case !(source.Threshold > 0 && source.Threshold < 1):
+			r.failf(at, "threshold must be above 0 and below 1, not %v", source.Threshold)
+		}
+	}
 
 	var action engine.Action
 	switch chosen[0] {
@@ -162,10 +215,12 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 			r.failf(at, "%v", err)
 		}
 		allowed = append(allowed, "velocity", "touch")
+		threshold()
 		action = engine.Note{Note: note, ChannelOffset: offset, Velocity: uint8(t.integer("velocity", 0, 1, 127)), Touch: t.boolean("touch", false)}
 	case "cc":
 		action = engine.ControlChange{Controller: uint8(t.integer("cc", 0, 0, 127)), ChannelOffset: offset}
 	case "program":
+		threshold()
 		action = engine.ProgramChange{Program: uint8(t.integer("program", 0, 0, 127)), ChannelOffset: offset}
 	case "pitch_bend":
 		bend := engine.PitchBend{ChannelOffset: offset}
@@ -178,6 +233,7 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 		}
 		action = bend
 	case "command":
+		threshold()
 		command, err := engine.ParseCommand(t.str("command", ""))
 		if err != nil {
 			r.failf(at, "%v", err)
@@ -186,4 +242,36 @@ func (r *reader) actionTable(at string, source *engine.Source, values map[string
 	}
 	t.done(allowed...)
 	return action, len(r.errs) == before
+}
+
+// toggle finds the keys that turn HIDI off and on with a profile: those of
+// its binding of the toggle command. HIDI is turned off and on for every
+// instrument and in whatever layout, also while nothing else of the
+// profile is in force, so the binding is one, stands among those for
+// every layout, and names keys of the main part and nothing else.
+func (r *reader) toggle(p *engine.Profile) []control.Code {
+	var keys []control.Code
+	for _, l := range p.Layouts {
+		for _, b := range l.Bindings {
+			if b.Action == engine.CommandToggle {
+				r.failf(fmt.Sprintf("layout %q, %s", l.Name, b.Source.Code), "%s belongs in [global]: it has to work in every layout", engine.ToggleName)
+			}
+		}
+	}
+	for _, b := range p.Global {
+		at := "global, " + b.Source.Code.String()
+		if b.Action != engine.CommandToggle {
+			r.failf(at, "only %s belongs in [global]; every other binding is written in the layouts it works in, each of which has its own", engine.ToggleName)
+			continue
+		}
+		switch {
+		case keys != nil:
+			r.failf(at, "a profile has one %s; this is another", engine.ToggleName)
+		case b.Source.Part != "" || b.Source.Range != engine.RangeWhole || b.Source.Code.Kind != control.KindKey:
+			r.failf(at, "%s is bound to a key or a button of the main part, or to several pressed together", engine.ToggleName)
+		default:
+			keys = append(slices.Clone(b.Source.Modifiers), b.Source.Code)
+		}
+	}
+	return keys
 }

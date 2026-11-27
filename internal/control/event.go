@@ -21,3 +21,13 @@ type Event struct {
 // release. Controls that report intermediate values count as pressed past
 // the halfway point.
 func (e Event) Pressed() bool { return e.Value >= 0.5 }
+
+// Input names one control of a device: its code, and the part of the
+// device it is on, as [Event.Part] has it.
+type Input struct {
+	Code Code
+	Part string
+	// Hat says of an axis that it is one direction pair of a hat: it
+	// rests in the middle or at an end, and is never anywhere between.
+	Hat bool
+}

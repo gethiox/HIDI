@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ type fakeServer struct {
 	custom  []int
 	colours map[int][]openrgb.RGB
 	sends   int
+	syncs   int
+	slow    time.Duration
 	fail    error
 	closed  bool
 }
@@ -56,6 +59,17 @@ func (s *fakeServer) SetLEDs(index int, colours []openrgb.RGB) error {
 	s.colours[index] = slices.Clone(colours)
 	s.sends++
 	return nil
+}
+
+func (s *fakeServer) Sync(index int) error {
+	s.mu.Lock()
+	slow := s.slow
+	s.mu.Unlock()
+	time.Sleep(slow) // the keyboard is being written
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncs++
+	return s.fail
 }
 
 func (s *fakeServer) Close() error {
@@ -99,7 +113,7 @@ func TestHub(t *testing.T) {
 		Matches: func(location string, info control.DeviceInfo) bool {
 			return location == "keyboard" && info.Name == "Kbd"
 		},
-		Interval: time.Millisecond, Retry: 5 * time.Millisecond,
+		Interval: time.Millisecond, Retry: 5 * time.Millisecond, Repeats: []time.Duration{},
 	})
 	current := func() *fakeServer {
 		mu.Lock()
@@ -147,7 +161,7 @@ func TestHub(t *testing.T) {
 	lamp.Show(scene)
 	eventually(t, "the changed scene", func() bool {
 		got, _ := current().lights()
-		return len(got) == 4 && got[1] == rgb(red)
+		return len(got) == 4 && got[1] == rgb(c.Panic)
 	})
 
 	// The server goes away and comes back: the lamp lights up again.
@@ -174,7 +188,7 @@ func TestHub(t *testing.T) {
 	lamp.Show(scene)
 	eventually(t, "the lights to come on again", func() bool {
 		got, _ := current().lights()
-		return got[1] == rgb(red)
+		return got[1] == rgb(c.Panic)
 	})
 	other.Close()
 	cancel()
@@ -186,6 +200,107 @@ func TestHub(t *testing.T) {
 	if got, _ := current().lights(); got[1] != rgb(c.Idle) {
 		t.Errorf("after stopping, the lights are %v", got)
 	}
+}
+
+// startHub runs a hub with one keyboard on a server that is there.
+func startHub(t *testing.T, opts Options) (*fakeServer, *Lamp, *Hub) {
+	t.Helper()
+	server := &fakeServer{}
+	opts.Connect = func() (Server, error) { return server, nil }
+	opts.Matches = func(location string, info control.DeviceInfo) bool { return location == "keyboard" }
+	opts.Interval, opts.Retry = time.Millisecond, 5*time.Millisecond
+	hub := NewHub(opts)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { hub.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	return server, hub.Attach(control.DeviceInfo{Name: "Kbd"}), hub
+}
+
+// What was sent last is sent again a few times, for servers that lose an
+// update which arrives while the keyboard is written.
+func TestHubRepeatsTheLastColours(t *testing.T) {
+	server, lamp, _ := startHub(t, Options{Repeats: []time.Duration{5 * time.Millisecond, 15 * time.Millisecond}})
+	lamp.Show(Scene{Active: true})
+	eventually(t, "the scene and its two repeats", func() bool {
+		_, sends := server.lights()
+		return sends == 3
+	})
+	time.Sleep(40 * time.Millisecond)
+	if _, sends := server.lights(); sends != 3 {
+		t.Errorf("%d sends, want the scene and two repeats", sends)
+	}
+	server.mu.Lock()
+	syncs := server.syncs
+	server.mu.Unlock()
+	if syncs != 3 {
+		t.Errorf("%d waits for the server, want one after every send", syncs)
+	}
+}
+
+// A keyboard that is slow to write does not get every scene, and never an
+// old one late: while it is busy the scenes replace each other, and the
+// newest is sent when it is done.
+func TestHubKeepsToThePaceOfTheKeyboard(t *testing.T) {
+	c := DefaultColours()
+	server, lamp, _ := startHub(t, Options{Repeats: []time.Duration{}})
+	keyA := control.Key(30)
+	lamp.Show(Scene{Active: true})
+	eventually(t, "the first scene", func() bool { _, sends := server.lights(); return sends == 1 })
+	server.mu.Lock()
+	server.slow = 30 * time.Millisecond
+	server.mu.Unlock()
+
+	// Two hundred changes in far less time than the keyboard takes for a
+	// few; the last one is a held key.
+	for i := range 200 {
+		s := Scene{Active: false}
+		if i%2 == 1 {
+			s.Pressed = []control.Code{keyA}
+		}
+		lamp.Show(s)
+		time.Sleep(200 * time.Microsecond)
+	}
+	eventually(t, "the last scene on the keyboard", func() bool {
+		got, _ := server.lights()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.Pressed)
+	})
+	if _, sends := server.lights(); sends > 12 {
+		t.Errorf("%d scenes were sent to a keyboard that takes 30 ms for each", sends)
+	}
+}
+
+func TestHubTellsWhatIsShown(t *testing.T) {
+	c := DefaultColours()
+	var changes atomic.Int32
+	server, lamp, hub := startHub(t, Options{Repeats: []time.Duration{}, Changed: func() { changes.Add(1) }})
+	keyA := control.Key(30)
+	if _, _, lit := lamp.Painted(); lit {
+		t.Error("a lamp is lit before anything was sent")
+	}
+	lamp.Show(Scene{Active: true, Layouts: 1, Keys: []engine.KeyRole{{Code: keyA, Action: engine.Passthrough{}}}})
+	eventually(t, "the lamp to tell what it shows", func() bool {
+		keys, rest, lit := lamp.Painted()
+		return lit && keys[keyA] == c.Passthrough && rest == c.Unbound
+	})
+	if changes.Load() == 0 {
+		t.Error("nobody was told that the lamp shows something")
+	}
+
+	// Other colours reach the keyboard without a new scene.
+	c.Passthrough = RGB{9, 8, 7}
+	hub.SetColours(c)
+	eventually(t, "the new colour", func() bool {
+		got, _ := server.lights()
+		keys, _, _ := lamp.Painted()
+		return len(got) == 4 && got[0] == openrgb.RGB{R: 9, G: 8, B: 7} && keys[keyA] == c.Passthrough
+	})
+
+	lamp.Close()
+	eventually(t, "the closed lamp to be dark for the window", func() bool {
+		_, _, lit := lamp.Painted()
+		return !lit
+	})
 }
 
 func TestMatches(t *testing.T) {
@@ -222,5 +337,98 @@ func TestMatches(t *testing.T) {
 	}
 	if Matches("I2C: /dev/i2c-1, address 0x49", keyboard) || Matches(path, control.DeviceInfo{}) {
 		t.Error("a location without a model, or a device without one, matches")
+	}
+}
+
+// The hub is turned off and on while it runs: off, the keyboard is left
+// evenly lit and the server let go of; on again, the lamp shows its scene.
+func TestHubTurnedOffAndOn(t *testing.T) {
+	c := DefaultColours()
+	var mu sync.Mutex
+	var servers []*fakeServer
+	opts := Options{Repeats: []time.Duration{}, Disabled: true, Interval: time.Millisecond, Retry: 5 * time.Millisecond}
+	opts.Connect = func() (Server, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		servers = append(servers, &fakeServer{})
+		return servers[len(servers)-1], nil
+	}
+	opts.Matches = func(location string, info control.DeviceInfo) bool { return location == "keyboard" }
+	hub := NewHub(opts)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { hub.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	connected := func() int { mu.Lock(); defer mu.Unlock(); return len(servers) }
+	last := func() *fakeServer { mu.Lock(); defer mu.Unlock(); return servers[len(servers)-1] }
+
+	keyA := control.Key(30)
+	lamp := hub.Attach(control.DeviceInfo{Name: "Kbd"})
+	lamp.Show(Scene{Active: true, Layouts: 1, Keys: []engine.KeyRole{{Code: keyA, Action: engine.Note{Note: 60}}}})
+	time.Sleep(30 * time.Millisecond)
+	if connected() != 0 {
+		t.Fatal("a hub that is turned off reached for the server")
+	}
+
+	hub.SetEnabled(true)
+	eventually(t, "the scene on the keyboard", func() bool {
+		if connected() != 1 {
+			return false
+		}
+		got, _ := last().lights()
+		_, _, lit := lamp.Painted()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.C) && lit
+	})
+
+	hub.SetEnabled(false)
+	first := last()
+	eventually(t, "the keyboard left evenly lit and the server let go of", func() bool {
+		got, _ := first.lights()
+		first.mu.Lock()
+		closed := first.closed
+		first.mu.Unlock()
+		_, _, lit := lamp.Painted()
+		return closed && !lit && len(got) == 4 && got[0] == openrgb.RGB(c.Idle)
+	})
+
+	// On again, to a new connection, with the scene the lamp had.
+	hub.SetEnabled(true)
+	eventually(t, "the scene on the keyboard again", func() bool {
+		if connected() != 2 {
+			return false
+		}
+		got, _ := last().lights()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.C)
+	})
+	// Another address: the connection is made anew.
+	hub.Reconnect()
+	eventually(t, "a third connection with the scene", func() bool {
+		if connected() != 3 {
+			return false
+		}
+		got, _ := last().lights()
+		return len(got) == 4 && got[0] == openrgb.RGB(c.C)
+	})
+}
+
+func TestPreviewWithoutServer(t *testing.T) {
+	// A lamp of a hub that is turned off still knows what it would show.
+	hub := NewHub(Options{Disabled: true})
+	lamp := hub.Attach(control.DeviceInfo{Name: "Some Keyboard", Type: control.DeviceKeyboard})
+	keys, rest := lamp.Preview()
+	if len(keys) != 0 || rest != DefaultColours().Idle {
+		t.Errorf("before a scene: %v, %v", keys, rest)
+	}
+	lamp.Show(Scene{Active: false, Pressed: []control.Code{control.Key(30)}})
+	keys, rest = lamp.Preview()
+	if keys[control.Key(30)] != DefaultColours().Pressed || rest != DefaultColours().Idle {
+		t.Errorf("a key held while off: %v, rest %v", keys, rest)
+	}
+	lamp.Show(Scene{Active: true})
+	if _, rest = lamp.Preview(); rest != DefaultColours().Unbound {
+		t.Errorf("while on, the other keys are %v", rest)
+	}
+	if _, _, lit := lamp.Painted(); lit {
+		t.Error("the lamp claims to be lit")
 	}
 }

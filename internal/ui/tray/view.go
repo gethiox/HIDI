@@ -17,6 +17,9 @@ const (
 	LookOff
 	// LookOn: HIDI is running and turned on; the devices play.
 	LookOn
+	// LookLearning: the other half of the blinking of an icon whose
+	// HIDI is on and in learning mode: it alternates with LookOn.
+	LookLearning
 )
 
 // View is everything the icon shows.
@@ -30,6 +33,11 @@ type View struct {
 	// Toggle is the label of the menu entry that turns HIDI on or off. It
 	// is empty while HIDI is not running.
 	Toggle string
+	// Learn is the label of the menu entry that turns learning mode on
+	// or off; empty while HIDI is not running. Learning says that the
+	// mode is on, which the icon shows by blinking while HIDI is on.
+	Learn    string
+	Learning bool
 	// Open is the label of the menu entry that opens HIDI's window. It is
 	// empty where the icon has no window to open; where it has one, a
 	// click on the icon opens it instead of turning HIDI on or off.
@@ -47,9 +55,13 @@ func ViewOf(s *ipc.Snapshot) View {
 	if s == nil {
 		return View{Look: LookStopped, Title: "HIDI is not running", Lines: []string{"HIDI is not running"}}
 	}
-	v := View{Look: LookOff, Title: "HIDI is off", Toggle: "Turn HIDI on"}
+	v := View{Look: LookOff, Title: "HIDI is off", Toggle: "Turn HIDI on", Learn: "Turn learning mode on"}
 	if s.Active {
 		v.Look, v.Title, v.Toggle = LookOn, "HIDI is on", "Turn HIDI off"
+	}
+	if s.Learning {
+		v.Learning, v.Learn = true, "Turn learning mode off"
+		v.Title += ", learning"
 	}
 	switch n := len(s.Instruments); n {
 	case 0:
@@ -82,6 +94,9 @@ const (
 	ActionQuit
 	// ActionOpen: open HIDI's window.
 	ActionOpen
+	// ActionLearn: turn learning mode on if it is off, and off if it is
+	// on.
+	ActionLearn
 )
 
 // The labels of the menu entries beside the one that toggles.
@@ -96,7 +111,7 @@ const (
 
 // equal reports whether two views show the same.
 func (v View) equal(o View) bool {
-	return v.Look == o.Look && v.Title == o.Title && v.Toggle == o.Toggle &&
+	return v.Look == o.Look && v.Title == o.Title && v.Toggle == o.Toggle && v.Learn == o.Learn &&
 		v.Open == o.Open && v.Quit == o.Quit && slices.Equal(v.Lines, o.Lines)
 }
 

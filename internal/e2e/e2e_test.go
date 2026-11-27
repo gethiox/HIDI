@@ -21,10 +21,8 @@ import (
 
 // Key codes from linux/input-event-codes.h.
 const (
-	keyLeftCtrl  = 29
-	keyLeftShift = 42
-	keyZ         = 44 // C0 in the built-in keyboard profile
-	keyLeftAlt   = 56
+	keyZ        = 44 // C0 in the built-in keyboard profile
+	keyCapsLock = 58 // the toggle, as HIDI comes
 )
 
 const (
@@ -177,6 +175,15 @@ func TestKeyboardToMIDI(t *testing.T) {
 		}
 	}
 
+	// HIDI starts turned off, as it comes: the instrument is there and
+	// silent until HIDI is turned on.
+	if status := control("status"); !strings.Contains(status, "is off") {
+		t.Errorf("hidi status of a HIDI that just started:\n%s", status)
+	}
+	if out := control("on"); !strings.Contains(out, "is on") {
+		t.Errorf("hidi on:\n%s", out)
+	}
+
 	// A key becomes a note.
 	press(keyZ, true)
 	expect("NoteOn ch=1 note=C0 velocity=64")
@@ -196,13 +203,9 @@ func TestKeyboardToMIDI(t *testing.T) {
 	expect("NoteOff ch=1 note=C0 velocity=0")
 	press(keyZ, false)
 
-	// The toggle combination on the keyboard turns it on again.
-	for _, key := range []uint16{keyLeftCtrl, keyLeftShift, keyLeftAlt} {
-		press(key, true)
-	}
-	for _, key := range []uint16{keyLeftAlt, keyLeftShift, keyLeftCtrl} {
-		press(key, false)
-	}
+	// The toggle on the keyboard turns it on again: Caps Lock, tapped.
+	press(keyCapsLock, true)
+	press(keyCapsLock, false)
 	eventually(t, "HIDI to be on again", func() bool { return strings.Contains(control("status"), "is on") })
 	press(keyZ, true)
 	expect("NoteOn ch=1 note=C0 velocity=64")

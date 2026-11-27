@@ -11,8 +11,77 @@ type Snapshot struct {
 	Version string `json:"version"`
 	// Active says whether HIDI is turned on.
 	Active bool `json:"active"`
+	// Learning says that learning mode is on: axes stand still until
+	// they are moved far.
+	Learning bool `json:"learning,omitempty"`
 	// Instruments are the running instruments, ordered by name.
 	Instruments []Instrument `json:"instruments"`
+	// Devices are the devices that are instruments or could be: those
+	// connected, and those HIDI has seen before.
+	Devices []Device `json:"devices,omitempty"`
+}
+
+// Device is a keyboard, a game controller or another device that a
+// profile selects.
+type Device struct {
+	Name string `json:"name"`
+	// Type is the kind of device, as in [Instrument].
+	Type string `json:"type"`
+	// Connected says that the device is there now.
+	Connected bool `json:"connected"`
+	// Allowed says that the settings let the device be an instrument.
+	Allowed bool `json:"allowed"`
+}
+
+// Trail is how busy an instrument was, step by step: the events of each
+// step alone, as a rate per second, the newest step last.
+type Trail struct {
+	// Seq counts the steps; it grows by one with each that is added.
+	Seq uint64 `json:"seq"`
+	// StepMS is the time one value covers, in milliseconds, and AgeMS
+	// how long before this snapshot the newest value was added.
+	StepMS int     `json:"step_ms"`
+	AgeMS  float64 `json:"age_ms"`
+	// Input is what came in from the device, and MIDI what went out.
+	Input []int `json:"input"`
+	MIDI  []int `json:"midi"`
+}
+
+// Key is what a key of the device does in the selected layout.
+type Key struct {
+	// Name is the key's name, such as "KEY_A".
+	Name string `json:"name"`
+	// Role is "note", "command", "passthrough", "controller", "bend" or
+	// "program".
+	Role string `json:"role"`
+	// Note, for a note, is its number before the instrument's octave and
+	// transposition are added.
+	Note int `json:"note,omitempty"`
+}
+
+// Controller is a controller, or the pitch bend, that an instrument
+// sends by the position of a control, and the value it last sent.
+type Controller struct {
+	// Bend says that it is the pitch bend; otherwise Number is the
+	// number of the controller, 0 to 127.
+	Bend   bool `json:"bend,omitempty"`
+	Number int  `json:"number"`
+	// Channel is the MIDI channel it is sent on, 1 to 16.
+	Channel int `json:"channel"`
+	// Value is what was last sent, if Known: 0 to 127 for a controller,
+	// -8192 to 8191 for the pitch bend, 0 being no bend.
+	Value int  `json:"value"`
+	Known bool `json:"known,omitempty"`
+	// Source names the control that drives it, as profiles do, with the
+	// part of the device where it is not the main one.
+	Source string `json:"source,omitempty"`
+}
+
+// KeyLight is the colour of the light under a key.
+type KeyLight struct {
+	Name string `json:"name"`
+	// Colour is written as "#rrggbb".
+	Colour string `json:"colour"`
 }
 
 // Instrument is one running instrument.
@@ -31,6 +100,12 @@ type Instrument struct {
 	// ProfileFile is the file the profile is read from; empty for a
 	// profile that is inside HIDI.
 	ProfileFile string `json:"profile_file,omitempty"`
+	// ProfileKind is "factory" for a profile HIDI comes with and "user"
+	// for one of the user's own.
+	ProfileKind string `json:"profile_kind,omitempty"`
+	// Generated says that the profile is a factory profile that gives
+	// most controls their parts by a rule, for this device.
+	Generated bool `json:"generated,omitempty"`
 
 	Octave    int `json:"octave"`
 	Transpose int `json:"transpose"`
@@ -41,6 +116,13 @@ type Instrument struct {
 	// Chord is the remembered chord as its intervals above the note
 	// played, such as "+4 +7"; empty when there is none.
 	Chord string `json:"chord,omitempty"`
+	// Toggle names the key, or the keys pressed together, that turn
+	// HIDI off and on from this device; none if it has no way to.
+	Toggle []string `json:"toggle,omitempty"`
+	// Typing says that the device is a keyboard that keeps typing while
+	// it plays, although keyboards are kept from that: nothing on it
+	// turns HIDI off, so HIDI does not take it.
+	Typing bool `json:"typing,omitempty"`
 	// Learning says that the learn command is held: axes get through
 	// only when moved far.
 	Learning bool `json:"learning,omitempty"`
@@ -49,12 +131,34 @@ type Instrument struct {
 	// Notes are the numbers of the notes that are on, lowest first; note
 	// 60 is middle C.
 	Notes []int `json:"notes"`
+	// Controllers is what the instrument sends by the position of its
+	// controls in the layout that is selected: the controllers and the
+	// pitch bend, in the order of the controls that drive them.
+	Controllers []Controller `json:"controllers,omitempty"`
 	// InputRate is how many events the device reported in the last
 	// second, and MIDIRate how many MIDI messages the instrument sent.
 	InputRate int `json:"input_rate"`
 	MIDIRate  int `json:"midi_rate"`
-	// Buttons and Axes are the controls the device has reported so far,
-	// and where each stands: its raw input, before the profile.
+	// Trail is how busy the instrument was over the last seconds.
+	Trail *Trail `json:"trail,omitempty"`
+	// Keys is what the bound keys do in the selected layout.
+	Keys []Key `json:"keys,omitempty"`
+	// Lit says that HIDI controls the lights of the keyboard. Lights are
+	// then the colours of the keys that have one of their own, and
+	// LightRest is the colour of every other key.
+	Lit       bool       `json:"lit,omitempty"`
+	Lights    []KeyLight `json:"lights,omitempty"`
+	LightRest string     `json:"light_rest,omitempty"`
+	// Simulated says that HIDI does not control the lights and that
+	// Lights and LightRest are what they would show; a "simulate" request
+	// asked for it.
+	Simulated bool `json:"simulated,omitempty"`
+	// Complete says that Buttons and Axes list every control the device
+	// has; the place of a control in its list is then its number.
+	Complete bool `json:"complete,omitempty"`
+	// Buttons and Axes are the controls of the device, all of them or
+	// those it has reported so far, and where each stands: its raw
+	// input, before the profile.
 	Buttons []Button `json:"buttons"`
 	Axes    []Axis   `json:"axes"`
 }
@@ -76,6 +180,17 @@ type Axis struct {
 	Part string `json:"part,omitempty"`
 	// Value is the position, from 0 to 1.
 	Value float64 `json:"value"`
+	// Hat says that the device calls the axis one of a hat: it rests in
+	// the middle or at an end.
+	Hat bool `json:"hat,omitempty"`
+	// Known says that the device has reported where the axis stands. An
+	// axis the device only listed has not, and its Value means nothing.
+	Known bool `json:"known,omitempty"`
+	// Bound says that the layout that is selected reads the axis, and
+	// Rest where it then rests, from 0 to 1: in the middle for a stick,
+	// at an end for a lever.
+	Bound bool    `json:"bound,omitempty"`
+	Rest  float64 `json:"rest,omitempty"`
 }
 
 // LogLine is one line of the running HIDI's log.
@@ -99,13 +214,35 @@ type request struct {
 	// EveryMS, for "watch", is the least time between two snapshots, in
 	// milliseconds. Zero leaves it to HIDI.
 	EveryMS int `json:"every_ms,omitempty"`
+	// File and Text, for "preview", are a profile file and the text HIDI
+	// is to use in its place until the file changes on disk; an empty
+	// Text ends that.
+	File string `json:"file,omitempty"`
+	Text string `json:"text,omitempty"`
+	// Name, Type and Location, for "simulate", name an instrument as a
+	// snapshot does, and On says whether the lights of its keyboard are
+	// to be shown though HIDI does not control them.
+	Name     string `json:"name,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Location string `json:"location,omitempty"`
+	On       bool   `json:"on,omitempty"`
 }
+
+// previewHead is how a preview request begins, byte for byte: such a
+// request may be longer than any other, and the server tells by this.
+const previewHead = `{"op":"preview"`
+
+// settingsHead begins a request that carries settings, which may be long
+// as well.
+const settingsHead = `{"op":"settings"`
 
 // response is one answer. Exactly one field is set.
 type response struct {
 	Snapshot *Snapshot `json:"snapshot,omitempty"`
-	Log      *LogLine  `json:"log,omitempty"`
-	Error    string    `json:"error,omitempty"`
+	// Settings, for "current_settings", are the settings HIDI goes by.
+	Settings string   `json:"settings,omitempty"`
+	Log      *LogLine `json:"log,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // Host is what the server needs from the running HIDI.
@@ -114,6 +251,28 @@ type Host struct {
 	Snapshot func() Snapshot
 	// SetActive turns HIDI on or off.
 	SetActive func(active bool)
+	// SetLearning turns learning mode on or off. Nil for a host that
+	// has none.
+	SetLearning func(on bool)
+	// Toggle and ToggleLearning turn HIDI, and learning mode, over in
+	// one step, so that a toggle from here and one from a device at the
+	// same moment both count. Nil for a host that cannot: the state is
+	// then read and set the other way.
+	Toggle, ToggleLearning func()
+	// Simulate turns the showing of a keyboard's lights on or off for
+	// an instrument, named as a snapshot names it. Nil for a host that
+	// cannot.
+	Simulate func(name, kind, location string, on bool)
+	// Reload makes HIDI look at its profile files now, where it would
+	// otherwise notice a change within a second or two. Whoever wrote
+	// one asks for it. Nil for a host that does not follow its files.
+	Reload func()
+	// TrySettings makes HIDI go by the settings in text, written as the
+	// settings file is, without anything being saved: the window hands
+	// over what the user changes there. Settings returns the settings
+	// HIDI goes by, written the same way. Nil for a host that has none.
+	TrySettings func(text string) error
+	Settings    func() string
 	// Changes tells when a snapshot would be different from the last.
 	Changes *Notifier
 	// LogLines returns the kept log lines numbered from to to-1, and
@@ -121,6 +280,10 @@ type Host struct {
 	// without a log.
 	LogLines func(from, to int) []LogLine
 	LogTotal func() int
+	// Preview makes HIDI use text in place of a profile file, without
+	// the file being written, until the file changes on disk or Preview
+	// is called with an empty text. Nil for a host that cannot.
+	Preview func(file, text string) error
 }
 
 // Notifier tells any number of listeners that something changed, without

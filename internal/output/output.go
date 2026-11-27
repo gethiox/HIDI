@@ -57,3 +57,8 @@ type Connector interface {
 	// whether the two were connected already, which is not an error.
 	Connect(portID string) (already bool, err error)
 }
+
+// Disconnector is a [Connector] that can also end a connection it made.
+type Disconnector interface {
+	Disconnect(portID string) error
+}

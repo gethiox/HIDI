@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"github.com/spf13/pflag"
 	"io"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/gethiox/HIDI/internal/backend"
+	"github.com/gethiox/HIDI/internal/buildinfo"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/ui/gui"
+	"github.com/gethiox/HIDI/internal/update"
 )
 
 // cmdGui opens HIDI's window until it is closed or the command is
@@ -24,6 +28,7 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 	fs.IntVar(&opts.LogHeight, "log-height", 0, "open the window with the log pulled up this many pixels")
 	fs.StringVar(&opts.Screenshot, "screenshot", "", "save a picture of the window to this file after a moment, then close it")
 	fs.BoolVar(&opts.ShowSettings, "settings", false, "open the window with the settings showing")
+	fs.BoolVar(&opts.ShowAll, "show-all", false, "draw the input and the notes of every instrument, whatever the settings say")
 	fs.StringVar(&opts.EditProfile, "edit", "", "open the window with this profile `file`, ready to be changed")
 	root, _ := placeFlags(fs)
 	if ok, code := parseFlags(fs, args, stderr); !ok {
@@ -41,10 +46,20 @@ func cmdGui(ctx context.Context, args []string, stderr io.Writer) int {
 		opts.BackgroundFPS = pl.settings.Window.BackgroundFPS
 	}
 	opts.Paths = pl.paths
-	opts.Ports = backend.Ports
-	if !given["log-height"] {
-		opts.LogHeight = pl.settings.Window.LogHeight
+	// Whether a newer HIDI is looked for is up to the settings; this is
+	// only how. HIDI_UPDATE_URL names another place to ask, for trying
+	// it out.
+	version := buildinfo.Get().Version
+	opts.Version = version
+	opts.CheckUpdate = func(ctx context.Context) (update.Result, error) {
+		url := update.Latest
+		if other := os.Getenv("HIDI_UPDATE_URL"); other != "" {
+			url = other
+		}
+		return update.Check(ctx, &http.Client{Timeout: 20 * time.Second}, url, version)
 	}
+	opts.Ports = backend.Ports
+	opts.Scale = pl.settings.Window.Scale
 	if opts.FPS < 0 || opts.BackgroundFPS < 0 || opts.LogHeight < 0 {
 		fmt.Fprintln(stderr, "hidi gui: --fps, --background-fps and --log-height cannot be negative")
 		return 2

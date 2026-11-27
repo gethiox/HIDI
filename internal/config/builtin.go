@@ -31,7 +31,7 @@ func Builtin() ([]*Profile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("built-in profile %s:\n%w", name, err)
 		}
-		p.Source = BuiltinSource + path.Base(name)
+		p.Source, p.Kind = BuiltinSource+path.Base(name), KindFactory
 		profiles = append(profiles, p)
 	}
 	return profiles, nil

@@ -110,9 +110,15 @@ func (l *Log) Close() {
 	select {
 	case <-written:
 		if missed > 0 {
+			// Under the lock, as whoever logs from now on writes.
+			l.mu.Lock()
 			io.WriteString(l.out, missing(missed))
+			l.mu.Unlock()
 		}
 	case <-time.After(closeWait):
+		// The output takes nothing: what is still being written may
+		// run into what is logged from now on. It is the end of HIDI,
+		// which must not wait for a terminal that is stuck.
 	}
 }
 

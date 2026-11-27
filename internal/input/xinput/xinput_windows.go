@@ -328,6 +328,9 @@ func (d *Device) end(reason error) {
 // Info describes the controller.
 func (d *Device) Info() control.DeviceInfo { return d.info }
 
+// Controls lists the buttons and axes of the controller.
+func (d *Device) Controls() []control.Input { return controls() }
+
 // Events returns the channel the controller's input arrives on. It is
 // closed shortly after the device ended.
 func (d *Device) Events() <-chan control.Event { return d.events }

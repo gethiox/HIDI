@@ -31,8 +31,11 @@ type passing struct {
 	on     bool
 	out    *uinput.Device
 	hidden map[uint16]bool
-	nodes  map[*Node]bool // the nodes whose keys are passed on
-	down   map[uint16]bool
+	// only, if not nil, holds the keys that are passed on; every other
+	// key is kept back, whatever hidden says.
+	only  map[uint16]bool
+	nodes map[*Node]bool // the nodes whose keys are passed on
+	down  map[uint16]bool
 	// closed is set when the device has ended; nothing is passed on any
 	// more, and no keyboard is made for it.
 	closed bool
@@ -41,7 +44,8 @@ type passing struct {
 // Pass keeps the hidden keys from the rest of the system and passes every
 // other key on. It fails if the keys cannot be typed again, for lack of
 // access to /dev/uinput, or if a hidden key is on a node that cannot be
-// held; the device is then left as it was.
+// held; the device is then left as it was. A node that cannot be held
+// when it comes to it lets go of the whole device.
 //
 // As with [Node.Grab], hiding begins once no key of a node is down.
 func (d *Device) Pass(hidden []control.Code) error {
@@ -51,23 +55,7 @@ func (d *Device) Pass(hidden []control.Code) error {
 	if p.closed {
 		return ErrClosed
 	}
-
-	nodes := map[*Node]bool{}
-	var keys []uint16
-	have := map[uint16]bool{}
-	for _, n := range d.nodes {
-		info := n.Info()
-		if len(info.Axes) > 0 || info.Relative || len(info.Keys) == 0 {
-			continue
-		}
-		nodes[n] = true
-		for _, k := range info.Keys {
-			if !have[k.Num] {
-				have[k.Num] = true
-				keys = append(keys, k.Num)
-			}
-		}
-	}
+	nodes, keys, have := d.keyNodes()
 	set := map[uint16]bool{}
 	for _, k := range hidden {
 		if k.Kind != control.KindKey || !have[k.Num] {
@@ -75,19 +63,8 @@ func (d *Device) Pass(hidden []control.Code) error {
 		}
 		set[k.Num] = true
 	}
-	if p.out == nil {
-		out, err := uinput.Create(uinput.Spec{
-			Name:    d.info.Name + " (through HIDI)",
-			Phys:    PassPhys,
-			Vendor:  d.info.Hardware.Vendor,
-			Product: d.info.Hardware.Product,
-			Version: d.info.Hardware.Version,
-			Keys:    keys,
-		})
-		if err != nil {
-			return fmt.Errorf("making a keyboard to pass the keys on: %w", err)
-		}
-		p.out = out
+	if err := d.passKeyboard(keys); err != nil {
+		return err
 	}
 	for i, n := range d.nodes {
 		var err error
@@ -114,7 +91,96 @@ func (d *Device) Pass(hidden []control.Code) error {
 	if p.down == nil {
 		p.down = map[uint16]bool{}
 	}
-	p.on, p.hidden, p.nodes = true, set, nodes
+	p.on, p.hidden, p.only, p.nodes = true, set, nil, nodes
+	return nil
+}
+
+// keyNodes returns the nodes that have nothing but keys, whose keys can
+// be typed again, and those keys.
+func (d *Device) keyNodes() (nodes map[*Node]bool, keys []uint16, have map[uint16]bool) {
+	nodes, have = map[*Node]bool{}, map[uint16]bool{}
+	for _, n := range d.nodes {
+		info := n.Info()
+		if len(info.Axes) > 0 || info.Relative || len(info.Keys) == 0 {
+			continue
+		}
+		nodes[n] = true
+		for _, k := range info.Keys {
+			if !have[k.Num] {
+				have[k.Num] = true
+				keys = append(keys, k.Num)
+			}
+		}
+	}
+	return nodes, keys, have
+}
+
+// passKeyboard makes the keyboard the keys are typed again on, if it is
+// not there yet. The caller holds d.pass.mu.
+func (d *Device) passKeyboard(keys []uint16) error {
+	p := &d.pass
+	if p.out != nil {
+		return nil
+	}
+	out, err := uinput.Create(uinput.Spec{
+		Name:    d.info.Name + " (through HIDI)",
+		Phys:    PassPhys,
+		Vendor:  d.info.Hardware.Vendor,
+		Product: d.info.Hardware.Product,
+		Version: d.info.Hardware.Version,
+		Keys:    keys,
+	})
+	if err != nil {
+		return fmt.Errorf("making a keyboard to pass the keys on: %w", err)
+	}
+	p.out = out
+	return nil
+}
+
+// Share keeps the device from the rest of the system like [Device.Grab],
+// except for the open keys, which are typed again on a keyboard of HIDI's
+// own. It fails if that keyboard cannot be made, for lack of access to
+// /dev/uinput; the device is then left as it was. A node that cannot be
+// held lets go of the whole device.
+func (d *Device) Share(open []control.Code) error {
+	p := &d.pass
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return ErrClosed
+	}
+	nodes, keys, have := d.keyNodes()
+	set := map[uint16]bool{}
+	for _, k := range open {
+		// A key the device does not have, or has on a node whose keys
+		// cannot be typed again, is simply never pressed.
+		if k.Kind == control.KindKey && have[k.Num] {
+			set[k.Num] = true
+		}
+	}
+	if err := d.passKeyboard(keys); err != nil {
+		return err
+	}
+	for i, n := range d.nodes {
+		if err := n.Grab(); err != nil {
+			for _, undone := range d.nodes[:i+1] {
+				undone.Release()
+			}
+			return err
+		}
+	}
+	// Keys that were passed on as pressed and are kept back now are let
+	// go of.
+	for code := range p.down {
+		if !set[code] {
+			p.out.Key(code, false)
+			delete(p.down, code)
+		}
+	}
+	if p.down == nil {
+		p.down = map[uint16]bool{}
+	}
+	p.on, p.hidden, p.only, p.nodes = true, nil, set, nodes
 	return nil
 }
 
@@ -143,7 +209,7 @@ func (p *passing) forward(node *Node, events []control.Event) {
 		return
 	}
 	for _, ev := range events {
-		if ev.Code.Kind != control.KindKey || p.hidden[ev.Code.Num] {
+		if ev.Code.Kind != control.KindKey || p.hidden[ev.Code.Num] || p.only != nil && !p.only[ev.Code.Num] {
 			continue
 		}
 		down := ev.Pressed()

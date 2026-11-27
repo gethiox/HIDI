@@ -22,8 +22,24 @@ type Profile struct {
 	Name string
 	// Match selects the devices the profile applies to.
 	Match Match
-	// Engine is the instrument description, ready for [engine.New].
+	// Engine is the instrument as the file writes it out. A profile with
+	// a rule for the controls it does not name describes more than that,
+	// and what depends on the device: see [Profile.For].
 	Engine engine.Profile
+	// Generate is that rule; the zero value is none.
+	Generate Generate
+	// Deadzone is the dead zone of every axis the profile binds without
+	// naming one for it, and of those its rule binds: the part of the
+	// travel next to the rest position that is ignored. Zero unless the
+	// profile says otherwise.
+	Deadzone float64
+	// own names the bindings that say their dead zone themselves; see
+	// [Profile.OwnDeadzone].
+	own map[ownKey]bool
+	// Toggle is the key, or the keys pressed together, that turn HIDI off
+	// and on from a device with this profile: those of the binding of
+	// "hidi_toggle". Empty where the profile has none.
+	Toggle []control.Code
 	// WrittenFor is the schema version the file declared. It is lower than
 	// [Schema] if the file was upgraded while reading.
 	WrittenFor int
@@ -37,10 +53,23 @@ type Profile struct {
 	// Source says where the profile comes from: the path of its file, or
 	// "built-in/" and a file name. [Parse] leaves it empty.
 	Source string
+	// Kind tells the profiles HIDI comes with from the user's own:
+	// [KindFactory] or [KindUser]. Whoever loads the profile sets it.
+	Kind string
+	// Enabled is false for a profile that says "enabled = false": it is
+	// kept and not used. That is how a profile of the user's steps back
+	// for the factory profile it stands in for.
+	Enabled bool
 	// Digest identifies the content of the file. Two profiles with the same
 	// digest behave the same.
 	Digest [sha256.Size]byte
 }
+
+// The kinds of profile.
+const (
+	KindFactory = "factory"
+	KindUser    = "user"
+)
 
 // BuiltinSource starts the [Profile.Source] of the profiles inside HIDI.
 const BuiltinSource = "built-in/"
@@ -138,16 +167,19 @@ func Parse(data []byte) (*Profile, error) {
 
 	r := &reader{}
 	p := &Profile{WrittenFor: from, Digest: sha256.Sum256(data)}
-	top := r.table("", doc, "schema", "name", "match", "defaults", "global", "layout")
+	top := r.table("", doc, "schema", "name", "enabled", "match", "defaults", "generate", "global", "layout")
 	p.Name = top.str("name", "")
+	p.Enabled = top.boolean("enabled", true)
 	p.Match = r.match(top.sub("match"))
 	var s settings
 	p.Engine.Defaults, s = r.defaults(top.sub("defaults"))
 	p.Engine.Collision, p.Engine.RestAxes, p.AxisRate, p.AxisThreshold = s.collision, s.restAxes, s.axisRate, s.axisThreshold
-	p.Engine.Global = r.bindings("global", top.sub("global").values)
+	p.Deadzone, r.deadzone = s.deadzone, s.deadzone
+	p.Generate = r.generate(top.sub("generate"))
+	p.Engine.Global = r.bindings("global", "", top.sub("global").values)
 
-	layouts, _ := top.values["layout"].([]any)
-	if _, isList := top.values["layout"].([]any); top.has("layout") && !isList {
+	layouts, isList := top.values["layout"].([]any)
+	if top.has("layout") && !isList {
 		r.failf("layout", "must be written as [[layout]] sections")
 	}
 	for i, raw := range layouts {
@@ -165,9 +197,11 @@ func Parse(data []byte) (*Profile, error) {
 		}
 		p.Engine.Layouts = append(p.Engine.Layouts, engine.Layout{
 			Name:     name,
-			Bindings: r.bindings(where, t.sub("bindings").values),
+			Bindings: r.bindings(where, name, t.sub("bindings").values),
 		})
 	}
+
+	p.Toggle, p.own = r.toggle(&p.Engine), r.own
 
 	// The engine checks everything that depends on values rather than on
 	// the shape of the file.
@@ -182,16 +216,10 @@ func Parse(data []byte) (*Profile, error) {
 
 func (r *reader) match(t *table) Match {
 	var m Match
-	switch typ := t.str("type", ""); typ {
-	case "":
-	case "keyboard":
-		m.Type = control.DeviceKeyboard
-	case "gamepad":
-		m.Type = control.DeviceGamepad
-	case "mouse":
-		m.Type = control.DeviceMouse
-	default:
-		r.failf(t.where, "type %q is not one of keyboard, gamepad, mouse", typ)
+	if typ := t.str("type", ""); typ != "" {
+		if m.Type = control.ParseDeviceType(typ); m.Type == control.DeviceUnknown {
+			r.failf(t.where, "type %q is not one of keyboard, gamepad, mouse", typ)
+		}
 	}
 	m.Bus = t.id("bus")
 	m.Vendor = t.id("vendor")
@@ -226,6 +254,8 @@ type settings struct {
 	axisRate  int
 	// axisThreshold is described at Profile.AxisThreshold.
 	axisThreshold float64
+	// deadzone is described at Profile.Deadzone.
+	deadzone float64
 }
 
 func (r *reader) defaults(t *table) (engine.Defaults, settings) {
@@ -255,7 +285,12 @@ func (r *reader) defaults(t *table) (engine.Defaults, settings) {
 		r.failf(t.where, "axis_threshold must be from 0 to %v, not %v", MaxAxisThreshold, s.axisThreshold)
 		s.axisThreshold = DefaultAxisThreshold
 	}
-	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate", "axis_threshold")
+	s.deadzone = t.number("deadzone", 0)
+	if !(s.deadzone >= 0 && s.deadzone < 1) {
+		r.failf(t.where, "deadzone must be from 0 to below 1, not %v", s.deadzone)
+		s.deadzone = 0
+	}
+	t.done("octave", "transpose", "channel", "velocity", "layout", "collision", "axis_on_change", "axis_rate", "axis_threshold", "deadzone")
 	return d, s
 }
 
@@ -263,6 +298,21 @@ func (r *reader) defaults(t *table) (engine.Defaults, settings) {
 // them can be reported together.
 type reader struct {
 	errs []error
+	// deadzone is the dead zone of the profile, which a binding of an
+	// axis has unless it names one, and own the bindings that do.
+	deadzone float64
+	own      map[ownKey]bool
+}
+
+// ownKey names a binding of a profile: its layout, or none for one that
+// applies in every layout, and what it binds.
+type ownKey struct{ layout, source string }
+
+// OwnDeadzone reports whether the binding of a source in a layout, or
+// among those for every layout if layout is empty, names its dead zone
+// itself. One that does not has the profile's ([Profile.Deadzone]).
+func (p *Profile) OwnDeadzone(layout string, s engine.Source) bool {
+	return p.own[ownKey{layout, sourceID(s)}]
 }
 
 func (r *reader) failf(where, format string, args ...any) {

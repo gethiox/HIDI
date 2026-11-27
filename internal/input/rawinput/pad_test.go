@@ -24,8 +24,13 @@ func TestButtonCodes(t *testing.T) {
 		{"joystick, first", layoutGeneric, true, 1, "BTN_TRIGGER"},
 		{"joystick, second", layoutGeneric, true, 2, "BTN_THUMB"},
 		{"joystick, seventeenth", layoutGeneric, true, 17, "BTN_TRIGGER_HAPPY1"},
-		{"last extra button", layoutGeneric, true, 56, "BTN_TRIGGER_HAPPY40"},
-		{"too many buttons", layoutGeneric, true, 57, ""},
+		{"last named extra button", layoutGeneric, true, 56, "BTN_TRIGGER_HAPPY40"},
+		{"the button after it", layoutGeneric, true, 57, "KEY_0x2e8"},
+		{"a shifted button of a stick with 128", layoutGeneric, true, 66, "KEY_0x2f1"},
+		{"the last button Linux has a code for", layoutGeneric, true, 80, "KEY_0x2ff"},
+		{"the first past it", layoutGeneric, true, 81, "KEY_0x300"},
+		{"button 128", layoutGeneric, true, 128, "KEY_0x32f"},
+		{"too many buttons", layoutGeneric, true, 1400, ""},
 		{"no button zero", layoutGeneric, false, 0, ""},
 		{"Xbox A", layoutXbox, false, 1, "BTN_SOUTH"},
 		{"Xbox X", layoutXbox, false, 3, "BTN_NORTH"},
@@ -296,7 +301,7 @@ func TestFourHats(t *testing.T) {
 func TestExtraButtonsDoNotCollide(t *testing.T) {
 	for _, l := range []layout{layoutXbox, layoutSony} {
 		seen := map[uint16]uint16{}
-		for n := uint16(1); n <= 24; n++ {
+		for n := uint16(1); n <= 200; n++ {
 			code, ok := l.button(n, false)
 			if !ok {
 				t.Fatalf("layout %d: button %d has no code", l, n)
@@ -330,5 +335,37 @@ func TestXboxTriggersLeaveTheStick(t *testing.T) {
 	}
 	if !p.used[absRZ] {
 		t.Error("ABS_RZ is free although the triggers use it")
+	}
+}
+
+func TestPadHas(t *testing.T) {
+	// A stick with four buttons, two axes and a hat says so: the buttons
+	// by the codes they will be reported with, the hat as its two axes.
+	p := newPad(layoutOf(0x231d, 0x0200, false), true)
+	p.addAxis(pageDesktop, usageX, 16, 0, 65535)
+	p.addAxis(pageDesktop, usageY, 16, 0, 65535)
+	p.addAxis(pageDesktop, usageHat, 4, 0, 7)
+	got := p.has(1, 4)
+	var keys, axes int
+	for _, c := range got {
+		switch c.Code.Kind {
+		case control.KindKey:
+			keys++
+		case control.KindAxis:
+			axes++
+		}
+	}
+	if keys != 4 || axes != 4 {
+		t.Fatalf("the stick has %d buttons and %d axes: %v", keys, axes, got)
+	}
+	// What it says it has is what it reports.
+	for _, ev := range p.buttons([]uint16{1, 4}, time.Time{}) {
+		if !slices.ContainsFunc(got, func(c control.Input) bool { return c.Code == ev.Code }) {
+			t.Errorf("%v is reported and was not announced", ev.Code)
+		}
+	}
+	// A controller that names no buttons has its axes.
+	if got := p.has(1, 0); len(got) != 4 {
+		t.Errorf("without buttons: %v", got)
 	}
 }

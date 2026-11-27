@@ -208,6 +208,21 @@ func (c *Client) SetLEDs(index int, colours []RGB) error {
 	return c.send(uint32(index), packetUpdateLEDs, data)
 }
 
+// Sync returns once the server has taken everything sent to a controller
+// so far. It asks for the controller's description, a question the server
+// answers in the order it gets to it: newer servers take an update of the
+// lights only when the keyboard is done with the one before, so the answer
+// also tells that the keyboard keeps up. The protocol has no lighter
+// question that waits its turn.
+func (c *Client) Sync(index int) error {
+	var request []byte
+	if c.version >= 1 {
+		request = binary.LittleEndian.AppendUint32(nil, c.version)
+	}
+	_, err := c.ask(uint32(index), packetControllerData, request, timeout)
+	return err
+}
+
 // reader walks through the description of a controller.
 type reader struct {
 	data []byte

@@ -22,7 +22,13 @@ type fakeHost struct {
 	mu     sync.Mutex
 	active bool
 	notes  int
+	learn  bool
 	log    []LogLine
+	// previewed is what was last asked to be tried.
+	previewed [2]string
+	// simulated is the last request to show lights, as one text.
+	simulated string
+	reloads   int
 }
 
 func (h *fakeHost) host() Host {
@@ -30,7 +36,7 @@ func (h *fakeHost) host() Host {
 		Snapshot: func() Snapshot {
 			h.mu.Lock()
 			defer h.mu.Unlock()
-			return Snapshot{Version: "test", Active: h.active, Instruments: []Instrument{
+			return Snapshot{Version: "test", Active: h.active, Learning: h.learn, Instruments: []Instrument{
 				{Name: "Keyboard", Type: "keyboard", Profile: "Default keyboard", Channel: 1, Sounding: h.notes},
 			}}
 		},
@@ -41,6 +47,41 @@ func (h *fakeHost) host() Host {
 			h.changes.Notify()
 		},
 		Changes: &h.changes,
+		SetLearning: func(on bool) {
+			h.mu.Lock()
+			h.learn = on
+			h.mu.Unlock()
+			h.changes.Notify()
+		},
+		Settings: func() string { return "schema = 1\n# as HIDI has them\n" },
+		TrySettings: func(text string) error {
+			if text == "broken" {
+				return errors.New("line 1: these are no settings")
+			}
+			h.mu.Lock()
+			h.simulated = "settings of " + fmt.Sprint(len(text))
+			h.mu.Unlock()
+			return nil
+		},
+		Reload: func() {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.reloads++
+		},
+		Simulate: func(name, kind, location string, on bool) {
+			h.mu.Lock()
+			h.simulated = fmt.Sprintf("%s|%s|%s|%v", name, kind, location, on)
+			h.mu.Unlock()
+		},
+		Preview: func(file, text string) error {
+			if text == "broken" {
+				return errors.New("line 1: this is no profile")
+			}
+			h.mu.Lock()
+			h.previewed = [2]string{file, text}
+			h.mu.Unlock()
+			return nil
+		},
 		LogLines: func(from, to int) []LogLine {
 			h.mu.Lock()
 			defer h.mu.Unlock()
@@ -456,5 +497,139 @@ func TestListenAtTheSameMoment(t *testing.T) {
 				s.Close()
 			}
 		}
+	}
+}
+
+// A profile is tried through the socket: its text arrives whole, also when
+// it is far longer than any other request may be, and what HIDI makes of
+// it comes back.
+func TestPreview(t *testing.T) {
+	h, client, _ := start(t)
+	ctx := t.Context()
+	long := "name = \"A \\\"long\\\" profile\"\n" + strings.Repeat("# a line of a profile that has many of them\n", 5000)
+	if len(long) < 20*maxRequest {
+		t.Fatal("the text is not long enough to mean anything")
+	}
+	if err := client.Preview(ctx, "/profiles/keyboard.toml", long); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got := h.previewed
+	h.mu.Unlock()
+	if got[0] != "/profiles/keyboard.toml" || got[1] != long {
+		t.Errorf("the host got file %q and %d bytes of text, want %d", got[0], len(got[1]), len(long))
+	}
+	if err := client.Preview(ctx, "/profiles/keyboard.toml", "broken"); err == nil || !strings.Contains(err.Error(), "this is no profile") {
+		t.Errorf("a text that is no profile: %v", err)
+	}
+	// Ending it is the same request without a text.
+	if err := client.Preview(ctx, "/profiles/keyboard.toml", ""); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got = h.previewed
+	h.mu.Unlock()
+	if got[1] != "" {
+		t.Errorf("after ending, the host still has %d bytes", len(got[1]))
+	}
+}
+
+// Learning mode is turned on and off through the socket, and the state
+// says how it stands.
+func TestLearningSwitch(t *testing.T) {
+	_, client, _ := start(t)
+	ctx := t.Context()
+	if s, err := client.Status(ctx); err != nil || s.Learning {
+		t.Fatalf("at first: %+v, %v", s.Learning, err)
+	}
+	if s, err := client.ToggleLearning(ctx); err != nil || !s.Learning {
+		t.Errorf("turned on: %v, %v", s.Learning, err)
+	}
+	if s, err := client.ToggleLearning(ctx); err != nil || s.Learning {
+		t.Errorf("turned off again: %v, %v", s.Learning, err)
+	}
+}
+
+func TestSimulate(t *testing.T) {
+	h, client, _ := start(t)
+	if err := client.Simulate(t.Context(), "Some Keyboard", "keyboard", "usb-1/input0", true); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got := h.simulated
+	h.mu.Unlock()
+	if got != "Some Keyboard|keyboard|usb-1/input0|true" {
+		t.Errorf("the host was told %q", got)
+	}
+}
+
+func TestTrySettings(t *testing.T) {
+	h, client, _ := start(t)
+	// Longer than an ordinary request may be, as real settings are.
+	text := strings.Repeat("# a line of the settings file\n", 400)
+	if err := client.TrySettings(t.Context(), text); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	got := h.simulated
+	h.mu.Unlock()
+	if got != fmt.Sprintf("settings of %d", len(text)) {
+		t.Errorf("the host was told %q", got)
+	}
+	if err := client.TrySettings(t.Context(), "broken"); err == nil || !strings.Contains(err.Error(), "no settings") {
+		t.Errorf("broken settings: %v", err)
+	}
+}
+
+func TestCurrentSettings(t *testing.T) {
+	_, client, _ := start(t)
+	got, err := client.Settings(t.Context())
+	if err != nil || got != "schema = 1\n# as HIDI has them\n" {
+		t.Errorf("Settings = %q, %v", got, err)
+	}
+}
+
+// Asked to, the host looks at its profile files.
+func TestReload(t *testing.T) {
+	h, client, _ := start(t)
+	for range 2 {
+		if err := client.Reload(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.mu.Lock()
+	got := h.reloads
+	h.mu.Unlock()
+	if got != 2 {
+		t.Errorf("the host looked %d times, want 2", got)
+	}
+}
+
+// A request ends when its context does, not only after the longest a
+// request may take: the window gives some of them less.
+func TestRequestEndsWithItsContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "silent.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close() // accepted, and never answered
+		}
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := NewClient(path).Status(ctx); err == nil {
+		t.Fatal("a HIDI that never answers answered")
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("the request took %v with a context of 100 ms", took)
 	}
 }

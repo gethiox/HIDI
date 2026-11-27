@@ -121,8 +121,10 @@ func TestSetAddsAtTheEndOfItsSection(t *testing.T) {
 	if !strings.HasSuffix(out, "KEY_Z = \"C1\"\n\"ABS_RX+\" = { cc = 1, deadzone = 0.1 }\n") {
 		t.Errorf("the end of the file:\n%q", out[len(out)-80:])
 	}
+	// Its two, and the three of [global], which a file of schema 1
+	// shares with every layout.
 	p, err := Parse([]byte(out))
-	if err != nil || len(p.Engine.Layouts[1].Bindings) != 2 {
+	if err != nil || len(p.Engine.Layouts[1].Bindings) != 2+3 {
 		t.Errorf("the result: %v", err)
 	}
 }
@@ -242,5 +244,18 @@ func TestSetPlacesNewLines(t *testing.T) {
 	out = mustEdit(t, crlf, func(b []byte) ([]byte, error) { return Set(b, Global, "KEY_F2", `"octave_up"`) })
 	if strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
 		t.Errorf("a line of the result ends without a carriage return:\n%q", out)
+	}
+}
+
+func TestGet(t *testing.T) {
+	text := []byte("schema = 1\nname = \"T\"\n[match]\ntype = \"keyboard\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_A = \"C3\"  # middle C\nKEY_B = { note = \"D3\", channel = 2 }\n")
+	for key, want := range map[string]string{"KEY_A": `"C3"`, "KEY_B": `{ note = "D3", channel = 2 }`} {
+		got, found, err := Get(text, Bindings("L"), key)
+		if err != nil || !found || got != want {
+			t.Errorf("Get(%s) = %q, %v, %v", key, got, found, err)
+		}
+	}
+	if _, found, err := Get(text, Bindings("L"), "KEY_C"); found || err != nil {
+		t.Errorf("a key that is not there: %v, %v", found, err)
 	}
 }

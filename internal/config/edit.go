@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 // The functions in this file change one thing in the text of a profile
@@ -61,6 +63,26 @@ func Remove(text []byte, section Section, key string) ([]byte, error) {
 	return edit(text, section, key, nil)
 }
 
+// Get returns the value a key has in a section, as it is written in the
+// text, quotes and all, and whether the section has the key.
+func Get(text []byte, section Section, key string) (value string, found bool, err error) {
+	lines := strings.SplitAfter(string(text), "\n")
+	start, end, err := findSection(lines, section)
+	if err != nil {
+		return "", false, err
+	}
+	for i := start; i < end; i++ {
+		entry, ok, err := parseEntry(lines[i])
+		if err != nil {
+			return "", false, fmt.Errorf("line %d: %w", i+1, err)
+		}
+		if ok && sameKey(section, entry.key, key) {
+			return entry.value, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func edit(text []byte, section Section, key string, value *string) ([]byte, error) {
 	if key == "" || strings.ContainsAny(key, "\n\r") || value != nil && strings.ContainsAny(*value, "\n\r") {
 		return nil, errors.New("a key or value with a line break cannot be written")
@@ -100,11 +122,7 @@ func edit(text []byte, section Section, key string, value *string) ([]byte, erro
 				at = i + 1
 			}
 		}
-		// The line ends as the lines of the file do.
-		ending := "\n"
-		if strings.Contains(string(text), "\r\n") {
-			ending = "\r\n"
-		}
+		ending := lineEnding(text) // as the lines of the file do
 		if at > 0 && !strings.HasSuffix(lines[at-1], "\n") {
 			lines[at-1] += ending // the file ended without a line break
 		}
@@ -265,12 +283,17 @@ func closingQuote(s string, i int) int {
 	return -1
 }
 
-// unquote returns what a quoted string says; other text as it is.
+// unquote returns what a quoted string says, as TOML reads it, escapes
+// and all; other text as it is.
 func unquote(s string) string {
 	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
 		return s[1 : len(s)-1]
 	}
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var v struct{ V string }
+		if toml.Unmarshal([]byte("V = "+s), &v) == nil {
+			return v.V
+		}
 		return strings.NewReplacer(`\"`, `"`, `\\`, `\`).Replace(s[1 : len(s)-1])
 	}
 	return s

@@ -15,7 +15,14 @@
 #   - the files in the archives have the time of the commit and no owner,
 #   - and they are packed in a fixed order.
 #
-# It needs go, tar, gzip, zip and sha256sum, and a clean git checkout.
+# The Windows archives also hold Microsoft's Windows.Devices.Midi2.dll,
+# which HIDI needs beside hidi.exe until Windows brings it along. It is
+# taken from the package packaging/windows/midi-api names, by address and
+# checksum; see there. MIDI2_NUPKG names a copy of that package that is
+# already at hand, which is checked the same.
+#
+# It needs go, tar, gzip, zip, unzip, curl and sha256sum, and a clean git
+# checkout.
 set -euo pipefail
 umask 022 # the modes of the packed files must not depend on who builds
 
@@ -54,6 +61,43 @@ esac
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# The icon and the version of the Windows program, as resources "go build"
+# links in. They are made here, for the machine that builds, and are not
+# part of the checkout: git ignores them.
+(
+    cd cmd/hidi
+    go run ../../internal/assets/icon/render winres
+    # Windows wants four numbers; what follows a hyphen is left out there
+    # and kept in the version the program shows.
+    numbers=${version%%-*}
+    go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64,arm64 \
+        --product-version "$numbers.0" --file-version "$numbers.0"
+)
+
+# Microsoft's MIDI API, for the Windows archives.
+midi_url=$(sed -n 's/^url *= *//p' packaging/windows/midi-api)
+midi_sum=$(sed -n 's/^sha256 *= *//p' packaging/windows/midi-api)
+midi=
+if [ -n "$midi_url" ] || [ -n "${MIDI2_NUPKG:-}" ]; then
+    package=${MIDI2_NUPKG:-$work/midi2.nupkg}
+    if [ -z "${MIDI2_NUPKG:-}" ]; then
+        echo "fetching $midi_url"
+        curl -fsSL --retry 3 -o "$package" "$midi_url"
+    fi
+    have=$(sha256sum "$package" | cut -d' ' -f1)
+    if [ "$have" != "$midi_sum" ]; then
+        echo "release.sh: the MIDI API package has the checksum" >&2
+        echo "  $have" >&2
+        echo "and packaging/windows/midi-api says ${midi_sum:-nothing}; if the package is the right one, put that checksum there" >&2
+        exit 1
+    fi
+    midi=$work/midi2
+    mkdir "$midi"
+    unzip -q -o "$package" 'runtimes/win-x64/native/Windows.Devices.Midi2.*' 'runtimes/win-arm64/native/Windows.Devices.Midi2.*' -d "$midi"
+else
+    echo "release.sh: packaging/windows/midi-api names no package: the Windows archives are built WITHOUT Windows.Devices.Midi2.dll" >&2
+fi
+
 # system/architecture[/ARM version], and the name it has in a file name.
 targets="
 linux/amd64      linux-amd64
@@ -73,14 +117,24 @@ echo "$targets" | while read -r target name; do
     [ "$goos" = windows ] && exe=hidi.exe
 
     echo "building $dir"
+    # The Windows program is one without a console: a double click opens
+    # no black window. Started from a command line it writes there.
+    kind=
+    [ "$goos" = windows ] && kind="-H windowsgui"
     GOOS=$goos GOARCH=$goarch GOARM=$goarm go build -trimpath -buildvcs=true \
-        -ldflags "-s -w -buildid= -X github.com/gethiox/HIDI/internal/buildinfo.Version=$version" \
+        -ldflags "-s -w -buildid= $kind -X github.com/gethiox/HIDI/internal/buildinfo.Version=$version" \
         -o "$work/$dir/$exe" ./cmd/hidi
 
     # With modes of their own: those of the checkout depend on how it
     # was made.
     install -m 0644 LICENSE README.md "$work/$dir/"
     [ "$goos" = linux ] && install -m 0644 packaging/linux/70-hidi.rules packaging/linux/hidi.desktop "$work/$dir/"
+    if [ "$goos" = windows ] && [ -n "$midi" ]; then
+        from=$midi/runtimes/win-x64/native
+        [ "$goarch" = arm64 ] && from=$midi/runtimes/win-arm64/native
+        install -m 0644 "$from/Windows.Devices.Midi2.dll" "$from/Windows.Devices.Midi2.pri" "$work/$dir/"
+        install -m 0644 packaging/windows/Windows.Devices.Midi2-LICENSE.txt "$work/$dir/"
+    fi
     chmod 0755 "$work/$dir" "$work/$dir/$exe"
     find "$work/$dir" -exec touch -d "@$epoch" {} +
 

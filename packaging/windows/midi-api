@@ -1,0 +1,18 @@
+# Microsoft's package with the Windows MIDI Services API, of which the
+# Windows archives of a release carry two files beside hidi.exe:
+# Windows.Devices.Midi2.dll and Windows.Devices.Midi2.pri. Windows 11 is to
+# bring them along from 2027; until then a program has to.
+#
+# The package is "Windows.Devices.Midi2.<version>.nupkg" among the files of
+# a release on https://github.com/microsoft/MIDI/releases. Put the address
+# of that file after "url" and its SHA-256 checksum after "sha256";
+# scripts/release.sh fetches it, refuses it if the checksum differs, and
+# says the checksum it found. While no address is given, the archives are
+# built without the two files, and say so.
+#
+# Microsoft's "go-live" terms for shipping the preview: tell users that a
+# preview API is in use (README.md does), keep up with new previews, drop
+# the files once Windows has them, and do not ship to Windows before 11
+# 25H2.
+url =
+sha256 =

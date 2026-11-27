@@ -11,9 +11,48 @@ import (
 	"github.com/gethiox/HIDI/internal/midi"
 )
 
-// A momentary action triggers when its source rises to pressThreshold and
-// ends when the source falls below releaseThreshold. The gap keeps an axis
-// that rests near the threshold from triggering repeatedly.
+// point is where a momentary action of the source triggers: half of the
+// way, or the source's own threshold.
+func (s *Source) point() float64 {
+	if s.Threshold > 0 && s.Code.Kind != control.KindKey {
+		return s.Threshold
+	}
+	return pressThreshold
+}
+
+// DefaultHysteresis is the hysteresis of an axis that acts as a button,
+// unless it is set: two hundredths of its travel.
+const DefaultHysteresis = 0.02
+
+// thresholds returns where a momentary action of a source begins and where
+// it ends. A key is down or not. An axis has to pass its trigger point by
+// half the hysteresis to count as pressed, and to come back behind it by
+// as much to count as let go, so that an axis that rests near the point,
+// or trembles there, does not trigger over and over. Neither end leaves
+// the travel of the axis: a hysteresis of the whole travel means pressed
+// at the far end and let go at rest, wherever the point is.
+func (e *Engine) thresholds(s *Source) (press, release float64) {
+	if s.Code.Kind == control.KindKey {
+		return pressThreshold, releaseThreshold
+	}
+	at := s.point()
+	return min(at+e.hysteresis/2, 1), max(at-e.hysteresis/2, 0)
+}
+
+// SetHysteresis sets the hysteresis of axes that act as buttons, as a part
+// of their travel from 0 to 1: see [DefaultHysteresis]. What is held
+// stays held until it is let go by the new measure.
+func (e *Engine) SetHysteresis(h float64) {
+	if !(h >= 0 && h <= 1) {
+		h = DefaultHysteresis
+	}
+	e.hysteresis = h
+}
+
+// A key triggers its momentary action when it rises to pressThreshold and
+// ends it when it falls below releaseThreshold. A key reports only 0 and 1;
+// an axis acting as a button goes by its trigger point and the hysteresis
+// instead (see thresholds).
 const (
 	pressThreshold   = 0.5
 	releaseThreshold = 0.45
@@ -79,11 +118,15 @@ type sourceState struct {
 	target    target
 	centering bool
 
-	// heldBack is the binding whose position was last kept back because
-	// the learn command was held, with that position; nil when the last
-	// position got through.
-	heldBack  *Binding
-	heldBackX float64
+	// last is the binding the source last drove with and lastX the
+	// position it had then, as the device reported it: what is sent may
+	// differ while the instrument is learning.
+	last  *Binding
+	lastX float64
+	// base is where the source stood when learning began, or when it
+	// first reported after that; hasBase says that there is one.
+	base    float64
+	hasBase bool
 }
 
 // State is a snapshot of an instrument, for display. It is comparable, so a
@@ -102,7 +145,8 @@ type State struct {
 	// Chord is the remembered chord as its intervals in semitones above
 	// the note played, such as "+4 +7", or empty when there is none.
 	Chord string
-	// Learning reports that axes are let through only when moved far.
+	// Learning reports that the instrument is in learning mode: axes
+	// stand still until they are moved far.
 	Learning bool
 	// Notes has a bit set for every note number that is on, on whatever
 	// channel: bit n%64 of element n/64 for note n.
@@ -128,9 +172,12 @@ type Engine struct {
 	index []map[controlKey][]*Binding
 
 	octave, transpose int
-	channel, velocity uint8
+	channel           uint8
 	layout            int
-	defaultLayout     int
+	// velocityAt is the place of the velocity on its ladder, and
+	// velocityStep the distance between two places; see velocity.go.
+	velocityAt, velocityStep int
+	defaultLayout            int
 
 	// states and stateOrder hold the per-source state. The slice gives
 	// iteration a stable order so that output is deterministic.
@@ -158,6 +205,63 @@ type Engine struct {
 	now time.Time
 	// usedChannels has a bit set for every channel a note was sent on.
 	usedChannels uint16
+	// learning says that the instrument is in learning mode, and
+	// learnThreshold how far an axis has to move to get through then, as
+	// a part of its whole range. learnAsked says that the learn command
+	// was pressed and nobody has asked about it yet.
+	learning       bool
+	learnThreshold float64
+	learnAsked     bool
+	// hysteresis is described at [Engine.SetHysteresis].
+	hysteresis float64
+}
+
+// DefaultLearnThreshold is how far an axis has to be moved to get through
+// in learning mode, unless it is set: half of its range.
+const DefaultLearnThreshold = 0.5
+
+// SetLearning turns learning mode on or off and sets how far an axis has
+// to move in it, as a part of its whole range from 0 to 1.
+//
+// Learning mode is for teaching a program which controller to listen to.
+// Such a program takes the first controller it hears, and an axis that
+// trembles by one step, or a stick that is brushed, must not be that one.
+// So when the mode begins, every axis is taken to stand where it stands,
+// and what it sends stays exactly there until the axis has moved by more
+// than the threshold. From then on it sends where it is. When it comes
+// back within the threshold it sends the place it stood at again, and
+// stands still there. Keys are not affected.
+//
+// When the mode ends, every axis sends where it really is.
+func (e *Engine) SetLearning(on bool, threshold float64, out []midi.Message) []midi.Message {
+	if !(threshold > 0 && threshold <= 1) {
+		threshold = DefaultLearnThreshold
+	}
+	e.learnThreshold = threshold
+	if on == e.learning {
+		return out
+	}
+	e.learning = on
+	for _, st := range e.stateOrder {
+		switch {
+		case on:
+			st.base, st.hasBase = st.lastX, st.driving && st.last != nil
+		case st.driving && st.last != nil:
+			st.hasBase = false
+			out = e.drive(st, st.last, st.lastX, out)
+		}
+	}
+	return out
+}
+
+// LearnRequested reports whether the learn command was pressed since the
+// last call. The command asks for learning mode to be turned on or off;
+// whoever owns the engine does that, for all instruments at once, with
+// [Engine.SetLearning].
+func (e *Engine) LearnRequested() bool {
+	asked := e.learnAsked
+	e.learnAsked = false
+	return asked
 }
 
 // New returns an engine for the profile, in the profile's default state. It
@@ -176,6 +280,8 @@ func New(p Profile) (*Engine, error) {
 		states:  map[sourceKey]*sourceState{},
 		targets: map[target]*targetState{},
 		down:    map[control.Code]bool{},
+
+		hysteresis: DefaultHysteresis,
 	}
 	for i := range p.Layouts {
 		idx := map[controlKey][]*Binding{}
@@ -197,7 +303,7 @@ func New(p Profile) (*Engine, error) {
 	e.octave = p.Defaults.Octave
 	e.transpose = p.Defaults.Transpose
 	e.channel = p.Defaults.Channel
-	e.velocity = p.Defaults.Velocity
+	e.velocityStep = DefaultVelocityStep
 	e.layout = e.defaultLayout
 	return e, nil
 }
@@ -208,12 +314,12 @@ func (e *Engine) State() State {
 		Octave:    e.octave,
 		Transpose: e.transpose,
 		Channel:   e.channel,
-		Velocity:  e.velocity,
+		Velocity:  e.velocity(),
 		Layout:    e.profile.Layouts[e.layout].Name,
 		Sounding:  e.soundingNotes,
 		Notes:     e.noteBits,
 		Chord:     e.chordText,
-		Learning:  e.held[CommandLearn] > 0,
+		Learning:  e.learning,
 	}
 }
 
@@ -280,16 +386,17 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 	}
 	// Follow the way from rest to the trigger point, for notes that take
 	// their velocity from how fast it is covered.
+	press, release := e.thresholds(&b.Source)
 	if !st.pressed {
 		switch {
 		case x <= restLevel:
 			st.leftRest = time.Time{}
-		case st.leftRest.IsZero() && x < pressThreshold:
+		case st.leftRest.IsZero() && x < press:
 			st.leftRest = e.now // on its way, and not there yet
 		}
 	}
 	switch {
-	case !st.pressed && x >= pressThreshold:
+	case !st.pressed && x >= press:
 		st.travel = 0
 		switch {
 		case !st.leftRest.IsZero() && !e.now.IsZero():
@@ -303,7 +410,11 @@ func (e *Engine) handleSource(key sourceKey, st *sourceState, v float64, out []m
 		st.leftRest = time.Time{}
 		st.pressed, st.latched = true, b
 		out = e.press(st, out)
-	case st.pressed && x < releaseThreshold:
+	case st.pressed && (x < release || x <= release && release < press):
+		// Behind the point by the hysteresis. Reaching that place is
+		// enough where there is one, so that an axis whose place to let
+		// go at is its very end gets there; with no hysteresis at all
+		// the point itself still counts as pressed.
 		out = e.release(st, out)
 	}
 	return out
@@ -396,23 +507,8 @@ func (e *Engine) release(st *sourceState, out []midi.Message) []midi.Message {
 		if e.held[a] > 0 {
 			e.held[a]--
 		}
-		if a == CommandLearn && e.held[a] == 0 {
-			out = e.catchUp(out)
-		}
 	}
 	st.pressed, st.latched = false, nil
-	return out
-}
-
-// catchUp sends the positions that were kept back while the learn command
-// was held, now that it is not.
-func (e *Engine) catchUp(out []midi.Message) []midi.Message {
-	for _, st := range e.stateOrder {
-		if b := st.heldBack; b != nil {
-			st.heldBack = nil
-			out = e.drive(st, b, st.heldBackX, out)
-		}
-	}
 	return out
 }
 
@@ -422,7 +518,7 @@ func (e *Engine) noteOn(st *sourceState, a Note, out []midi.Message) []midi.Mess
 		return out // the press stays latched, so its release is a no-op
 	}
 	channel := e.channelFor(a.ChannelOffset)
-	velocity := e.velocity
+	velocity := e.velocity()
 	if a.Velocity != 0 {
 		velocity = a.Velocity
 	}
@@ -487,28 +583,32 @@ func (e *Engine) noteOff(ref noteRef, out []midi.Message) []midi.Message {
 // drive sends the position x of a source to the target of its
 // position-following action.
 func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Message) []midi.Message {
+	st.last, st.lastX = b, x
 	// A key that drives a controller is deliberate and always gets
 	// through; so does its release.
-	if e.held[CommandLearn] > 0 && b.Source.Code.Kind == control.KindAxis && math.Abs(x) <= learnThreshold {
-		// Kept back, and remembered: when the command is let go of, the
-		// target must end where the axis is. A stick that was pushed out
-		// and came back to rest meanwhile would leave the pitch bent.
-		st.heldBack, st.heldBackX = b, x
-		return out
+	if e.learning && b.Source.Code.Kind == control.KindAxis {
+		if !st.hasBase {
+			st.base, st.hasBase = x, true // its first word since learning began
+		}
+		// The range of a centered source runs from -1 to 1.
+		span := 1.0
+		if b.Source.bipolar() {
+			span = 2
+		}
+		if math.Abs(x-st.base) <= e.learnThreshold*span {
+			x = st.base
+		}
 	}
-	st.heldBack = nil
-	var t target
+	t, _ := e.targetOf(b.Action)
 	var value, rest uint32
 	switch a := b.Action.(type) {
 	case ControlChange:
-		t = target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}
 		if b.Source.bipolar() {
 			value, rest = midi.Unit((x+1)/2), midi.Unit(0.5)
 		} else {
 			value = midi.Unit(x)
 		}
 	case PitchBend:
-		t = target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}
 		if a.Down && !b.Source.bipolar() {
 			x = -x
 		}
@@ -520,10 +620,8 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 	}
 	st.driving, st.target, st.centering = true, t, b.Source.selfCentering()
 	atRest := t.sameOnWire(value, rest)
-	if ts := e.targets[t]; ts != nil && atRest {
-		if o := ts.owner; o != nil && o != st && o.driving && o.target == t {
-			return out // another source holds the target away from rest
-		}
+	if atRest && e.heldElsewhere(t, st) {
+		return out // another source holds the target away from rest
 	}
 	out = e.send(t, value, rest, out)
 	switch ts := e.targets[t]; {
@@ -533,6 +631,19 @@ func (e *Engine) drive(st *sourceState, b *Binding, x float64, out []midi.Messag
 		ts.owner = nil
 	}
 	return out
+}
+
+// targetOf returns what an action that follows a position drives, on the
+// channel selected now: its controller, or the pitch bend. It reports
+// false for any other action.
+func (e *Engine) targetOf(a Action) (target, bool) {
+	switch a := a.(type) {
+	case ControlChange:
+		return target{channel: e.channelFor(a.ChannelOffset), controller: a.Controller}, true
+	case PitchBend:
+		return target{pitchBend: true, channel: e.channelFor(a.ChannelOffset)}, true
+	}
+	return target{}, false
 }
 
 // send emits a new value for a target unless it would encode the same as the
@@ -567,12 +678,27 @@ func (t target) sameOnWire(a, b uint32) bool {
 // controllers driven by a self-centering source, are returned to rest; a
 // controller driven by a control that stays where it is put, such as a
 // throttle lever, keeps its value unless the profile asks for rest.
+//
+// A target another source holds away from rest stays where that source
+// holds it: the two halves of a stick bend the pitch both ways, and the
+// half that lets go must not undo what the other does.
 func (e *Engine) abandon(st *sourceState, out []midi.Message) []midi.Message {
 	st.driving = false
-	if st.centering || st.target.pitchBend || e.profile.RestAxes {
+	if (st.centering || st.target.pitchBend || e.profile.RestAxes) && !e.heldElsewhere(st.target, st) {
 		out = e.rest(st.target, out)
 	}
 	return out
+}
+
+// heldElsewhere reports whether a source other than st holds a target
+// away from rest.
+func (e *Engine) heldElsewhere(t target, st *sourceState) bool {
+	ts := e.targets[t]
+	if ts == nil {
+		return false
+	}
+	o := ts.owner
+	return o != nil && o != st && o.driving && o.target == t
 }
 
 // rest returns a target to its rest value.
@@ -609,13 +735,15 @@ func (e *Engine) commandPress(c Command, out []midi.Message) []midi.Message {
 	case CommandLayoutPrevious:
 		out = e.setLayout(max(e.layout-1, 0), out)
 	case CommandVelocityUp:
-		e.velocity = min(e.velocity+velocityStep, 127)
+		e.moveVelocity(1)
 	case CommandVelocityDown:
-		e.velocity = max(e.velocity, velocityStep+1) - velocityStep
+		e.moveVelocity(-1)
 	case CommandPanic:
 		out = e.panic(out)
 	case CommandChord:
 		e.rememberChord()
+	case CommandLearn:
+		e.learnAsked = true
 	}
 	return out
 }
@@ -643,10 +771,6 @@ func touchVelocity(travel time.Duration) uint8 {
 	fraction := math.Log(float64(travel)/float64(fastTouch)) / math.Log(float64(slowTouch)/float64(fastTouch))
 	return uint8(127 - fraction*126 + 0.5)
 }
-
-// learnThreshold is how far an axis has to be moved to get through while
-// CommandLearn is held: more than halfway from rest.
-const learnThreshold = 0.5
 
 // rememberChord takes the chord from the notes that are held: the
 // intervals of the notes played above the lowest of them. Notes that sound
@@ -688,7 +812,7 @@ func (e *Engine) resetPair(c Command, out []midi.Message) []midi.Message {
 	case CommandLayoutNext, CommandLayoutPrevious:
 		out = e.setLayout(e.defaultLayout, out)
 	case CommandVelocityUp, CommandVelocityDown:
-		e.velocity = e.profile.Defaults.Velocity
+		e.velocityAt = 0
 	}
 	return out
 }
@@ -754,20 +878,38 @@ func (e *Engine) panic(out []midi.Message) []midi.Message {
 
 // Reset returns the instrument to silence: it releases every held note and
 // returns every controller and pitch bend it has moved to rest. Call it when
-// the instrument is disabled or its device disconnects. Octave,
+// the instrument is to end, or its device disconnects. Octave,
 // transposition, channel, velocity and layout are kept.
 //
 // Controls that are still physically held do nothing when they are released
 // afterwards.
 func (e *Engine) Reset(out []midi.Message) []midi.Message {
+	return e.Silence(Rest{Controllers: true, PitchBend: true}, out)
+}
+
+// Rest says what [Engine.Silence] returns to rest beside the notes.
+type Rest struct {
+	// Controllers returns every controller that was moved to rest, and
+	// PitchBend the pitch bend.
+	Controllers, PitchBend bool
+}
+
+// Silence releases every held note and returns to rest what rest names.
+// What it leaves stays as it was last sent, and is not sent again while
+// the control that drives it stands where it stood: a volume that was set
+// before the instrument was turned off is the same when it is turned on
+// again.
+func (e *Engine) Silence(rest Rest, out []midi.Message) []midi.Message {
 	for _, st := range e.stateOrder {
 		if st.pressed {
 			out = e.release(st, out)
 		}
-		st.driving, st.heldBack = false, nil
+		st.driving, st.hasBase = false, false
 	}
 	for _, t := range e.targetOrder {
-		out = e.rest(t, out)
+		if t.pitchBend && rest.PitchBend || !t.pitchBend && rest.Controllers {
+			out = e.rest(t, out)
+		}
 		e.targets[t].owner = nil
 	}
 	clear(e.down)

@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 name = "Default keyboard"
 
 [match]
@@ -13,6 +13,19 @@ layout = "Piano"
 collision = "interrupt"
 
 [global]
+# Caps Lock turns HIDI off and on, in every layout and while HIDI is off.
+# Several keys pressed together work too:
+# "KEY_LEFTCTRL+KEY_LEFTSHIFT+KEY_LEFTALT" = "hidi_toggle". A keyboard whose
+# profile has no such line keeps typing while it plays, unless the settings
+# name one toggle for every device. Everything else a key does is written
+# in each layout, which has its own.
+KEY_CAPSLOCK = "hidi_toggle"
+
+[[layout]]
+name = "Piano"
+
+[layout.bindings]
+# commands
 KEY_ESC = "panic"
 KEY_F1 = "octave_down"
 KEY_F2 = "octave_up"
@@ -20,16 +33,39 @@ KEY_F3 = "transpose_down"
 KEY_F4 = "transpose_up"
 KEY_F5 = "channel_down"
 KEY_F6 = "channel_up"
+KEY_F7 = "velocity_down"
+KEY_F8 = "velocity_up"
 KEY_F9 = "chord"
+KEY_F10 = "learn"
 KEY_F11 = "layout_previous"
 KEY_F12 = "layout_next"
 
-[[layout]]
-name = "Piano"
+# left to the system: they type, also while HIDI plays
+KEY_TAB = "passthrough"
+KEY_LEFTSHIFT = "passthrough"
+KEY_LEFTCTRL = "passthrough"
+KEY_LEFTMETA = "passthrough"
+KEY_LEFTALT = "passthrough"
+KEY_SPACE = "passthrough"
+KEY_RIGHTALT = "passthrough"
+KEY_RIGHTMETA = "passthrough"
+KEY_COMPOSE = "passthrough"
+KEY_RIGHTCTRL = "passthrough"
+KEY_UP = "passthrough"
+KEY_DOWN = "passthrough"
+KEY_LEFT = "passthrough"
+KEY_RIGHT = "passthrough"
+KEY_INSERT = "passthrough"
+KEY_DELETE = "passthrough"
+KEY_HOME = "passthrough"
+KEY_END = "passthrough"
+KEY_PAGEUP = "passthrough"
+KEY_PAGEDOWN = "passthrough"
+KEY_SYSRQ = "passthrough"
+KEY_SCROLLLOCK = "passthrough"
+KEY_PAUSE = "passthrough"
 
-[layout.bindings]
-KEY_CAPSLOCK = "A#-1"
-KEY_LEFTSHIFT = "B-1"
+# notes
 KEY_Z = "C0"
 KEY_S = "C#0"
 KEY_X = "D0"
@@ -49,8 +85,6 @@ KEY_SEMICOLON = "D#1"
 KEY_SLASH = "E1"
 KEY_RIGHTSHIFT = "F1"
 KEY_ENTER = "F#1"
-KEY_GRAVE = "A#0"
-KEY_TAB = "B0"
 KEY_Q = "C1"
 KEY_2 = "C#1"
 KEY_W = "D1"
@@ -96,10 +130,47 @@ KEY_KPMINUS = "D#1"
 name = "Chromatic"
 
 [layout.bindings]
-KEY_GRAVE = "G#-1"
-KEY_TAB = "A-1"
-KEY_CAPSLOCK = "A#-1"
-KEY_LEFTSHIFT = "B-1"
+# commands
+KEY_ESC = "panic"
+KEY_F1 = "octave_down"
+KEY_F2 = "octave_up"
+KEY_F3 = "transpose_down"
+KEY_F4 = "transpose_up"
+KEY_F5 = "channel_down"
+KEY_F6 = "channel_up"
+KEY_F7 = "velocity_down"
+KEY_F8 = "velocity_up"
+KEY_F9 = "chord"
+KEY_F10 = "learn"
+KEY_F11 = "layout_previous"
+KEY_F12 = "layout_next"
+
+# left to the system: they type, also while HIDI plays
+KEY_TAB = "passthrough"
+KEY_LEFTSHIFT = "passthrough"
+KEY_LEFTCTRL = "passthrough"
+KEY_LEFTMETA = "passthrough"
+KEY_LEFTALT = "passthrough"
+KEY_SPACE = "passthrough"
+KEY_RIGHTALT = "passthrough"
+KEY_RIGHTMETA = "passthrough"
+KEY_COMPOSE = "passthrough"
+KEY_RIGHTCTRL = "passthrough"
+KEY_UP = "passthrough"
+KEY_DOWN = "passthrough"
+KEY_LEFT = "passthrough"
+KEY_RIGHT = "passthrough"
+KEY_INSERT = "passthrough"
+KEY_DELETE = "passthrough"
+KEY_HOME = "passthrough"
+KEY_END = "passthrough"
+KEY_PAGEUP = "passthrough"
+KEY_PAGEDOWN = "passthrough"
+KEY_SYSRQ = "passthrough"
+KEY_SCROLLLOCK = "passthrough"
+KEY_PAUSE = "passthrough"
+
+# notes
 KEY_1 = "B-1"
 KEY_Q = "C0"
 KEY_A = "C#0"
@@ -172,6 +243,21 @@ KEY_KPMINUS = "D#1"
 name = "Control"
 
 [layout.bindings]
+# commands
+KEY_ESC = "panic"
+KEY_F1 = "octave_down"
+KEY_F2 = "octave_up"
+KEY_F3 = "transpose_down"
+KEY_F4 = "transpose_up"
+KEY_F5 = "channel_down"
+KEY_F6 = "channel_up"
+KEY_F7 = "velocity_down"
+KEY_F8 = "velocity_up"
+KEY_F9 = "chord"
+KEY_F10 = "learn"
+KEY_F11 = "layout_previous"
+KEY_F12 = "layout_next"
+
 # main keyboard section
 KEY_1 = 0
 KEY_Q = 1
@@ -223,7 +309,6 @@ KEY_BACKSPACE = 46
 KEY_BACKSLASH = 47
 KEY_GRAVE = 48
 KEY_TAB = 49
-KEY_CAPSLOCK = 50
 KEY_LEFTSHIFT = 51
 KEY_LEFTCTRL = 52
 KEY_LEFTMETA = 53

@@ -21,9 +21,13 @@
 
 SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"
 
-# Only needed for the setting always_grab, which hides a tapped toggle key
-# from the system: HIDI then types the other keys again on a keyboard it
-# makes through uinput. This lets whoever is logged in at the machine make
-# input devices in software, which also means typing into any program of
-# theirs. Remove the line if you do not use that setting.
+# Needed for two things a keyboard does while HIDI holds it: the toggle
+# key, Caps Lock as HIDI comes, is kept from the system, and the keys a
+# profile leaves to the system (the modifiers, the arrows and the space
+# bar of the factory keyboard profile) still type. For both HIDI types
+# keys again on a keyboard it makes through uinput. This lets whoever is
+# logged in at the machine make input devices in software, which also
+# means typing into any program of theirs. Without the line the toggle key
+# also reaches the system, and the keys left to it do nothing while HIDI
+# plays.
 KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

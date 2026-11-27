@@ -7,6 +7,7 @@ import (
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/output"
 	"github.com/gethiox/HIDI/internal/settings"
+	"github.com/gethiox/HIDI/internal/update"
 )
 
 // Controller is the running HIDI as the window needs it; *ipc.Client is
@@ -14,6 +15,22 @@ import (
 type Controller interface {
 	Watch(ctx context.Context, logs int, onSnapshot func(ipc.Snapshot), onLog func(ipc.LogLine)) error
 	Toggle(ctx context.Context) (ipc.Snapshot, error)
+	ToggleLearning(ctx context.Context) (ipc.Snapshot, error)
+	// TrySettings makes HIDI behave by settings, written as the settings
+	// file is, without saving them.
+	TrySettings(ctx context.Context, text string) error
+	// Settings returns the settings HIDI goes by, which may hold what
+	// was changed and not saved.
+	Settings(ctx context.Context) (string, error)
+	// Simulate asks HIDI to show, or to stop showing, what the lights of
+	// a keyboard would show where it does not control them.
+	Simulate(ctx context.Context, name, kind, location string, on bool) error
+	// Preview makes HIDI use text in place of a profile file until the
+	// file changes; an empty text ends that.
+	Preview(ctx context.Context, file, text string) error
+	// Reload asks HIDI to look at its profile files now, after the
+	// window wrote one.
+	Reload(ctx context.Context) error
 }
 
 // Options change how the window behaves.
@@ -25,6 +42,9 @@ type Options struct {
 	// window has the focus. Zero means no limit of its own: the window
 	// then keeps to the monitor's refresh rate, as it does in front.
 	BackgroundFPS int
+	// Scale is the size of everything the window draws, in hundredths
+	// of its ordinary size; zero means the ordinary size.
+	Scale int
 	// LogHeight is the height of the log when the window opens, in
 	// pixels. Zero shows only its last line.
 	LogHeight int
@@ -44,6 +64,14 @@ type Options struct {
 	// Ports, if set, lists the MIDI ports that exist, for choosing those
 	// every instrument also sends to.
 	Ports func() ([]output.Port, error)
+	// ShowAll draws the input and the notes of every instrument,
+	// whatever the settings say. It is for pictures.
+	ShowAll bool
+	// Version is the version of this HIDI, and CheckUpdate, if set, asks
+	// for the newest release. The window asks only while the settings
+	// say that it may.
+	Version     string
+	CheckUpdate func(context.Context) (update.Result, error)
 	// EditProfile, if set, is a profile file the window opens with, ready
 	// to be changed.
 	EditProfile string

@@ -1,0 +1,159 @@
+package gui
+
+import (
+	"math"
+	"slices"
+	"testing"
+
+	"github.com/gethiox/HIDI/internal/ipc"
+)
+
+func TestGearShape(t *testing.T) {
+	// The hole, the disc, a tooth and the gap between two teeth.
+	const step = 2 * math.Pi / gearTeeth
+	at := func(r, a float64) bool { return inGear(r*math.Cos(a), r*math.Sin(a)) }
+	if at(0.1, 1) || !at(0.5, 1) {
+		t.Error("the hole or the disc is wrong")
+	}
+	for i := range gearTeeth {
+		if !at(0.9, float64(i)*step) {
+			t.Errorf("tooth %d is missing", i)
+		}
+		if at(0.9, (float64(i)+0.5)*step) {
+			t.Errorf("the gap after tooth %d is filled", i)
+		}
+	}
+	// A tooth is narrower at its top than where it stands.
+	foot, top := 0.0, 0.0
+	for a := 0.0; a < step/2; a += 0.001 {
+		if at(0.72, a) {
+			foot = 0.72 * math.Sin(a)
+		}
+		if at(0.95, a) {
+			top = 0.95 * math.Sin(a)
+		}
+	}
+	if !(top < foot*0.75) || top == 0 {
+		t.Errorf("a tooth is %.3f wide at the top and %.3f at the foot", top, foot)
+	}
+	alpha := GearAlpha(64)
+	if alpha[0] != 0 || alpha[32*64+32] != 0 || alpha[32*64+48] != 255 {
+		t.Errorf("the drawn gear: corner %d, middle %d, disc %d", alpha[0], alpha[32*64+32], alpha[32*64+48])
+	}
+}
+
+func TestFloppy(t *testing.T) {
+	// The outline of the disk: rows 1 and 14 are drawn from column 1 to
+	// 13 or 14, and the corners of the picture are clear.
+	if FloppyPoint(0, 0) || FloppyPoint(15, 15) || FloppyPoint(-1, 3) {
+		t.Error("the edge of the picture is drawn")
+	}
+	for x := 1; x <= 13; x++ {
+		if !FloppyPoint(x, 1) || !FloppyPoint(x, 14) {
+			t.Errorf("the outline has a hole in column %d", x)
+		}
+	}
+	n := 0
+	for y := range 16 {
+		for x := range 16 {
+			if FloppyPoint(x, y) {
+				n++
+			}
+		}
+	}
+	if n < 80 || n > 140 {
+		t.Errorf("%d points are drawn", n)
+	}
+}
+
+func TestCut(t *testing.T) {
+	if got := CutEnd("keyboard.toml · for keyboards", 12); got != "keyboard.to…" {
+		t.Errorf("CutEnd: %q", got)
+	}
+	if got := CutStart("/home/someone/.config/HIDI", 12); got != "…config/HIDI" {
+		t.Errorf("CutStart: %q", got)
+	}
+	if CutEnd("short", 12) != "short" || CutStart("short", 5) != "short" {
+		t.Error("a text that fits is cut")
+	}
+}
+
+func TestEntryKey(t *testing.T) {
+	// One device that is a keyboard and a game controller at once makes
+	// two entries of one name; what is remembered of one is not the
+	// other's.
+	pad := ipc.Instrument{Name: "Stick", Type: "gamepad", Location: "usb-1/input0"}
+	keys := ipc.Instrument{Name: "Stick", Type: "keyboard", Location: "usb-1/input1"}
+	second := ipc.Instrument{Name: "Stick", Type: "gamepad", Location: "usb-2/input0"}
+	if EntryKey(pad) == EntryKey(keys) || EntryKey(pad) == EntryKey(second) {
+		t.Errorf("entries share a key: %q, %q, %q", EntryKey(pad), EntryKey(keys), EntryKey(second))
+	}
+	shown := flip(nil, EntryKey(pad))
+	if len(shown) != 1 || slices.Contains(shown, EntryKey(keys)) {
+		t.Errorf("shown: %v", shown)
+	}
+}
+
+func TestControlLabels(t *testing.T) {
+	pad := ipc.Instrument{
+		Buttons: []ipc.Button{{Name: "BTN_SOUTH"}, {Name: "BTN_EAST"}, {Name: "BTN_TOUCH", Part: "Touchpad"}},
+		Axes:    []ipc.Axis{{Name: "ABS_X"}, {Name: "ABS_Y"}},
+	}
+	// A device that has not said what it has: names, whatever is asked.
+	if got := ButtonLabel(pad, 1, false); got != "BTN_EAST" {
+		t.Errorf("a button of a device that says nothing: %q", got)
+	}
+	if _, ok := ControlNumber(&pad, "BTN_EAST"); ok {
+		t.Error("a device that says nothing numbers its controls")
+	}
+	pad.Complete = true
+	if got := ButtonLabel(pad, 1, false); got != "1" {
+		t.Errorf("button 1: %q", got)
+	}
+	if got := AxisLabel(pad, 1, false); got != "1" {
+		t.Errorf("axis 1: %q", got)
+	}
+	if got := ButtonLabel(pad, 2, true); got != "2 · Touchpad:BTN_TOUCH" {
+		t.Errorf("a named button on a part: %q", got)
+	}
+	if got := AxisLabel(pad, 0, true); got != "0 · X" {
+		t.Errorf("a named axis: %q", got)
+	}
+	if n, ok := ControlNumber(&pad, "ABS_Y"); !ok || n != 1 {
+		t.Errorf("the number of ABS_Y: %d, %v", n, ok)
+	}
+	if _, ok := ControlNumber(&pad, "BTN_NORTH"); ok {
+		t.Error("a control the device does not have has a number")
+	}
+	if _, ok := ControlNumber(nil, "BTN_SOUTH"); ok {
+		t.Error("no device, and a number")
+	}
+}
+
+func TestControllerShown(t *testing.T) {
+	for _, tt := range []struct {
+		c        ipc.Controller
+		label    string
+		value    string
+		from, to float64
+	}{
+		{ipc.Controller{Number: 16, Channel: 1, Value: 64, Known: true}, "cc16", "64", 0, 64.0 / 127},
+		{ipc.Controller{Number: 7, Channel: 3, Value: 127, Known: true}, "cc7/3", "127", 0, 1},
+		{ipc.Controller{Number: 20, Channel: 1}, "cc20", "–", 0, 0},
+		{ipc.Controller{Bend: true, Channel: 1, Value: 0, Known: true}, "PB", "+0%", 0.5, 0.5},
+		{ipc.Controller{Bend: true, Channel: 1, Value: 8191, Known: true}, "PB", "+100%", 0.5, 1},
+		{ipc.Controller{Bend: true, Channel: 1, Value: -8192, Known: true}, "PB", "-100%", 0, 0.5},
+		{ipc.Controller{Bend: true, Channel: 1, Value: -4096, Known: true}, "PB", "-50%", 0.25, 0.5},
+	} {
+		if got := ControllerLabel(tt.c, 1); got != tt.label {
+			t.Errorf("%+v: label %q, want %q", tt.c, got, tt.label)
+		}
+		if got := ControllerValue(tt.c); got != tt.value {
+			t.Errorf("%+v: value %q, want %q", tt.c, got, tt.value)
+		}
+		from, to := ControllerLevel(tt.c)
+		if math.Abs(from-tt.from) > 0.001 || math.Abs(to-tt.to) > 0.001 {
+			t.Errorf("%+v: the bar from %v to %v, want %v to %v", tt.c, from, to, tt.from, tt.to)
+		}
+	}
+}

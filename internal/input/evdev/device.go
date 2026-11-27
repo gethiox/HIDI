@@ -4,6 +4,7 @@ package evdev
 
 import (
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/gethiox/HIDI/internal/control"
@@ -62,6 +63,21 @@ func newDevice(nodes []*Node) *Device {
 		close(d.events)
 	}()
 	return d
+}
+
+// Controls lists the keys, buttons and absolute axes the device has.
+func (d *Device) Controls() []control.Input {
+	var out []control.Input
+	for i, node := range d.nodes {
+		info := node.Info()
+		for _, code := range info.Keys {
+			out = append(out, control.Input{Code: code, Part: d.parts[i]})
+		}
+		for _, code := range info.Axes {
+			out = append(out, control.Input{Code: code, Part: d.parts[i], Hat: slices.Contains(info.Hats, code)})
+		}
+	}
+	return out
 }
 
 // read forwards the events of one node until the device shuts down.

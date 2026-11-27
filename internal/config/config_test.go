@@ -18,7 +18,7 @@ func mustCode(t *testing.T, name string) control.Code {
 }
 
 const fullProfile = `
-schema = 1
+schema = 2
 name = "Test"
 
 [match]
@@ -36,13 +36,14 @@ layout = "Second"
 collision = "no_repeat"
 
 [global]
-KEY_F1 = "octave_down"
-"KEY_LEFTSHIFT+KEY_F1" = "transpose_down"
+"KEY_LEFTCTRL+KEY_CAPSLOCK" = "hidi_toggle"
 
 [[layout]]
 name = "First"
 
 [layout.bindings]
+KEY_F1 = "octave_down"
+"KEY_LEFTSHIFT+KEY_F1" = "transpose_down"
 KEY_Z = "C1"
 KEY_X = 61
 KEY_Q = { note = "D#3", channel_offset = 1, velocity = 127 }
@@ -64,7 +65,7 @@ func TestParse(t *testing.T) {
 		t.Fatalf("Parse:\n%v", err)
 	}
 
-	if p.Name != "Test" || p.WrittenFor != 1 {
+	if p.Name != "Test" || p.WrittenFor != 2 {
 		t.Errorf("Name = %q, WrittenFor = %d", p.Name, p.WrittenFor)
 	}
 	m := p.Match
@@ -97,6 +98,8 @@ func TestParse(t *testing.T) {
 		"ABS_Y+":    {Source: engine.Source{Code: absY, Range: engine.RangeUpper, Deadzone: 0.25}, Action: engine.ControlChange{Controller: 1}},
 		"ABS_Y-":    {Source: engine.Source{Code: absY, Range: engine.RangeLower}, Action: engine.PitchBend{Down: true}},
 		"Touchpad":  {Source: engine.Source{Code: absX, Part: "Touchpad"}, Action: engine.ControlChange{Controller: 10}},
+		"KEY_F1":    {Source: engine.Source{Code: f1}, Action: engine.CommandOctaveDown},
+		"Shift+F1":  {Source: engine.Source{Code: f1, Modifiers: []control.Code{shift}}, Action: engine.CommandTransposeDown},
 	}
 	got := p.Engine.Layouts[0].Bindings
 	if len(got) != len(want) {
@@ -118,20 +121,15 @@ func TestParse(t *testing.T) {
 		}
 	}
 
-	if len(p.Engine.Global) != 2 {
-		t.Fatalf("Global = %+v", p.Engine.Global)
+	capsLock := mustCode(t, "KEY_CAPSLOCK")
+	if g := p.Engine.Global; len(g) != 1 || g[0].Action != engine.CommandToggle || g[0].Source.Code != capsLock {
+		t.Errorf("Global = %+v", g)
 	}
-	for _, g := range p.Engine.Global {
-		switch len(g.Source.Modifiers) {
-		case 0:
-			if g.Source.Code != f1 || g.Action != engine.CommandOctaveDown {
-				t.Errorf("plain global binding = %+v", g)
-			}
-		case 1:
-			if g.Source.Code != f1 || g.Source.Modifiers[0] != shift || g.Action != engine.CommandTransposeDown {
-				t.Errorf("combination global binding = %+v", g)
-			}
-		}
+	if want := []control.Code{mustCode(t, "KEY_LEFTCTRL"), capsLock}; len(p.Toggle) != 2 || p.Toggle[0] != want[0] || p.Toggle[1] != want[1] {
+		t.Errorf("Toggle = %v, want %v", p.Toggle, want)
+	}
+	if n := len(p.Engine.Layouts[1].Bindings); n != 0 {
+		t.Errorf("the second layout has %d bindings of the first", n)
 	}
 
 	if _, err := engine.New(p.Engine); err != nil {
@@ -198,7 +196,7 @@ func TestParseErrors(t *testing.T) {
 		{"axis threshold", "schema = 1\n[defaults]\naxis_threshold = 0.9\n[[layout]]\nname = \"L\"", "axis_threshold"},
 		{"default layout", "schema = 1\n[defaults]\nlayout = \"Nope\"\n[[layout]]\nname = \"L\"", `default layout "Nope"`},
 		{"unknown control", layout(`KEY_NOPE = "C1"`), `layout "L", KEY_NOPE: unknown control`},
-		{"bad note", layout(`KEY_A = "H9"`), "neither a command nor a note"},
+		{"bad note", layout(`KEY_A = "H9"`), "neither a command, a note,"},
 		{"note number range", layout(`KEY_A = 200`), "outside 0-127"},
 		{"wrong value type", layout(`KEY_A = true`), "must be a note, a command or a table"},
 		{"no action", layout(`KEY_A = { deadzone = 0.1 }`), "exactly one of"},
@@ -451,5 +449,28 @@ func TestTouchOption(t *testing.T) {
 	}
 	if _, err := Parse([]byte("schema = 1\nname = \"T\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nABS_RZ = { cc = 1, touch = true }\n")); err == nil {
 		t.Error("touch on a controller was accepted")
+	}
+}
+
+// A key can be left to the system; only a key of the main part, alone.
+func TestParsePassthrough(t *testing.T) {
+	p, err := Parse([]byte("schema = 1\nname = \"P\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\nKEY_SPACE = \"passthrough\"\nKEY_A = \"C3\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := 0
+	for _, b := range p.Engine.Layouts[0].Bindings {
+		if _, ok := b.Action.(engine.Passthrough); ok && b.Source.Code == control.Key(57) {
+			passed++
+		}
+	}
+	if passed != 1 {
+		t.Errorf("bindings: %+v", p.Engine.Layouts[0].Bindings)
+	}
+	for _, bad := range []string{"ABS_X = \"passthrough\"", "\"KEY_LEFTSHIFT+KEY_A\" = \"passthrough\"", "\"Touchpad:BTN_LEFT\" = \"passthrough\""} {
+		_, err := Parse([]byte("schema = 1\nname = \"P\"\n[[layout]]\nname = \"L\"\n[layout.bindings]\n" + bad + "\n"))
+		if err == nil || !strings.Contains(err.Error(), "passed through") {
+			t.Errorf("%s: error = %v", bad, err)
+		}
 	}
 }
