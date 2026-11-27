@@ -83,6 +83,10 @@ func fingerprint(data []byte) string {
 // runs with what it comes with.
 func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 	var report Report
+	// HIDI's directories are called HIDI, also where an earlier build
+	// made them under another case of the name.
+	OwnName(p.Root)
+	OwnName(p.State)
 	entries, err := os.ReadDir(p.Root)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

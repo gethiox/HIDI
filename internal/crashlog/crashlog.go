@@ -20,16 +20,6 @@ import (
 // current is the name of the file the running program writes a crash to.
 const current = "crash.log"
 
-// Dir returns the directory crash reports are kept in: hidi in the user's
-// cache directory.
-func Dir() (string, error) {
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("finding a place for crash reports: %w", err)
-	}
-	return filepath.Join(cache, "hidi"), nil
-}
-
 // Start arranges for a crash of this program to be written to a file in
 // dir. If the previous run left a crash there, it is moved to a file named
 // after the time it was found, and that file's path is returned.

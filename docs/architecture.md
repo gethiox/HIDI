@@ -310,7 +310,7 @@ Windows with its hook. The MIDI devices belong to the process as well and are
 removed with it.
 
 What a crash leaves is its reason. The Go runtime prints it to the terminal,
-and `crashlog` has it written to a file in the user's cache directory too; the
+and `crashlog` has it written to a file in HIDI's state directory too; the
 next `hidi run` says that the last one did not end properly and names the
 file. A crash cannot be turned into a friendlier message while it happens: a
 failure in a goroutine other than the command's own, or inside a call into
@@ -345,7 +345,8 @@ console program as before, and leaves the console Windows gave it when
 started by a double click.
 
 The socket is a Unix domain socket, which Windows has as well, in a directory
-only the user can enter: `$XDG_RUNTIME_DIR/hidi/control.sock` on Linux. The
+only the user can enter: `$XDG_RUNTIME_DIR/HIDI/control.sock` on Linux, and
+`%LocalAppData%\HIDI\control.sock` on Windows, beside HIDI's state. The
 protocol is one JSON object per line and is described in the `ipc` package. A
 client asks for the state once, switches HIDI on or off, or watches: it then
 receives a snapshot after every change, at most twenty a second unless it
@@ -465,3 +466,32 @@ hint is there for any widget to use; no text has been given to one yet.
 The socket also makes HIDI a single instance. A second HIDI finds the first
 one answering and stops before it opens any device, or opens the first
 one's window.
+
+## Where HIDI writes
+
+HIDI writes in its own directories and nowhere else, as released:
+
+| What | Windows | Linux |
+|---|---|---|
+| Settings and profiles | `%AppData%\HIDI` | `~/.config/HIDI` |
+| HIDI's own notes (`written.json`, `window.json`), crash reports, the control socket | `%LocalAppData%\HIDI` | `~/.local/state/HIDI`; the socket in `$XDG_RUNTIME_DIR/HIDI` |
+
+A directory named with `--config` keeps its notes in `.state` inside it.
+An earlier build made `%LocalAppData%\hidi`; Windows tells no case of names
+apart, and HIDI renames it to `HIDI` when it starts.
+
+Two libraries HIDI draws its window with carry files inside the program
+and write them out when it starts, as they come: raylib-go writes
+`raylib.dll` into a new directory under `%TEMP%` (on Linux
+`libraylib.so` under `$TMPDIR`, removed again at once), and the ffi
+library, through which Go calls raylib, writes `libffi-8.dll` into
+`%LocalAppData%\github.com\jupiterrider\ffi`. On Windows a HIDI that
+never closes a window, which the main process never does, leaves the
+directory under `%TEMP%` behind. The Windows release is built with the
+tags `extlib` and `ffi_no_embed` and carries both files beside
+`hidi.exe` instead, where Windows looks first; it writes neither. A
+`go build` without the tags writes them as described. On Linux, raylib
+is not a library a system has, and the release writes and removes it
+under `$TMPDIR` at every start; libffi comes from the system
+(`libffi.so.8`).
+

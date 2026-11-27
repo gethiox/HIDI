@@ -433,18 +433,6 @@ func TestNotifier(t *testing.T) {
 	<-b
 }
 
-func TestDefaultPath(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", filepath.Join("run", "user", "1000"))
-	path, err := DefaultPath()
-	if err != nil || path != filepath.Join("run", "user", "1000", "hidi", "control.sock") {
-		t.Errorf("DefaultPath = %q, %v", path, err)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	if path, err := DefaultPath(); err == nil && filepath.Base(path) != "control.sock" {
-		t.Errorf("DefaultPath without a runtime directory = %q", path)
-	}
-}
-
 func TestSnapshotPace(t *testing.T) {
 	for _, c := range []struct {
 		ms   int

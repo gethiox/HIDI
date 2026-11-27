@@ -21,6 +21,18 @@
 # checksum; see there. MIDI2_NUPKG names a copy of that package that is
 # already at hand, which is checked the same.
 #
+# And they hold raylib.dll, which draws the window, and libffi-8.dll,
+# through which Go calls it, beside hidi.exe. Built as a plain "go build",
+# the two libraries carry these files inside the program and write them
+# out where it starts: raylib-go into a new directory under %TEMP%, which
+# a HIDI that never closes a window leaves behind, and the ffi library
+# into %LocalAppData%\github.com\jupiterrider\ffi, and on Windows on ARM
+# not at all, so that the program could not start. The tags extlib and
+# ffi_no_embed make them load the files beside hidi.exe instead, where
+# Windows looks first: HIDI then writes nothing outside its own
+# directories. The files are those of the versions go.sum names, taken
+# from the module cache unchanged.
+#
 # It needs go, tar, gzip, zip, unzip, curl and sha256sum, and a clean git
 # checkout.
 set -euo pipefail
@@ -98,6 +110,11 @@ else
     echo "release.sh: packaging/windows/midi-api names no package: the Windows archives are built WITHOUT Windows.Devices.Midi2.dll" >&2
 fi
 
+# raylib and libffi for the Windows archives, from the modules HIDI is
+# built with.
+raylib_dir=$(go list -m -f '{{.Dir}}' github.com/gen2brain/raylib-go/raylib)
+ffi_dir=$(go list -m -f '{{.Dir}}' github.com/jupiterrider/ffi)
+
 # system/architecture[/ARM version], and the name it has in a file name.
 targets="
 linux/amd64      linux-amd64
@@ -119,9 +136,9 @@ echo "$targets" | while read -r target name; do
     echo "building $dir"
     # The Windows program is one without a console: a double click opens
     # no black window. Started from a command line it writes there.
-    kind=
-    [ "$goos" = windows ] && kind="-H windowsgui"
-    GOOS=$goos GOARCH=$goarch GOARM=$goarm go build -trimpath -buildvcs=true \
+    kind= tags=
+    [ "$goos" = windows ] && kind="-H windowsgui" tags="-tags=extlib,ffi_no_embed"
+    GOOS=$goos GOARCH=$goarch GOARM=$goarm go build -trimpath -buildvcs=true $tags \
         -ldflags "-s -w -buildid= $kind -X github.com/gethiox/HIDI/internal/buildinfo.Version=$version" \
         -o "$work/$dir/$exe" ./cmd/hidi
 
@@ -129,6 +146,27 @@ echo "$targets" | while read -r target name; do
     # was made.
     install -m 0644 LICENSE README.md "$work/$dir/"
     [ "$goos" = linux ] && install -m 0644 packaging/linux/70-hidi.rules packaging/linux/hidi.desktop "$work/$dir/"
+    if [ "$goos" = windows ]; then
+        gzip -dc "$raylib_dir/libs/windows_$goarch/raylib.dll.gz" >"$work/$dir/raylib.dll"
+        install -m 0644 "$ffi_dir/assets/libffi/windows_$goarch/libffi-8.dll" "$work/$dir/"
+        # The notices of raylib, of its Go bindings and of GLFW, which
+        # raylib.dll holds: raylib's own is in its header.
+        {
+            echo "raylib.dll is raylib, with GLFW, as raylib-go ships it."
+            echo
+            echo "== raylib =="
+            sed -n '/LICENSE: zlib/,/source distribution/p' "$raylib_dir/raylib.h" | sed 's/^\* \{0,3\}//'
+            echo
+            echo "== raylib-go =="
+            cat "$raylib_dir/LICENSE"
+            echo
+            echo "== GLFW =="
+            cat "$raylib_dir/external/glfw/LICENSE.md"
+        } >"$work/$dir/raylib-LICENSE.txt"
+        chmod 0644 "$work/$dir/raylib-LICENSE.txt"
+        install -m 0644 "$ffi_dir/assets/libffi/LICENSE" "$work/$dir/libffi-LICENSE.txt"
+        chmod 0644 "$work/$dir/raylib.dll"
+    fi
     if [ "$goos" = windows ] && [ -n "$midi" ]; then
         from=$midi/runtimes/win-x64/native
         [ "$goarch" = arm64 ] && from=$midi/runtimes/win-arm64/native

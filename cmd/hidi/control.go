@@ -26,7 +26,7 @@ import (
 
 // socketFlag adds the option that names the control socket.
 func socketFlag(fs *pflag.FlagSet) *string {
-	path, err := ipc.DefaultPath()
+	path, err := settings.SocketPath()
 	if err != nil {
 		path = ""
 	}

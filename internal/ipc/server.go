@@ -14,22 +14,6 @@ import (
 	"time"
 )
 
-// DefaultPath returns where the control socket of the user's HIDI lives.
-// It is in the directory the system keeps for the user's running programs
-// where there is one ($XDG_RUNTIME_DIR on Linux), and in the user's cache
-// directory otherwise.
-func DefaultPath() (string, error) {
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		cache, err := os.UserCacheDir()
-		if err != nil {
-			return "", fmt.Errorf("finding a place for the control socket: %w", err)
-		}
-		dir = cache
-	}
-	return filepath.Join(dir, "hidi", "control.sock"), nil
-}
-
 // ErrRunning is returned by [Listen] when another HIDI answers on the
 // socket.
 var ErrRunning = errors.New("HIDI is already running")

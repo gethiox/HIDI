@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -89,8 +90,10 @@ func guarded(ctx context.Context, args []string) (code int) {
 	if !startsHIDI(args) && args[0] != "doctor" {
 		return run(ctx, args, os.Stdout, os.Stderr)
 	}
-	dir, err := crashlog.Dir()
+	dir, err := settings.CrashDir()
 	if err == nil {
+		settings.OwnName(dir) // made "hidi" by earlier builds
+
 		var previous string
 		if previous, err = crashlog.Start(dir); previous != "" {
 			fmt.Fprintf(os.Stderr, "HIDI did not end properly the last time it ran. What happened is in\n  %s\nPlease include that file if you report it.\n\n", previous)
@@ -255,6 +258,7 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// that one is running, before it would open any device.
 	var server *ipc.Server
 	if o.socket != "" {
+		settings.OwnName(filepath.Dir(o.socket)) // made "hidi" by earlier builds
 		server, err = ipc.Listen(o.socket)
 		switch {
 		case errors.Is(err, ipc.ErrRunning) && !o.headless:
