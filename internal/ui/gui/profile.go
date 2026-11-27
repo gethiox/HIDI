@@ -775,6 +775,84 @@ func (d *ProfileDoc) CarryAt(layout string, from, to Spot, move bool) error {
 	})
 }
 
+// written returns what a spot does in a layout as a line writes it: its
+// own line, or else what the profile's rule makes of it, written out. It
+// reports false for a spot that does nothing.
+func (d *ProfileDoc) written(text []byte, layout string, at Spot) (string, bool, error) {
+	role := d.RoleAt(layout, at)
+	value, found, err := config.Get(text, role.Section, at.Key())
+	if err != nil {
+		return "", false, err
+	}
+	if !found && role.Generated && role.Kind != RoleNone {
+		value, err = role.value(at)
+		found = err == nil
+	}
+	if !found && role.Kind != RoleNone {
+		return "", false, fmt.Errorf("the line of %s was not found; %w", at.Key(), config.ErrNotEditable)
+	}
+	return value, found, nil
+}
+
+// SwapAt gives two spots what the other does in a layout, exactly as the
+// profile writes it; one that does nothing leaves the other doing
+// nothing. The toggle, which is one for the profile, goes to the other
+// key, everywhere, as CarryAt moves it. It is one change, taken back in
+// one step.
+func (d *ProfileDoc) SwapAt(layout string, a, b Spot) error {
+	if a == b {
+		return nil
+	}
+	ra, rb := d.RoleAt(layout, a), d.RoleAt(layout, b)
+	if rb.Section == config.Global {
+		a, b, ra, rb = b, a, rb, ra // the toggle is a's from here on
+	}
+	return d.change(func(text []byte) ([]byte, error) {
+		va, hasA, err := d.written(text, layout, a)
+		if err != nil {
+			return nil, err
+		}
+		vb, hasB, err := d.written(text, layout, b)
+		if err != nil {
+			return nil, err
+		}
+		out := text
+		// The toggle moves: b is the toggle now, in [global], and a
+		// gets what b did.
+		if ra.Section == config.Global {
+			if out, err = config.Remove(out, config.Global, a.Key()); err != nil {
+				return nil, err
+			}
+			if !rb.Generated && (rb.Kind != RoleNone || rb.Silent) {
+				if out, err = config.Remove(out, rb.Section, b.Key()); err != nil {
+					return nil, err
+				}
+			}
+			if out, err = config.Set(out, config.Global, b.Key(), va); err != nil {
+				return nil, err
+			}
+			return d.put(out, layout, a, vb, hasB)
+		}
+		if out, err = d.put(out, layout, a, vb, hasB); err != nil {
+			return nil, err
+		}
+		return d.put(out, layout, b, va, hasA)
+	})
+}
+
+// put writes a line of a spot in a layout, or with none, makes the spot
+// do nothing.
+func (d *ProfileDoc) put(text []byte, layout string, at Spot, value string, has bool) ([]byte, error) {
+	if !has {
+		return d.silence(text, layout, config.Bindings(layout), at)
+	}
+	out, err := d.keepOther(text, layout, at)
+	if err != nil {
+		return nil, err
+	}
+	return config.Set(out, config.Bindings(layout), at.Key(), value)
+}
+
 // nextController returns the controller after n that means nothing of its
 // own, or the one before it where the numbers end.
 func nextController(n uint8) uint8 {

@@ -372,8 +372,8 @@ for levers, and "rests in the middle" is set for all of them at once.
 Leave the controller alone when you press it.
 
 Click a control, or press it on the device, and make it play a note, send a
-controller, run a command, or do nothing. Drag one onto another to move
-what it does there, and hold Ctrl while doing so to copy it instead. The
+controller, run a command, or do nothing. Drag one onto another and the
+two swap what they do; hold Ctrl while doing so to copy it instead. The
 right mouse button empties a control; with Ctrl it leaves a key to the
 system. Among the commands of a key is `hidi_toggle`, which makes it the
 key that turns HIDI off and on for devices with this profile.

@@ -82,9 +82,8 @@ func (w *window) pointAt(e *editor, at Spot, r rl.Rectangle, roundness float32) 
 
 // carry follows a spot that is being carried, once all controls of the
 // frame are drawn: it draws what is carried at the pointer, and when the
-// button is let go over another spot, that one gets what the carried one
-// does. Without Ctrl the carried one does nothing afterwards; with Ctrl
-// both do the same.
+// button is let go over another spot, the two swap what they do. With
+// Ctrl the other spot gets a copy instead, and both do the same.
 func (w *window) carry(e *editor, device *ipc.Instrument) {
 	if !e.pressing {
 		return
@@ -106,6 +105,8 @@ func (w *window) carry(e *editor, device *ipc.Instrument) {
 		label := w.spotLabel(device, e.press) + " => " + role.Short()
 		if copying {
 			label += "  (copy)"
+		} else {
+			label += "  (swap)"
 		}
 		tag := rl.NewRectangle(at.X+12, at.Y+10, w.chipWidth(label), chipH)
 		rl.DrawRectangleRounded(tag, 0.4, 6, col(roleColour(role)))
@@ -115,7 +116,11 @@ func (w *window) carry(e *editor, device *ipc.Instrument) {
 	}
 	if rl.IsMouseButtonReleased(rl.MouseButtonLeft) || !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
 		if e.carrying && e.overAny && e.over != e.press {
-			e.try(e.doc.CarryAt(e.layout, e.press, e.over, !copying))
+			if copying {
+				e.try(e.doc.CarryAt(e.layout, e.press, e.over, false))
+			} else {
+				e.try(e.doc.SwapAt(e.layout, e.press, e.over))
+			}
 			e.at, e.chosen = e.over, true
 		}
 		e.pressing, e.carrying = false, false

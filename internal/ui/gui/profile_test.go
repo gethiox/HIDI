@@ -1133,3 +1133,48 @@ KEY_TAB = "nothing"
 		t.Errorf("a layout made from nothing: %v", err)
 	}
 }
+
+// Two spots swap what they do; one that does nothing leaves the other
+// doing nothing; the toggle goes to the other key. Each is one change.
+func TestProfileDocSwap(t *testing.T) {
+	doc := openText(t, `schema = 2
+name = "Mine"
+
+[global]
+KEY_CAPSLOCK = "hidi_toggle"
+
+[[layout]]
+name = "A"
+
+[layout.bindings]
+KEY_Z = "C3"
+KEY_X = { note = "D3", velocity = 90 }
+`)
+	keyZ, keyX, keyC, caps := Whole(control.Key(44)), Whole(control.Key(45)), Whole(control.Key(46)), Whole(control.Key(58))
+	if err := doc.SwapAt("A", keyZ, keyX); err != nil {
+		t.Fatal(err)
+	}
+	if z, x := doc.RoleAt("A", keyZ), doc.RoleAt("A", keyX); z.Note != 62 || z.Velocity != 90 || x.Note != 60 {
+		t.Errorf("after swapping Z and X: Z %+v, X %+v", z, x)
+	}
+	if !doc.Undo() || doc.RoleAt("A", keyZ).Note != 60 {
+		t.Error("the swap was not one step back")
+	}
+	// With a key that does nothing: the note goes over, and Z is free.
+	if err := doc.SwapAt("A", keyZ, keyC); err != nil {
+		t.Fatal(err)
+	}
+	if z, c := doc.RoleAt("A", keyZ), doc.RoleAt("A", keyC); z.Kind != RoleNone || c.Note != 60 {
+		t.Errorf("after swapping Z with C: Z %+v, C %+v", z, c)
+	}
+	// The toggle and a note: X is the toggle now, Caps Lock plays D3.
+	if err := doc.SwapAt("A", keyX, caps); err != nil {
+		t.Fatal(err)
+	}
+	if x, c := doc.RoleAt("A", keyX), doc.RoleAt("A", caps); x.Command != engine.CommandToggle || x.Section != config.Global || c.Note != 62 {
+		t.Errorf("after swapping X with the toggle: X %+v, Caps Lock %+v", x, c)
+	}
+	if !slices.Equal(doc.Profile.Toggle, []control.Code{control.Key(45)}) {
+		t.Errorf("the toggle: %v", doc.Profile.Toggle)
+	}
+}
