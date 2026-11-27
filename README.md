@@ -50,8 +50,9 @@ and [what is done and what remains](docs/roadmap.md).
 
 ## Installing
 
-HIDI is one program file, `hidi` (`hidi.exe` on Windows), without
-dependencies. Take the archive for your system from the
+HIDI is one program file, `hidi` (`hidi.exe` on Windows). On Windows the
+libraries it needs lie beside it in the archive: keep the files of the
+archive together. Take the archive for your system from the
 [releases page](https://github.com/gethiox/HIDI/releases) and unpack it, or
 [build it from source](#building-from-source).
 
@@ -90,6 +91,14 @@ machine, which programs under X11 can do anyway.
 
 `hidi.desktop` is an entry for the desktop's menu. Copy it to
 `~/.local/share/applications/` once `hidi` is somewhere on your `PATH`.
+
+HIDI for 64-bit processors (`linux-amd64`, `linux-arm64`) needs two
+libraries of the system, which a desktop has: `libX11.so.6`, for the
+window, and `libffi.so.8` (`libffi8` on Debian and Ubuntu, `libffi` on
+Fedora and Arch). Without them it does not start at all, also without a
+window. On Wayland the window runs through XWayland. HIDI for 32-bit ARM
+(`linux-armv6`, `linux-armv7`, the 32-bit Raspberry Pi OS) has no window
+and needs neither: it runs in a terminal or as a service.
 
 ### Windows
 
@@ -631,6 +640,12 @@ rough edges, and please report what you find.
   the releases page of [microsoft/MIDI](https://github.com/microsoft/MIDI/releases);
   the package is a zip archive. Do not use the copy that Microsoft's Tools
   installer places next to its own programs.
+- `raylib.dll`, which draws the window, and `libffi-8.dll`, through which
+  HIDI calls it, beside `hidi.exe`, as the archive has them. They are under
+  their own licences, in `raylib-LICENSE.txt` and `libffi-LICENSE.txt`.
+  HIDI built yourself without the tags `extlib` and `ffi_no_embed` carries
+  them inside and writes them out at the start, under `%TEMP%` and
+  `%LocalAppData%`; see [Building from source](#building-from-source).
 
 ### In a command line
 
@@ -779,6 +794,14 @@ on the machine that builds. And `-ldflags "-H windowsgui"` makes a program
 without a console window. Without either, HIDI works the same: it has the
 icon Windows gives a program without one, and a double click shows a console
 window for a moment.
+
+A release for Windows is also built with `-tags extlib,ffi_no_embed`, and
+carries `raylib.dll` and `libffi-8.dll` beside `hidi.exe`: those of the
+module versions in `go.sum`, from the module cache, as `scripts/release.sh`
+takes them. Without the tags the two libraries carry the files inside the
+program and write them out where it starts: raylib-go into a new directory
+under `%TEMP%`, which stays behind unless the process closes a window, and
+the ffi library into `%LocalAppData%\github.com\jupiterrider\ffi`.
 
 ### Checking a release
 
