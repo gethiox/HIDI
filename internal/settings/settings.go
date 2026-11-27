@@ -291,6 +291,12 @@ func Parse(data []byte) (Settings, error) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(f.Lights.Colours)) {
 		target, known := named[name]
+		if name == "chord" {
+			// A colour of earlier HIDI 2 builds: the chord key has the
+			// colour of the commands now. The next writing of the file
+			// leaves it out.
+			continue
+		}
 		if !known {
 			problems = append(problems, fmt.Sprintf("unknown setting %q", "lights.colours."+name))
 			continue

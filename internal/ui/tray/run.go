@@ -2,6 +2,7 @@ package tray
 
 import (
 	"context"
+	"github.com/gethiox/HIDI/internal/blink"
 	"log/slog"
 	"time"
 
@@ -22,11 +23,6 @@ const (
 	// askTimeout limits a request to HIDI.
 	askTimeout = 2 * time.Second
 )
-
-// BlinkPhase is how long the icon of a HIDI that is on and in learning
-// mode shows each of its two colours. Twice a second is nothing to a
-// notification area: an icon there is a few hundred pixels.
-var BlinkPhase = 500 * time.Millisecond
 
 // Options change what the icon offers.
 type Options struct {
@@ -89,22 +85,32 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger, opts
 	}
 	running := false
 	// While HIDI is on and learning, the icon blinks between the colour
-	// of on and that of learning.
+	// of on and that of learning, in step with the window and the lights
+	// (package blink): a timer wakes the icon at the start of each half.
 	var (
-		shown  View
-		blink  <-chan time.Time
-		ticker *time.Ticker
-		other  bool // the half of the blinking that is the learning colour
+		shown View
+		turn  <-chan time.Time
+		timer *time.Timer
 	)
 	defer func() {
-		if ticker != nil {
-			ticker.Stop()
+		if timer != nil {
+			timer.Stop()
 		}
 	}()
 	show := func() {
 		v := shown
-		if blinks := v.Learning && v.Look == LookOn; blinks && other {
-			v.Look = LookLearning
+		now := time.Now()
+		if blinks := v.Learning && v.Look == LookOn; blinks {
+			if blink.Lit(now) {
+				v.Look = LookLearning
+			}
+			if timer != nil {
+				timer.Stop()
+			}
+			timer = time.NewTimer(time.Until(blink.Next(now)))
+			turn = timer.C
+		} else {
+			turn = nil
 		}
 		if err := host.Show(v); err != nil {
 			log.Warn("the icon could not be updated", "error", err)
@@ -117,17 +123,8 @@ func Run(ctx context.Context, hidi Controller, host Host, log *slog.Logger, opts
 		case s := <-states:
 			running = s != nil
 			shown = view(s)
-			switch blinks := shown.Learning && shown.Look == LookOn; {
-			case blinks && ticker == nil:
-				ticker = time.NewTicker(BlinkPhase)
-				blink, other = ticker.C, true
-			case !blinks && ticker != nil:
-				ticker.Stop()
-				ticker, blink, other = nil, nil, false
-			}
 			show()
-		case <-blink:
-			other = !other
+		case <-turn:
 			show()
 		case action, ok := <-host.Actions():
 			if !ok {

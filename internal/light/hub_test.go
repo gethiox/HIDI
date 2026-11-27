@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gethiox/HIDI/internal/blink"
 	"github.com/gethiox/HIDI/internal/control"
 	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/light/openrgb"
@@ -430,5 +431,48 @@ func TestPreviewWithoutServer(t *testing.T) {
 	}
 	if _, _, lit := lamp.Painted(); lit {
 		t.Error("the lamp claims to be lit")
+	}
+}
+
+// The key of learning mode blinks on the keyboard while the mode is on,
+// in the halves of package blink, and stays dim while it is off.
+func TestHubBlinksTheLearningKey(t *testing.T) {
+	old := blink.Phase
+	blink.Phase = 40 * time.Millisecond
+	t.Cleanup(func() { blink.Phase = old })
+
+	c := DefaultColours()
+	server := &fakeServer{}
+	hub := NewHub(Options{
+		Connect:  func() (Server, error) { return server, nil },
+		Matches:  func(location string, info control.DeviceInfo) bool { return location == "keyboard" },
+		Interval: time.Millisecond, Retry: 5 * time.Millisecond, Repeats: []time.Duration{},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		hub.Run(ctx)
+		close(stopped)
+	}()
+	defer func() { cancel(); <-stopped }() // before the phase is put back
+	lamp := hub.Attach(control.DeviceInfo{Name: "Kbd"})
+	scene := Scene{Active: true, Keys: []engine.KeyRole{{Code: control.Key(30), Action: engine.CommandLearn}}} // the A key
+	lamp.Show(scene)
+	key := func() openrgb.RGB { l, _ := server.lights(); return append(l, openrgb.RGB{})[0] }
+	eventually(t, "the dim key", func() bool { return key() == openrgb.RGB(scale(c.Learn, dim)) })
+
+	scene.State.Learning = true
+	lamp.Show(scene)
+	eventually(t, "the key at full brightness", func() bool { return key() == openrgb.RGB(c.Learn) })
+	eventually(t, "the key dim again", func() bool { return key() == openrgb.RGB(scale(c.Learn, dim)) })
+	eventually(t, "the key at full brightness again", func() bool { return key() == openrgb.RGB(c.Learn) })
+
+	scene.State.Learning = false
+	lamp.Show(scene)
+	eventually(t, "the key dim", func() bool { return key() == openrgb.RGB(scale(c.Learn, dim)) })
+	_, sends := server.lights()
+	time.Sleep(3 * blink.Phase)
+	if _, now := server.lights(); now != sends {
+		t.Errorf("the key was sent %d more times with learning off", now-sends)
 	}
 }

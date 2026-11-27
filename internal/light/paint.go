@@ -28,6 +28,24 @@ type Scene struct {
 	// instrument and not ended yet, by channel: bit n%64 of element n/64
 	// for note n.
 	External [16][2]uint64
+	// Blink says that the blinking of learning mode is in its lit half
+	// (package blink). Whoever paints the scene sets it: the hub when it
+	// sends the lights.
+	Blink bool
+}
+
+// blinks reports whether a scene shows the blinking of learning mode: a
+// key of learning mode, while the mode is on.
+func (s *Scene) blinks() bool {
+	if !s.Active || !s.State.Learning {
+		return false
+	}
+	for _, k := range s.Keys {
+		if k.Action == engine.CommandLearn {
+			return true
+		}
+	}
+	return false
 }
 
 // Colours are the colours that can be chosen.
@@ -51,11 +69,11 @@ type Colours struct {
 	Command RGB
 	// Panic colours the key that silences the instrument.
 	Panic RGB
-	// Learn colours the key of learning mode, Chord the key that
-	// remembers a chord: dim while the mode is off or no chord is
-	// remembered, at full brightness otherwise. Velocity colours the
-	// keys that move the velocity, the brighter the higher it is.
-	Learn, Chord, Velocity RGB
+	// Learn colours the key of learning mode: dim while the mode is off,
+	// and blinking from dim to full while it is on, with HIDI's icon.
+	// Velocity colours the keys that move the velocity, the brighter the
+	// higher it is.
+	Learn, Velocity RGB
 	// Other colours a key that sends something else, a controller for
 	// one.
 	Other RGB
@@ -63,16 +81,17 @@ type Colours struct {
 	Passthrough RGB
 }
 
-// DefaultColours are the colours of HIDI 1.x.
+// DefaultColours are the colours as HIDI comes: those of HIDI 1.x for the
+// notes, with keys of their own for learning and the velocity.
 func DefaultColours() Colours {
 	return Colours{
 		White: RGB{0x00, 0x55, 0x00}, Black: RGB{0x00, 0x00, 0x55}, C: RGB{0x55, 0x55, 0x00},
 		Unbound: RGB{0x44, 0x00, 0x00},
 		Playing: RGB{0xff, 0xff, 0xff}, External: RGB{0xff, 0xff, 0xff},
 		Idle: RGB{0x18, 0x18, 0x18}, Pressed: RGB{0xff, 0xff, 0xff},
-		Command: RGB{0xff, 0xff, 0xff}, Panic: RGB{0xff, 0x00, 0x00},
-		Learn: RGB{0xff, 0xd0, 0x00}, Chord: RGB{0xa0, 0x30, 0xff}, Velocity: RGB{0x00, 0xe0, 0xff},
-		Other: RGB{0x00, 0x30, 0x30}, Passthrough: RGB{0x40, 0x00, 0x40},
+		Command: RGB{0xff, 0x00, 0xff}, Panic: RGB{0xff, 0x00, 0x00},
+		Learn: RGB{0xff, 0xd0, 0x00}, Velocity: RGB{0x00, 0xe0, 0xff},
+		Other: RGB{0x00, 0x30, 0x30}, Passthrough: RGB{0x40, 0x40, 0x40},
 	}
 }
 
@@ -95,7 +114,6 @@ func (c *Colours) Named() []struct {
 		{"command", "command keys, at their brightest", &c.Command},
 		{"panic", "the panic key", &c.Panic},
 		{"learn", "the learning key, at its brightest", &c.Learn},
-		{"chord", "the chord key, at its brightest", &c.Chord},
 		{"velocity", "the velocity keys, at their brightest", &c.Velocity},
 		{"other", "keys that send something else", &c.Other},
 		{"passthrough", "keys left to the system", &c.Passthrough},
@@ -260,12 +278,12 @@ func paintCommand(s Scene, c Colours, command engine.Command, channelColour RGB)
 		}
 		return channelColour
 	case engine.CommandChord:
+		level = dim
 		if s.State.Chord != "" {
-			return c.Chord
+			level = bright
 		}
-		return scale(c.Chord, dim)
 	case engine.CommandLearn:
-		if s.State.Learning {
+		if s.State.Learning && s.Blink {
 			return c.Learn
 		}
 		return scale(c.Learn, dim)

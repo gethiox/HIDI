@@ -581,9 +581,10 @@ also when it starts later.
 - The command keys show state: the octave and transpose keys grow brighter
   the further they have been used, the layout keys dim at the first and last
   layout, the channel keys take the colour of the channel, panic is red.
-  The key of learning mode is yellow and the chord key purple, each dim
-  until it is in use; the two velocity keys are cyan, as bright as the
-  velocity is high.
+  The key of learning mode is yellow, dim until the mode is on, and then
+  blinks together with HIDI's icon; the chord key is bright while a chord
+  is remembered; the two velocity keys are cyan, as bright as the velocity
+  is high.
 - Keys that are left to the system have a colour of their own.
 - While HIDI is off the keyboard is lit evenly, and types; a key that is
   held lights up.

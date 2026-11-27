@@ -92,7 +92,7 @@ func TestPaintCommands(t *testing.T) {
 	if got[control.Key(63)] != third(ChannelColour(0)) || got[control.Key(64)] != ChannelColour(0) {
 		t.Errorf("channel keys on the first channel: %v %v", got[control.Key(63)], got[control.Key(64)])
 	}
-	if got[control.Key(67)] != scale(c.Chord, 27) || got[control.Key(68)] != scale(c.Learn, 27) || got[control.Key(57)] != other {
+	if got[control.Key(67)] != dim || got[control.Key(68)] != scale(c.Learn, 27) || got[control.Key(57)] != other {
 		t.Errorf("chord %v, learn %v, controller %v", got[control.Key(67)], got[control.Key(68)], got[control.Key(57)])
 	}
 	// The velocity keys show the velocity, both alike: dim at 1, at full
@@ -116,9 +116,18 @@ func TestPaintCommands(t *testing.T) {
 	if got[control.Key(87)] != bright || got[control.Key(88)] != dim {
 		t.Errorf("layout keys on the last layout: %v %v", got[control.Key(87)], got[control.Key(88)])
 	}
-	if got[control.Key(64)] != third(ChannelColour(15)) || got[control.Key(67)] != c.Chord || got[control.Key(68)] != c.Learn {
-		t.Errorf("last channel %v, chord %v, learn %v", got[control.Key(64)], got[control.Key(67)], got[control.Key(68)])
+	if got[control.Key(64)] != third(ChannelColour(15)) || got[control.Key(67)] != bright {
+		t.Errorf("last channel %v, chord %v", got[control.Key(64)], got[control.Key(67)])
 	}
+	// Learning: the key blinks, dim in one half and full in the other.
+	if got[control.Key(68)] != scale(c.Learn, 27) {
+		t.Errorf("learn in the dark half: %v", got[control.Key(68)])
+	}
+	s.Blink = true
+	if got = Paint(s, c); got[control.Key(68)] != c.Learn {
+		t.Errorf("learn in the lit half: %v", got[control.Key(68)])
+	}
+	s.Blink = false
 	s.State.Octave = -3
 	if got = Paint(s, c); got[keyUp] != dim || got[keyDown] != bright {
 		t.Errorf("three octaves down: %v %v", got[keyUp], got[keyDown])
@@ -157,8 +166,8 @@ func TestPaintPassthroughAndCustomColours(t *testing.T) {
 	for _, n := range c.Named() {
 		names[n.Name] = true
 	}
-	if len(names) != 15 {
-		t.Errorf("%d named colours, want 15", len(names))
+	if len(names) != 14 {
+		t.Errorf("%d named colours, want 14", len(names))
 	}
 }
 

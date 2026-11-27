@@ -110,13 +110,12 @@ c = "#555500"
 unbound = "#440000"
 playing = "#ffffff"
 external = "#ffffff"
-command = "#ffffff"
+command = "#ff00ff"
 panic = "#ff0000"
 learn = "#ffd000"
-chord = "#a030ff"
 velocity = "#00e0ff"
 other = "#003030"
-passthrough = "#400040"
+passthrough = "#404040"
 idle = "#181818"
 pressed = "#ffffff"
 
@@ -184,10 +183,9 @@ show their input and output is kept with HIDI's state.
 | `unbound` | Keys that do nothing. |
 | `playing` | A key whose note sounds because of this instrument. |
 | `external` | A key whose note another program sent on the instrument's channel. |
-| `command` | The keys that run commands. They show state in three steps of brightness, of which this colour is the brightest. |
+| `command` | The keys that run commands, magenta as HIDI comes. They show state in three steps of brightness, of which this colour is the brightest; the chord key is dim until a chord is remembered. |
 | `panic` | The panic key. |
-| `learn` | The key of learning mode: dim while the mode is off, this colour while it is on. Yellow as HIDI comes. |
-| `chord` | The key that remembers a chord: dim while none is remembered, this colour while one is. Purple as HIDI comes. |
+| `learn` | The key of learning mode: dim while the mode is off; while it is on, it blinks between dim and this colour, together with HIDI's icon in the tray and in the window. Yellow as HIDI comes. |
 | `velocity` | The keys that move the velocity, both alike: dim at velocity 1, this colour at 127, and in proportion between. Cyan as HIDI comes. |
 | `other` | Keys that send something else: a controller, a program change, a pitch bend. |
 | `passthrough` | Keys that are left to the system. |

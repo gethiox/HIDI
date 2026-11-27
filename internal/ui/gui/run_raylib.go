@@ -15,6 +15,7 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 
 	"github.com/gethiox/HIDI/internal/assets/icon"
+	"github.com/gethiox/HIDI/internal/blink"
 	"github.com/gethiox/HIDI/internal/ipc"
 	"github.com/gethiox/HIDI/internal/logging"
 	"github.com/gethiox/HIDI/internal/settings"
@@ -442,7 +443,7 @@ func (w *window) drawHeader(state *ipc.Snapshot, sw float32) {
 	switch {
 	case state == nil:
 		strength = 115
-	case state.Active && state.Learning && time.Now().UnixMilli()/500%2 == 1:
+	case state.Active && state.Learning && blink.Lit(time.Now()):
 		picture = w.icons[2]
 	case state.Active:
 		picture = w.icons[1]

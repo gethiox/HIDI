@@ -683,3 +683,15 @@ func TestPlayingSettings(t *testing.T) {
 		}
 	}
 }
+
+// The chord key had a colour of its own in earlier builds; a file that
+// still names it is read without complaint.
+func TestOldChordColour(t *testing.T) {
+	s, err := Parse([]byte("schema = 1\n[lights.colours]\nchord = \"#a030ff\"\npassthrough = \"#010203\"\n"))
+	if err != nil || s.Lights.Colours.Passthrough != (light.RGB{R: 1, G: 2, B: 3}) {
+		t.Errorf("%+v, %v", s.Lights.Colours, err)
+	}
+	if strings.Contains(string(s.Text()), "chord") {
+		t.Error("the colour of the chord key was written again")
+	}
+}

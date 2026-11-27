@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/gethiox/HIDI/internal/assets/icon"
+	"github.com/gethiox/HIDI/internal/blink"
 	"log/slog"
 	"slices"
 	"sync"
@@ -214,9 +215,9 @@ func TestRunWithWindow(t *testing.T) {
 // In learning mode the icon of a HIDI that is on blinks between two
 // colours, and the menu turns the mode on and off.
 func TestRunLearning(t *testing.T) {
-	old := BlinkPhase
-	BlinkPhase = 5 * time.Millisecond
-	t.Cleanup(func() { BlinkPhase = old })
+	old := blink.Phase
+	blink.Phase = 5 * time.Millisecond
+	t.Cleanup(func() { blink.Phase = old })
 
 	hidi := newFakeHIDI()
 	host := &fakeHost{shown: make(chan View, 256), actions: make(chan Action)}

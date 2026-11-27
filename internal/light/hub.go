@@ -2,6 +2,7 @@ package light
 
 import (
 	"context"
+	"github.com/gethiox/HIDI/internal/blink"
 	"log/slog"
 	"slices"
 	"sync"
@@ -112,6 +113,7 @@ type Lamp struct {
 	sentAt   time.Time     // when they last changed
 	repeated int           // how many of the repeats were sent since
 	missed   bool          // no lights were found for it, and that was said
+	blinked  bool          // the half of the blinking that was last painted
 }
 
 // Painted returns what the keyboard shows: the colour of every key that
@@ -132,6 +134,7 @@ func (l *Lamp) Preview() (keys map[control.Code]RGB, rest RGB) {
 	l.mu.Lock()
 	scene := l.scene
 	l.mu.Unlock()
+	scene.Blink = blink.Lit(time.Now())
 	c := *l.hub.colours.Load()
 	rest = c.Unbound
 	if !scene.Active {
@@ -461,6 +464,12 @@ func (h *Hub) send(server Server, l *Lamp, now time.Time) error {
 	scene, dirty := l.scene, l.dirty
 	l.dirty = false
 	l.mu.Unlock()
+	// The key of learning mode blinks with HIDI's icon: a scene that
+	// shows it is painted anew whenever the blinking turns.
+	scene.Blink = blink.Lit(now)
+	if scene.blinks() && scene.Blink != l.blinked {
+		dirty = true
+	}
 	if !dirty {
 		if l.sent == nil || l.repeated >= len(h.opts.Repeats) || now.Sub(l.sentAt) < h.opts.Repeats[l.repeated] {
 			return nil
@@ -477,6 +486,7 @@ func (h *Hub) send(server Server, l *Lamp, now time.Time) error {
 	if !scene.Active {
 		rest = c.Idle
 	}
+	l.blinked = scene.Blink
 	colours := make([]openrgb.RGB, len(l.keys))
 	for i, key := range l.keys {
 		switch colour, bound := painted[key.code]; {
