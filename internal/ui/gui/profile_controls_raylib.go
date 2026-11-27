@@ -471,8 +471,17 @@ func (w *window) axisLine(e *editor, device *ipc.Instrument, now live, code cont
 			rl.DrawRectangleRounded(rl.NewRectangle(bar.X, bar.Y, filled, bar.Height), 1, 4, col(w.pressed()))
 		}
 	}
+	// The dead zone, faintly red over the bar, with its ends marked: the
+	// part of the travel that is read as rest, as HIDI plays it.
+	for _, dead := range e.shadow.Deadzones(code) {
+		from, to := bar.X+bar.Width*float32(dead[0]), bar.X+bar.Width*float32(dead[1])
+		rl.DrawRectangleRec(rl.NewRectangle(from, bar.Y-2, to-from, bar.Height+4), colA(colDeadzone, 70))
+		for _, edge := range []float32{from, to} {
+			rl.DrawRectangleRec(rl.NewRectangle(edge-0.5, bar.Y-3, 1, bar.Height+6), colA(colDeadzone, 190))
+		}
+	}
 	// Where the axis rests, as it is read: in the middle for a stick and
-	// for halves, at an end for a lever.
+	// for halves, at an end for a lever. Over the dead zone.
 	if at, ok := e.shadow.Neutral(code); ok {
 		w.neutralMark(bar.X+bar.Width*float32(at), bar.Y)
 	}

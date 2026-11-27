@@ -179,6 +179,52 @@ func neutral(bindings []*Binding) (float64, bool) {
 	return at, bound
 }
 
+// deadRange returns the part of an axis's travel, from 0 to 1, that the
+// dead zone of a source reads as rest: around the middle for an axis that
+// rests there, at its rest end for one that does not, and next to the
+// middle on its own side for a half. It reports false for a source
+// without a dead zone. It says in positions what shape does with values.
+func deadRange(s *Source) (lo, hi float64, ok bool) {
+	z := s.Deadzone
+	if z <= 0 {
+		return 0, 0, false
+	}
+	switch {
+	case s.Range == RangeWhole && s.Centered:
+		return 0.5 - z/2, 0.5 + z/2, true
+	case s.Range == RangeWhole && s.Invert:
+		return 1 - z, 1, true
+	case s.Range == RangeWhole:
+		return 0, z, true
+	}
+	if up := s.Range == RangeUpper; up != s.Invert {
+		return 0.5, 0.5 + z/2, true
+	}
+	return 0.5 - z/2, 0.5, true
+}
+
+// Deadzones returns the parts of an axis's travel, from 0 to 1, that the
+// selected layout reads as rest by their dead zones, in order and with
+// those that touch made one.
+func (e *Engine) Deadzones(code control.Code, part string) [][2]float64 {
+	var out [][2]float64
+	for _, b := range e.index[e.layout][controlKey{part, code}] {
+		if lo, hi, ok := deadRange(&b.Source); ok {
+			out = append(out, [2]float64{lo, hi})
+		}
+	}
+	slices.SortFunc(out, func(a, b [2]float64) int { return cmp.Compare(a[0], b[0]) })
+	merged := out[:0]
+	for _, r := range out {
+		if n := len(merged); n > 0 && r[0] <= merged[n-1][1] {
+			merged[n-1][1] = max(merged[n-1][1], r[1])
+			continue
+		}
+		merged = append(merged, r)
+	}
+	return merged
+}
+
 // Neutral returns where an axis rests as the selected layout reads it,
 // and false for one that nothing reads.
 func (e *Engine) Neutral(code control.Code, part string) (float64, bool) {

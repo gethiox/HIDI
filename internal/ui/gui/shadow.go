@@ -114,3 +114,13 @@ func (s *Shadow) Neutral(code control.Code) (float64, bool) {
 	}
 	return s.eng.Neutral(code, "")
 }
+
+// Deadzones returns the parts of an axis's travel that its dead zones
+// read as rest, as the engine plays them: the profile's dead zone, or the
+// axis's own where it names one.
+func (s *Shadow) Deadzones(code control.Code) [][2]float64 {
+	if s.eng == nil {
+		return nil
+	}
+	return s.eng.Deadzones(code, "")
+}

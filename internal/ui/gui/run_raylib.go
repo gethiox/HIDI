@@ -57,7 +57,8 @@ var (
 	colAccent     = RGB{0x3d, 0xc9, 0x7b}
 	colInput      = RGB{0x3d, 0xc9, 0x7b} // what comes in from the devices: its curve
 	colMIDI       = RGB{0xe6, 0xc2, 0x3f} // what goes out as MIDI: its curve
-	colNeutral    = RGB{0x6f, 0xa8, 0xdc} // the mark of where an axis rests
+	colNeutral    = RGB{0x7a, 0x80, 0x8a} // the mark of where an axis rests: a grey below colIdleDown
+	colDeadzone   = RGB{0xe5, 0x4b, 0x4b} // the part of an axis its dead zone reads as rest
 	colInputText  = RGB{0xa5, 0xe8, 0xc0} // a number of what comes in, while it is not zero
 	colMIDIText   = RGB{0xf2, 0xdc, 0x8c} // a number of what goes out, while it is not zero
 	colUnsaved    = RGB{0xf2, 0xc9, 0x4c} // changes that wait to be saved

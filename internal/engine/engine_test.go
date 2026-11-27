@@ -1371,3 +1371,55 @@ func TestHeldSendsAndNeutral(t *testing.T) {
 		t.Error("an axis nothing reads has a place to rest")
 	}
 }
+
+// The dead range of a source is where shape reads its value as rest, on
+// the source's own side: inside it the axis gives 0, just outside it
+// does not.
+func TestDeadRange(t *testing.T) {
+	for _, s := range []Source{
+		{Range: RangeWhole, Centered: true, Deadzone: 0.2},
+		{Range: RangeWhole, Centered: true, Invert: true, Deadzone: 0.2},
+		{Range: RangeWhole, Deadzone: 0.3},
+		{Range: RangeWhole, Invert: true, Deadzone: 0.3},
+		{Range: RangeUpper, Deadzone: 0.4},
+		{Range: RangeUpper, Invert: true, Deadzone: 0.4},
+		{Range: RangeLower, Deadzone: 0.4},
+		{Range: RangeLower, Invert: true, Deadzone: 0.4},
+	} {
+		lo, hi, ok := deadRange(&s)
+		if !ok {
+			t.Fatalf("%+v has no dead range", s)
+		}
+		for _, v := range []float64{lo + 1e-6, (lo + hi) / 2, hi - 1e-6} {
+			if got := shape(&s, v); got != 0 {
+				t.Errorf("%+v at %v, inside [%v, %v]: %v", s, v, lo, hi, got)
+			}
+		}
+		// Outside, past the end away from the rest of the source.
+		var out float64
+		switch {
+		case s.Range == RangeWhole && !s.Centered && !s.Invert:
+			out = hi + 0.01
+		case s.Range == RangeWhole && !s.Centered:
+			out = lo - 0.01
+		case lo == 0.5:
+			out = hi + 0.01
+		default:
+			out = lo - 0.01
+		}
+		if got := shape(&s, out); got == 0 {
+			t.Errorf("%+v at %v, outside [%v, %v], reads as rest", s, out, lo, hi)
+		}
+	}
+	if _, _, ok := deadRange(&Source{Centered: true}); ok {
+		t.Error("a source without a dead zone has a dead range")
+	}
+	// The halves of a stick make one range around the middle.
+	e, _ := New(baseProfile(
+		Binding{Source: Source{Code: stickX, Range: RangeUpper, Deadzone: 0.2}, Action: ControlChange{Controller: 1}},
+		Binding{Source: Source{Code: stickX, Range: RangeLower, Deadzone: 0.1}, Action: ControlChange{Controller: 2}},
+	))
+	if got := e.Deadzones(stickX, ""); len(got) != 1 || got[0] != [2]float64{0.45, 0.6} {
+		t.Errorf("the halves: %v", got)
+	}
+}
