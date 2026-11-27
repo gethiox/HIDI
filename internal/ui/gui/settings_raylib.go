@@ -613,7 +613,7 @@ func (sh *sheet) windowSettings() {
 	}
 	sh.y += 46
 	vx = sh.row("Frame limit while unfocused", "for less work while another window is in use")
-	if picked, hit := sh.choices(vx, sh.s.Window.BackgroundFPS, []int{0, 15, 30, 60}, fps); hit {
+	if picked, hit := sh.choices(vx, sh.s.Window.BackgroundFPS, []int{10, 15, 30, 60}, fps); hit {
 		sh.s.Window.BackgroundFPS = picked
 		sh.changed()
 	}

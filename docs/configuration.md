@@ -123,7 +123,7 @@ pressed = "#ffffff"
 [window]
 show_at_start = true
 fps = 0
-background_fps = 0
+background_fps = 60
 scale = 100
 check_updates = false
 control_names = false
@@ -151,7 +151,7 @@ control_names = false
 | `window.check_updates` | Let the window ask GitHub, once when it opens and once a day after, whether a newer HIDI has been released. The answer is shown in the lower right corner; a click opens the release. Nothing is installed, and the request says nothing but the version of HIDI that asks. Off unless turned on. | |
 | `window.control_names` | The window numbers the buttons and axes of game controllers from 0, in an order that is the same whenever a controller of that kind is plugged in. With this the names profiles use, such as `BTN_SOUTH`, stand beside the numbers. | |
 | `window.fps` | The most the window is drawn per second; 0 sets no limit, and the window keeps to the monitor's refresh rate. | `--fps` |
-| `window.background_fps` | The same limit for while another window has the focus; 0 sets none of its own. | `--background-fps` |
+| `window.background_fps` | The same limit for while another window has the focus: 60 as HIDI comes; the window offers 10, 15, 30 and 60, and 0 in the file sets none of its own. | `--background-fps` |
 | `window.scale` | The size of everything the window draws, in hundredths of its ordinary size, 50 to 300. | |
 
 What a fresh HIDI does, then: Caps Lock, which the keyboard profile binds

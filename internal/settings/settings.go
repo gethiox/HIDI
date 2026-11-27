@@ -138,7 +138,7 @@ type Window struct {
 	// refresh rate, which is also the most it is ever drawn.
 	FPS int
 	// BackgroundFPS limits how often the window is drawn while it is not
-	// in front; 0 keeps to the monitor's refresh rate.
+	// in front: 60 as HIDI comes; 0 keeps to the monitor's refresh rate.
 	BackgroundFPS int
 	// Scale is the size of everything the window draws, in hundredths
 	// of its ordinary size.
@@ -169,7 +169,7 @@ func Default() Settings {
 		Output:  Output{ResetPitchBend: true},
 		Devices: Devices{Mode: Blacklist},
 		Lights:  Lights{Colours: light.DefaultColours()},
-		Window:  Window{Scale: 100, ShowAtStart: true},
+		Window:  Window{Scale: 100, ShowAtStart: true, BackgroundFPS: 60},
 	}
 }
 
@@ -494,7 +494,7 @@ show_at_start = %t
 fps = %d
 
 # The same limit for while the window is not the one in use: another
-# window has the focus. 0 sets no limit of its own.
+# window has the focus. 60 as HIDI comes; 0 sets no limit of its own.
 background_fps = %d
 
 # The size of everything the window draws, in hundredths of its ordinary

@@ -26,6 +26,9 @@ func TestDefaultRoundTrip(t *testing.T) {
 		len(got.Output.Connect) != 0 || got.Window != want.Window || !got.Window.ShowAtStart {
 		t.Errorf("the default file reads as %+v", got)
 	}
+	if want.Window.BackgroundFPS != 60 || got.Window.BackgroundFPS != 60 {
+		t.Errorf("the frame limit while unfocused: %d, read back %d", want.Window.BackgroundFPS, got.Window.BackgroundFPS)
+	}
 	// No toggle of the settings' own: each profile has its.
 	if len(want.Input.Toggle) != 0 || len(got.Input.Toggle) != 0 || !got.Input.ToggleTap {
 		t.Errorf("the default toggle: %v, read back %+v", want.Input.Toggle, got.Input)
