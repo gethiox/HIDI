@@ -39,20 +39,36 @@ var componentColours = []string{
 // format builds one line, with colours.
 func format(t time.Time, level slog.Level, component, message string, attrs []slog.Attr) string {
 	var b strings.Builder
+	head(&b, t, level, component, message)
+	for _, a := range attrs {
+		writeAttr(&b, a)
+	}
+	return b.String()
+}
+
+// brief formats a line up to its message and no further: the time, the
+// level, the component and the message, in colour, without what the
+// caller gave beside them. It is the line for where there is room for one
+// sentence, the bar at the bottom of the window.
+func brief(t time.Time, level slog.Level, component, message string) string {
+	var b strings.Builder
+	head(&b, t, level, component, message)
+	return b.String()
+}
+
+// head writes what every line begins with: the time, the level, the
+// component and the message.
+func head(b *strings.Builder, t time.Time, level slog.Level, component, message string) {
 	if !t.IsZero() {
 		b.WriteString(cyan + t.Format("2006-01-02") + " " + green + t.Format("15:04:05") + gray + t.Format(".000") + reset + " ")
 	}
 	b.WriteString(levelColour(level) + fmt.Sprintf("%5s", level.String()) + reset + " ")
 	if component != "" {
 		b.WriteString(componentColour(component) + "[")
-		writeEscaped(&b, component)
+		writeEscaped(b, component)
 		b.WriteString("]" + reset + " ")
 	}
-	writeEscaped(&b, message)
-	for _, a := range attrs {
-		writeAttr(&b, a)
-	}
-	return b.String()
+	writeEscaped(b, message)
 }
 
 func levelColour(l slog.Level) string {

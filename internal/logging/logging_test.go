@@ -537,3 +537,21 @@ func TestPrintable(t *testing.T) {
 		t.Errorf("Printable = %q, want %q", got, want)
 	}
 }
+
+// The brief line is the whole line up to its message: the same time,
+// level, component and message, in the same colours, and nothing of what
+// the caller gave beside them.
+func TestBrief(t *testing.T) {
+	l := New(Options{})
+	l.Logger("instrument").With("device", "pad").Info("octave changed", "octave", 1, slog.Group("g", "a", 2))
+	line, _ := l.Last(slog.LevelInfo)
+	if !strings.HasPrefix(line.Text, line.Brief) {
+		t.Errorf("the brief line is not the start of the whole one:\n%q\n%q", line.Brief, line.Text)
+	}
+	if got := Strip(line.Brief); !strings.HasSuffix(got, " INFO [instrument] octave changed") || strings.Contains(got, "=") {
+		t.Errorf("brief: %q", got)
+	}
+	if !strings.Contains(line.Brief, "\x1b[") {
+		t.Error("the brief line has no colours")
+	}
+}

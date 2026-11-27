@@ -49,6 +49,9 @@ type Line struct {
 	// Text is the whole line with its ANSI colour codes and without a line
 	// end. [Strip] removes the codes and [Spans] splits the line at them.
 	Text string
+	// Brief is the line up to its message, without the attributes that
+	// follow it, written the same way.
+	Brief string
 }
 
 // Log writes log lines to an output and keeps the newest in memory. Its
@@ -290,5 +293,6 @@ func (h *handler) Handle(_ context.Context, r slog.Record) error {
 		Level:     r.Level,
 		Component: component,
 		Text:      format(t, r.Level, component, r.Message, attrs),
+		Brief:     brief(t, r.Level, component, r.Message),
 	})
 }

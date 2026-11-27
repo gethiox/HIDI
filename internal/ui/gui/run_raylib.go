@@ -1360,12 +1360,17 @@ func (w *window) drawLog(area rl.Rectangle) {
 	rl.DrawRectangleRec(area, col(colBar))
 	rl.DrawRectangleRec(rl.NewRectangle(area.X, area.Y, area.Width, 1), col(colPanelEdge))
 
-	// The bar always says the same: the last line, in its colours but
-	// faint, so that it informs without drawing the eye, and what is
-	// known of newer releases.
+	// The bar always says the same: the last line up to its message,
+	// without what follows it, in its colours but faint, so that it
+	// informs without drawing the eye, and what is known of newer
+	// releases. The whole line is in the log above.
 	taken := w.drawUpdate(bar)
 	if n := len(lines); n > 0 {
-		w.drawLine(lines[n-1].Text, margin, area.Y+9, area.Width-2*margin-taken, 120)
+		last := lines[n-1].Brief
+		if last == "" {
+			last = lines[n-1].Text // from a HIDI that does not say
+		}
+		w.drawLine(last, margin, area.Y+9, area.Width-2*margin-taken, 120)
 	} else {
 		w.text(w.mono, "no log yet", margin, area.Y+9, sizeMono, colA(colFaint, 120))
 	}

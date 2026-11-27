@@ -47,7 +47,7 @@ func controlHost(manager *instrument.Manager, logs *logging.Log, changes *ipc.No
 			lines, first := logs.Lines(from, to)
 			out := make([]ipc.LogLine, len(lines))
 			for i, l := range lines {
-				out[i] = ipc.LogLine{Seq: first + i, Time: l.Time, Level: l.Level.String(), Component: l.Component, Text: l.Text}
+				out[i] = ipc.LogLine{Seq: first + i, Time: l.Time, Level: l.Level.String(), Component: l.Component, Text: l.Text, Brief: l.Brief}
 			}
 			return out
 		},

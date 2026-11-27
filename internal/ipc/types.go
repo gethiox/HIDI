@@ -203,6 +203,9 @@ type LogLine struct {
 	Component string `json:"component,omitempty"`
 	// Text is the whole line as HIDI writes it, with ANSI colour codes.
 	Text string `json:"text"`
+	// Brief is the line up to its message, without the attributes, in
+	// the same colours. Empty from a HIDI that does not say.
+	Brief string `json:"brief,omitempty"`
 }
 
 // request is what a client sends.
