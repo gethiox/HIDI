@@ -147,9 +147,10 @@ rows, laid out like a piano.
 | F11, F12 | Previous, next layout |
 | Escape | Silence everything |
 
-The modifier keys, the space bar, the arrows, the six keys above them and
-Print Screen, Scroll Lock and Pause are left to the system in the two
-layouts that play notes: they type, also while HIDI plays, so that the
+The modifier keys, the space bar, the arrows, the six keys above them,
+Print Screen, Scroll Lock and Pause, and the media keys (previous,
+play/pause, next, mute, volume down and up) are left to the system in the
+two layouts that play notes: they type, also while HIDI plays, so that the
 program played into can still be worked. Every layout has its own commands
 and keys of this kind, and the window changes them layout by layout.
 
