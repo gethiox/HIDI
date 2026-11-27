@@ -374,3 +374,60 @@ func TestOverrides(t *testing.T) {
 		t.Error("a profile for a kind HIDI has no factory profile for counts as an override")
 	}
 }
+
+// Reset makes a profile anew of what it was made of: a copy of a factory
+// profile of that factory profile, a profile for one product of the
+// user's profile for its kind of device where one is used, or else of the
+// factory one.
+func TestResetSource(t *testing.T) {
+	factory, userDir, paths := factoryProfile(t)
+	copyFile, _, err := Customise(factory, userDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(copyFile, []byte(strings.Replace(mustRead(t, factory), `name = "Default keyboard"`, `name = "Mine"`, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	open := func(file string) *config.Profile {
+		t.Helper()
+		doc, err := OpenProfile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.Profile
+	}
+	text, from, ok := ResetSource(open(copyFile), paths)
+	if !ok || string(text) != mustRead(t, factory) || from != "the factory profile" {
+		t.Errorf("a copy of the factory profile: %v, from %q", ok, from)
+	}
+	device := ipc.Instrument{Name: "Board", Type: "keyboard", Hardware: "0003:03f0:147f:0110"}
+	own, _, err := CustomiseFor([]byte(mustRead(t, factory)), userDir, device)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The user's keyboard profile, "Mine", is used: it is made of that.
+	text, from, ok = ResetSource(open(own), paths)
+	if !ok || !strings.Contains(from, "Mine") || !strings.Contains(string(text), `name = "Board"`) || !strings.Contains(string(text), "0x147f") {
+		t.Errorf("a profile for one product, with the user's: %v, from %q\n%s", ok, from, text)
+	}
+	// Turned off, it is not: the factory one is.
+	if err := SetProfileEnabled(copyFile, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, from, ok = ResetSource(open(own), paths); !ok || !strings.Contains(from, "factory") {
+		t.Errorf("with the user's turned off: %v, from %q", ok, from)
+	}
+	// A factory profile itself, and a profile from nowhere, are not reset.
+	if _, _, ok := ResetSource(open(factory), paths); ok {
+		t.Error("a factory profile can be reset")
+	}
+}
+
+func mustRead(t *testing.T, file string) string {
+	t.Helper()
+	text, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(text)
+}

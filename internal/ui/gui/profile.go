@@ -853,6 +853,54 @@ func (d *ProfileDoc) put(text []byte, layout string, at Spot, value string, has 
 	return config.Set(out, config.Bindings(layout), at.Key(), value)
 }
 
+// Replace puts text in place of the whole profile, as one change that
+// can be taken back; nothing is written until it is saved. Reset uses it.
+func (d *ProfileDoc) Replace(text []byte) error {
+	return d.change(func([]byte) ([]byte, error) { return text, nil })
+}
+
+// CanToRule reports whether a control has lines of its own in a layout
+// where the profile's rule would give it a part: the lines can go, and
+// the rule's part comes back.
+func (d *ProfileDoc) CanToRule(layout string, code control.Code) bool {
+	if len(d.generated(code)) == 0 {
+		return false
+	}
+	return len(d.lines(layout, code)) > 0
+}
+
+// lines returns the keys of the lines of a layout that name a control of
+// the main part: the control, its halves, and combinations ending in it.
+func (d *ProfileDoc) lines(layout string, code control.Code) []string {
+	var keys []string
+	for _, l := range d.Profile.Engine.Layouts {
+		if l.Name != layout {
+			continue
+		}
+		for _, b := range l.Bindings {
+			if b.Source.Code == code && b.Source.Part == "" {
+				keys = append(keys, config.SourceKey(b.Source))
+			}
+		}
+	}
+	return keys
+}
+
+// ToRule takes the lines of a control out of a layout, so that it does
+// what the profile's rule makes of it, by its number. It is one change.
+func (d *ProfileDoc) ToRule(layout string, code control.Code) error {
+	keys := d.lines(layout, code)
+	return d.change(func(text []byte) ([]byte, error) {
+		var err error
+		for _, key := range keys {
+			if text, err = config.Remove(text, config.Bindings(layout), key); err != nil {
+				return nil, err
+			}
+		}
+		return text, nil
+	})
+}
+
 // nextController returns the controller after n that means nothing of its
 // own, or the one before it where the numbers end.
 func nextController(n uint8) uint8 {

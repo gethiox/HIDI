@@ -19,8 +19,13 @@ import (
 
 // editor is the page on which a profile is changed.
 type editor struct {
-	doc    *ProfileDoc
-	layout string
+	doc *ProfileDoc
+	// reset is what the profile is made anew of by "Reset", and from
+	// says what that is; looked up every so often (ResetSource).
+	reset     []byte
+	resetFrom string
+	resetOK   bool
+	layout    string
 	// at is the control, or the half of an axis, that is chosen, if
 	// chosen says that one is.
 	at      Spot
@@ -219,6 +224,7 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	// The file may be changed in an editor meanwhile; the page follows.
 	if now := time.Now(); now.Sub(e.looked) > settingsRefresh {
 		e.looked = now
+		e.reset, e.resetFrom, e.resetOK = ResetSource(doc.Profile, w.opts.Paths)
 		if changed, err := doc.Reload(); err != nil {
 			e.message = strings.ReplaceAll(err.Error(), "\n", " ")
 		} else if changed {
@@ -338,6 +344,20 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	tools -= undoW + 6
 	if hit, _ := w.dimButton("Undo", doc.CanUndo(), tools, y); hit && doc.Undo() {
 		e.try(nil)
+	}
+	// Made anew of what it was made of, as one change that can be taken
+	// back; nothing is written until it is saved.
+	if e.resetOK && !doc.ReadOnly {
+		label := "Reset"
+		tools -= width(w.sans, label, sizeText) + 20 + 14
+		if hit, _ := w.button(label, tools, y); hit {
+			if err := doc.Replace(e.reset); err != nil {
+				e.try(err)
+			} else {
+				e.try(nil)
+				e.message = "Made anew of " + e.resetFrom + ". Undo takes it back; nothing is written until it is saved."
+			}
+		}
 	}
 	w.text(w.bold, doc.Profile.Name, end+14, y+2, sizeName, col(colText))
 	hx := end + 14 + width(w.bold, doc.Profile.Name, sizeName) + 12

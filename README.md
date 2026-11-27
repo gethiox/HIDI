@@ -378,6 +378,15 @@ right mouse button empties a control; with Ctrl it leaves a key to the
 system. Among the commands of a key is `hidi_toggle`, which makes it the
 key that turns HIDI off and on for devices with this profile.
 
+On a game controller's profile, what the profile's rule gives a control by
+its number is drawn hollow; a control with a line of its own is filled.
+"Back to the rule" takes a control's own lines out of the layout, and the
+rule's part comes back. "Reset" makes the whole profile anew of what it was
+made of: your copy of a factory profile of that factory profile, and a
+profile for one device of your profile for its kind of device, where you
+have one that is used, or else of the factory one. Undo takes a reset back,
+and nothing is written until you save.
+
 An axis can be anything a button can, and more:
 
 - a controller or the pitch bend, with "rests in the middle" for a stick

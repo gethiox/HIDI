@@ -219,3 +219,57 @@ func deviceRows(seen []seenDevice, named []string) []deviceRow {
 func profileLine(p *config.Profile) string {
 	return fmt.Sprintf("%s · for %s", filepath.Base(p.Source), p.Match.String())
 }
+
+// ResetSource returns what a profile of the user's is made anew of by
+// "Reset", and says what that is. A profile for one product is made of
+// the profile its kind of device plays with when it has none of its own:
+// the user's for that kind, where one is there and used, or else the
+// factory one; named and matched as it is now. A copy of a factory
+// profile is made of that factory profile. A profile the user made in
+// some other way has nothing to be made of again, and ok is false.
+func ResetSource(p *config.Profile, paths settings.Paths) (text []byte, from string, ok bool) {
+	if p == nil || p.Source == "" || paths.User == "" || filepath.Dir(p.Source) != filepath.Clean(paths.User) {
+		return nil, "", false
+	}
+	if !OwnProfile(p) {
+		factory := filepath.Join(paths.Factory, filepath.Base(p.Source))
+		text, err := os.ReadFile(factory)
+		if err != nil {
+			return nil, "", false
+		}
+		return text, "the factory profile", true
+	}
+	if p.Match.Vendor == nil || p.Match.Product == nil {
+		return nil, "", false // one device by its serial: no product to be for
+	}
+	kind := p.Match.Type
+	base, from := "", ""
+	user, _ := config.LoadDir(paths.User)
+	for _, u := range user {
+		if u.Source != p.Source && !OwnProfile(u) && u.Enabled && u.Match.Type == kind {
+			base, from = u.Source, "your profile "+u.Name
+			break
+		}
+	}
+	if base == "" {
+		factory, _ := config.LoadDir(paths.Factory)
+		for _, f := range factory {
+			if f.Match.Type == kind {
+				base, from = f.Source, "the factory profile "+f.Name
+				break
+			}
+		}
+	}
+	if base == "" {
+		return nil, "", false
+	}
+	text, err := os.ReadFile(base)
+	if err != nil {
+		return nil, "", false
+	}
+	own, err := config.ForDevice(text, p.Name, kind, control.HardwareID{Vendor: *p.Match.Vendor, Product: *p.Match.Product})
+	if err != nil {
+		return nil, "", false
+	}
+	return own, from, true
+}

@@ -1178,3 +1178,40 @@ KEY_X = { note = "D3", velocity = 90 }
 		t.Errorf("the toggle: %v", doc.Profile.Toggle)
 	}
 }
+
+// A control the rule gives a part to, and that has a line of its own in
+// a layout, goes back to the rule's part when its lines go: all of them,
+// halves and combinations ending in it too.
+func TestProfileDocToRule(t *testing.T) {
+	doc, layout := openPad(t)
+	trigger, y := control.Key(0x120), control.Axis(1)
+	if doc.CanToRule(layout, trigger) {
+		t.Fatal("a control with no line of its own can go back to the rule")
+	}
+	if err := doc.SetNote(layout, trigger, 72); err != nil {
+		t.Fatal(err)
+	}
+	if !doc.CanToRule(layout, trigger) {
+		t.Fatal("a control with a line of its own cannot go back to the rule")
+	}
+	if err := doc.ToRule(layout, trigger); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, trigger); !r.Generated || r.Note != 36 {
+		t.Errorf("back to the rule: %+v", r)
+	}
+	// The pitch bend on the stick is the profile's own line; the rule
+	// would make the axis a controller.
+	if !doc.CanToRule(layout, y) {
+		t.Fatal("the stick of the factory profile cannot go back to the rule")
+	}
+	if err := doc.ToRule(layout, y); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Role(layout, y); !r.Generated || r.Kind != RoleController {
+		t.Errorf("the stick back to the rule: %+v", r)
+	}
+	if !doc.Undo() || doc.Role(layout, y).Kind != RoleBend {
+		t.Error("going back to the rule was not one step")
+	}
+}

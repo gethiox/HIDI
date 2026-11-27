@@ -188,8 +188,14 @@ func (w *window) spotChip(e *editor, at Spot, text string, now live, x, y float3
 			rl.DrawRectangleRounded(chip, 0.4, 6, col(Mix(back, colMIDI, 0.55)))
 			w.unclip()
 		}
+	case role.Generated:
+		// Given by the profile's rule, by its number: hollow.
+		rl.DrawRectangleRounded(chip, 0.4, 6, col(Mix(colBar, back, 0.45)))
 	default:
 		rl.DrawRectangleRounded(chip, 0.4, 6, col(back))
+	}
+	if role.Generated && !held {
+		rl.DrawRectangleRoundedLinesEx(chip, 0.4, 6, 1.5, col(back))
 	}
 	switch {
 	case e.chosen && e.at == at:
@@ -363,6 +369,12 @@ func (w *window) editControls(e *editor, device *ipc.Instrument, now live, x, y,
 	e.doubled = e.doc.Doubled(e.layout, spots)
 
 	if len(buttons) > 0 {
+		if e.doc.Profile.Generate.Any() {
+			// What the chips that are hollow mean.
+			note := "hollow: given by the profile's rule, by number; \"Back to the rule\" gives it back to a control"
+			hx := x + width(w.sans, "Buttons", sizeText-1) + 14
+			w.text(w.sans, fit(w.sans, note, sizeText-2, x+inner-hx), hx, y+1, sizeText-2, col(colFaint))
+		}
 		y = w.heading("Buttons", x, y)
 		row := newFlow(x, x+inner, y, chipH+6, 6)
 		for _, code := range buttons {
@@ -556,7 +568,7 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 	case role.Kind == RoleNone && role.Split:
 		does = "is bound by its two halves"
 	case role.Generated:
-		does += ", by its number"
+		does += ", given by the profile's rule, by its number"
 	case role.Kind != RoleNone && role.Section.Layout == "":
 		does += ", in every layout and while HIDI is off"
 	}
@@ -708,8 +720,17 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 		bx = end + 8
 	}
 	if role.Kind != RoleNone {
-		if hit, _ := w.button("Make it do nothing", bx, y); hit {
+		hit, end := w.button("Make it do nothing", bx, y)
+		if hit {
 			e.try(e.doc.ClearAt(e.layout, at))
+		}
+		bx = end + 8
+	}
+	// What the profile's rule gives the control, by its number, in
+	// place of what its own lines say.
+	if !e.doc.ReadOnly && e.doc.CanToRule(e.layout, at.Code) {
+		if hit, _ := w.button("Back to the rule", bx, y); hit {
+			e.try(e.doc.ToRule(e.layout, at.Code))
 		}
 	}
 	y += 32
