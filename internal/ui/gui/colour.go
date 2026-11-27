@@ -1,6 +1,10 @@
 package gui
 
-import "math"
+import (
+	"math"
+
+	"github.com/gethiox/HIDI/internal/light"
+)
 
 // RGB is a colour.
 type RGB struct{ R, G, B uint8 }
@@ -12,18 +16,57 @@ var colText = RGB{0xe6, 0xe9, 0xee}
 // the panels, such as the track of an axis.
 var colBar = RGB{0x0c, 0x0e, 0x11}
 
-// The colours of a key cap by what the key does.
+// The colours of a key cap that plays a note: the window's own.
 var (
-	colWhiteNote  = RGB{0x1f, 0x5a, 0x38}
-	colBlackNote  = RGB{0x24, 0x33, 0x66}
-	colCNote      = RGB{0x6b, 0x64, 0x1e}
-	colCommandKey = RGB{0x5a, 0x2f, 0x66}
-	colOtherKey   = RGB{0x2a, 0x4a, 0x52}
-	colPassKey    = RGB{0x66, 0x3d, 0x2a}
-	// colNothingKey is a key that does nothing, bound or not: barely red,
-	// as the keyboard's own lights show it, and no more than a hint.
-	colNothingKey = RGB{0x22, 0x12, 0x15}
+	colWhiteNote = RGB{0x1f, 0x5a, 0x38}
+	colBlackNote = RGB{0x24, 0x33, 0x66}
+	colCNote     = RGB{0x6b, 0x64, 0x1e}
 )
+
+// caps are the colours of key caps that do something other than play a
+// note: those of the lights, as the settings have them, made into caps
+// the lettering stands out on (see capsOf).
+type caps struct {
+	command, other, pass, nothing RGB
+}
+
+// The strength of a light's hue over the ground of a cap: a key that
+// does something, and one that does nothing, which is no more than a
+// hint.
+const (
+	capStrength     = 0.38
+	nothingStrength = 0.10
+)
+
+// capsOf makes the colours of key caps of the colours of the lights. A
+// light's colour is for a key lit from below: a dim grey for keys left to
+// the system, a full magenta for commands. A cap takes the light's hue
+// over the dark ground of a cap, half at the strength of a cap whatever
+// the light, half as bright as the light is: a dim light gives a quieter
+// cap, and none is too dark for its lettering. A key that does nothing is
+// only a hint of its colour.
+func capsOf(c light.Colours) caps {
+	hue := func(l light.RGB, strength float32, dims bool) RGB {
+		top := max(l.R, l.G, l.B)
+		if top == 0 {
+			return colBar
+		}
+		if dims {
+			strength *= 0.5 + 0.5*float32(top)/255
+		}
+		full := RGB{uint8(int(l.R) * 255 / int(top)), uint8(int(l.G) * 255 / int(top)), uint8(int(l.B) * 255 / int(top))}
+		return Mix(colBar, full, strength)
+	}
+	return caps{
+		command: hue(c.Command, capStrength, true),
+		other:   hue(c.Other, capStrength, true),
+		pass:    hue(c.Passthrough, capStrength, true),
+		nothing: hue(c.Unbound, nothingStrength, false),
+	}
+}
+
+// defaultCaps are the caps of the colours as HIDI comes.
+var defaultCaps = capsOf(light.DefaultColours())
 
 // NoteColour is the colour of a key cap that plays a note: one for the
 // white keys of a piano, one for the black ones, and one for every C.
@@ -40,19 +83,35 @@ func NoteColour(note int) RGB {
 // KeyColour is the colour of a key cap in the view of a running
 // instrument: by the role the instrument reports for the key, and, for a
 // note, by the note as the instrument's octave and transposition make it.
-// A key without a role has the colour of the keyboard itself.
-func KeyColour(role string, note, octave, transpose int) RGB {
+// A key without a role does nothing.
+func KeyColour(role string, note, octave, transpose int, c caps) RGB {
 	switch role {
 	case "":
-		return colNothingKey
+		return c.nothing
 	case "note":
 		return NoteColour(note + octave*12 + transpose)
 	case "command":
-		return colCommandKey
+		return c.command
 	case "passthrough":
-		return colPassKey
+		return c.pass
 	}
-	return colOtherKey
+	return c.other
+}
+
+// RoleColour is the colour of a key cap on the profile page, for what the
+// key does.
+func RoleColour(r Role, c caps) RGB {
+	switch r.Kind {
+	case RoleNote:
+		return NoteColour(int(r.Note))
+	case RoleCommand:
+		return c.command
+	case RoleOther, RoleController, RoleBend:
+		return c.other
+	case RolePass:
+		return c.pass
+	}
+	return c.nothing
 }
 
 // ParseColour reads a colour written as "#rrggbb"; anything else is

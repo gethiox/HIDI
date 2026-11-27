@@ -9,36 +9,70 @@ import (
 
 	"github.com/gethiox/HIDI/internal/config"
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/light"
 )
 
 func TestKeyColour(t *testing.T) {
+	c := defaultCaps
 	// A key that does nothing is barely red, as the keyboard's lights
 	// show it: more red than the panel it is set into, and dark.
-	if c := KeyColour("", 0, 0, 0); c != colNothingKey || c.R <= colBar.R || c.R <= c.G || c.R > 0x30 {
-		t.Errorf("a key that does nothing: %v", c)
+	if n := KeyColour("", 0, 0, 0, c); n != c.nothing || n.R <= colBar.R || n.R <= n.G || n.R > 0x30 {
+		t.Errorf("a key that does nothing: %v", n)
 	}
 	// C3 is note 60: a C, and a C in every octave.
-	if KeyColour("note", 60, 0, 0) != colCNote || KeyColour("note", 60, -5, 0) != colCNote {
+	if KeyColour("note", 60, 0, 0, c) != colCNote || KeyColour("note", 60, -5, 0, c) != colCNote {
 		t.Error("a C is not shown as one")
 	}
 	// Transposed by one it is a black key, by two a white one, and a note
 	// below zero still has a place in the octave.
-	if KeyColour("note", 60, 0, 1) != colBlackNote || KeyColour("note", 60, 0, 2) != colWhiteNote {
+	if KeyColour("note", 60, 0, 1, c) != colBlackNote || KeyColour("note", 60, 0, 2, c) != colWhiteNote {
 		t.Error("the transposition does not show")
 	}
-	if KeyColour("note", 0, -1, 1) != colBlackNote || KeyColour("note", 0, -1, 0) != colCNote {
+	if KeyColour("note", 0, -1, 1, c) != colBlackNote || KeyColour("note", 0, -1, 0, c) != colCNote {
 		t.Error("a note below zero has the wrong colour")
 	}
 	seen := map[RGB]string{}
 	for _, role := range []string{"command", "passthrough", "controller"} {
-		c := KeyColour(role, 0, 0, 0)
-		if other, dup := seen[c]; dup || c == colNothingKey {
+		k := KeyColour(role, 0, 0, 0, c)
+		if other, dup := seen[k]; dup || k == c.nothing {
 			t.Errorf("%s has the colour of %q", role, other)
 		}
-		seen[c] = role
+		seen[k] = role
 	}
-	if KeyColour("bend", 0, 0, 0) != KeyColour("program", 0, 0, 0) {
+	if KeyColour("bend", 0, 0, 0, c) != KeyColour("program", 0, 0, 0, c) {
 		t.Error("the roles that send something else differ in colour")
+	}
+}
+
+// The caps follow the colours of the lights: the hue of each, at one
+// strength, whatever its brightness; a light that is black leaves the cap
+// as the ground of the page.
+func TestCapsOfLights(t *testing.T) {
+	colours := light.DefaultColours()
+	c := capsOf(colours)
+	// The ground of a cap is not quite grey: channels within a few steps
+	// count as alike.
+	near := func(a, b uint8) bool { return a-b < 5 || b-a < 5 }
+	// Commands are magenta: red and blue alike, far more than green.
+	if !near(c.command.R, c.command.B) || c.command.G+50 > c.command.R {
+		t.Errorf("command: %v", c.command)
+	}
+	// Left to the system is grey, quieter than a command, its light
+	// being dim, and still more than a key that does nothing.
+	if !near(c.pass.R, c.pass.G) || !near(c.pass.G, c.pass.B) || c.pass.R >= c.command.R || c.pass.G <= c.nothing.G+10 {
+		t.Errorf("passthrough: %v, command %v", c.pass, c.command)
+	}
+	colours.Command = light.RGB{G: 10}
+	colours.Passthrough = light.RGB{}
+	c = capsOf(colours)
+	if c.command.G <= c.command.R+20 || c.command.G <= c.command.B+20 {
+		t.Errorf("a changed command colour: %v", c.command)
+	}
+	if c.pass != colBar {
+		t.Errorf("a black light: %v", c.pass)
+	}
+	if RoleColour(Role{Kind: RoleCommand}, c) != c.command || RoleColour(Role{Kind: RoleBend}, c) != c.other || RoleColour(Role{}, c) != c.nothing {
+		t.Error("the colours of the roles on the profile page")
 	}
 }
 

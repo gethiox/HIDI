@@ -207,20 +207,9 @@ func freeLayoutName(doc *ProfileDoc) string {
 	}
 }
 
-// roleColour is the colour of a key cap for what the key does.
-func roleColour(r Role) RGB {
-	switch r.Kind {
-	case RoleNote:
-		return NoteColour(int(r.Note))
-	case RoleCommand:
-		return colCommandKey
-	case RoleOther, RoleController, RoleBend:
-		return colOtherKey
-	case RolePass:
-		return colPassKey
-	}
-	return colNothingKey
-}
+// caps are the colours of key caps for what keys do, of the colours of
+// the lights as the settings in use have them, changed ones included.
+func (w *window) caps() caps { return capsOf(w.settings.edit.shown.Lights.Colours) }
 
 // drawEditor draws the page in place of the instruments.
 func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {

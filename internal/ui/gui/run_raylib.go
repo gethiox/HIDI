@@ -1090,7 +1090,7 @@ func (w *window) drawKeyboard(in ipc.Instrument, x, y, inner float32) {
 		role := roles[key.Name]
 		// What the key does shows at half strength here: the view is of
 		// what is pressed, with the roles as a background to it.
-		fill := Mix(colBar, KeyColour(role.Role, role.Note, in.Octave, in.Transpose), 0.5)
+		fill := Mix(colBar, KeyColour(role.Role, role.Note, in.Octave, in.Transpose, w.caps()), 0.5)
 		if down[key.Name] && !(in.Lit || in.Simulated) {
 			fill = pressed
 		}

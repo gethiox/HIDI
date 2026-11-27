@@ -109,7 +109,7 @@ func (w *window) carry(e *editor, device *ipc.Instrument) {
 			label += "  (swap)"
 		}
 		tag := rl.NewRectangle(at.X+12, at.Y+10, w.chipWidth(label), chipH)
-		rl.DrawRectangleRounded(tag, 0.4, 6, col(roleColour(role)))
+		rl.DrawRectangleRounded(tag, 0.4, 6, col(RoleColour(role, w.caps())))
 		rl.DrawRectangleRoundedLinesEx(tag, 0.4, 6, 1.5, col(colText))
 		w.text(w.mono, label, tag.X+7, tag.Y+3, sizeMono, col(colText))
 		w.setCursor(rl.MouseCursorPointingHand)
@@ -167,7 +167,7 @@ func (w *window) spotChip(e *editor, at Spot, text string, now live, x, y float3
 	cw := w.spotWidth(role, text)
 	follows := role.Kind == RoleController || role.Kind == RoleBend
 	chip := rl.NewRectangle(x, y, cw, chipH)
-	back := roleColour(role)
+	back := RoleColour(role, w.caps())
 	// A key that is down shows, whatever it does; anything else when
 	// what it does counts as held.
 	held := e.shadow.Held(at) && !follows
@@ -242,7 +242,7 @@ func (w *window) editKeyboard(e *editor, now live, x, y, inner float32) float32 
 		at := Whole(code)
 		role := e.doc.RoleAt(e.layout, at)
 		rect := rl.NewRectangle(x+key.X*unit+1, y+key.Y*unit+1, key.W*unit-2, key.H*unit-2)
-		rl.DrawRectangleRounded(rect, 0.2, 4, col(roleColour(role)))
+		rl.DrawRectangleRounded(rect, 0.2, 4, col(RoleColour(role, w.caps())))
 		switch {
 		case now.down[code]:
 			rl.DrawRectangleRounded(rect, 0.2, 4, rl.NewColor(255, 255, 255, 70))
