@@ -53,23 +53,15 @@ completes or changes an item.
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
-## Where things stand (26 November 2026)
+## Where things stand (27 November 2026)
 
-`dev` holds everything up to the review of the whole code (pull requests
-50 and 51). One pull request is open on top of it:
-
-- `v2/round5`: the fifth round and what was asked for after it; see
-  "Fifth round" and "Sixth round" below. In short: lights that keep up,
-  keys left to the system, a list of the devices that play, the compact
-  window with its curves, the profile editor with undo and explicit
-  saving, learning mode, the Steam Controller, and then factory and user
-  profiles, settings that are saved on purpose, HIDI's icon, the check for
-  updates, and a Windows program without a console that carries its icon.
-  Since then, the rounds below: the ninth, with new defaults, settings
-  that the running HIDI holds, and one factory profile for every game
-  controller; and the tenth, with the profile page finished for axes, the
-  toggle as a command of the profile, and HIDI's own notes out of the
-  settings.
+`dev` holds everything up to the thirteenth round (pull request 52), and
+the commits of the fourteenth round on top of it, which went to `dev`
+directly. What is left before the release is under "Release" in
+"Remaining": the address and checksum of Microsoft's package, a try of
+this round on Windows, and the maintainer's decisions on signing,
+immutable releases, the first tag and HIDI's needs on Linux without a
+desktop.
 
 Apart from HIDI itself: a change to raylib's Win32 backend is on the
 maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
@@ -87,6 +79,29 @@ move.
 is moved or resized on Windows. The branch is kept for when the change has
 found its way into raylib, or raylib-go 0.63 is taken up; it does not have
 the sixth round.
+
+### Fourteenth round (27 November 2026): what was asked for, and what was done
+
+| Asked for | Done |
+|---|---|
+| The velocity step typed, 1 to 127 | A field. Every number of the settings and of the profile page is one, beside its steppers where it had them; the size of the interface and the frame limits stay choices. |
+| A text field as text fields are | Click places the cursor, a drag selects, Shift with the arrows, Home and End selects, Ctrl with them moves by words (to the next word on Windows, the end of the word elsewhere), Ctrl+A, C, X, V. A limit of characters: a number field takes no more than its range needs. Whole numbers, decimal numbers with a point or a comma, a grey placeholder. Enter takes, Escape and a click elsewhere cancel, except on the buttons that belong to the field. `lineEdit`, tested apart from the window. |
+| A note that cannot be read | Its field is red and Enter does nothing. |
+| Frame limit while unfocused | 10, 15, 30 or 60, 60 as HIDI comes. |
+| Light colours | Passthrough `#404040`, command `#ff00ff`; the chord colour is gone, the chord key is a command. The learning key blinks on the lights, in the window and in the tray from one clock (package `blink`), also when OpenRGB comes and goes. |
+| Media keys in Piano and Chromatic | Left to the system: previous, play/pause, next, mute, volume down and up. |
+| The bars of the axes | The resting mark is grey and drawn last; the dead zone lies over the bar in red with a line at each edge. |
+| Generated mappings | What the profile's rule gives is drawn hollow. "Back to the rule" gives one control back to it; "Reset" makes the whole profile anew from the factory profile or the user's default, as a step that Undo takes back. |
+| The colours of the profile page | Key caps of commands, passthrough and nothing take the colours of the lights, as set. |
+| The last log line at the bottom | The line up to its message, without the attributes, written by the log's own formatter (`Line.Brief`, carried to the window as `LogLine.Brief`). |
+| Drag and drop | A control dragged onto another swaps with it; with Ctrl it is copied. |
+| Random writes, and "HIDI" in capitals | See "Where HIDI writes" in the architecture: the socket and crash reports moved into the state directory, a lowercase `hidi` is renamed, and the Windows release carries `raylib.dll` and `libffi-8.dll` beside `hidi.exe` (tags `extlib`, `ffi_no_embed`), so that it writes nothing under `%TEMP%` or `%LocalAppData%\github.com`. Without them the arm64 exe would not have started. |
+
+Found and reported, not changed: on Linux the 64-bit programs do not start
+without `libX11.so.6` and `libffi.so.8`, also headless, since raylib-go and
+the ffi library load them when the program starts; and raylib-go writes
+`libraylib.so` under `$TMPDIR` at every start and removes it. A separate
+program for the window would end both.
 
 ### Thirteenth round (26 November 2026): what was reported, and what was done
 
@@ -854,10 +869,12 @@ pull request before.
     reproducibly (`-trimpath`, the toolchain of `go.mod`, no build time
     or build ID, archives with the commit's time in a fixed order); the
     release workflow runs it twice and compares, attests build
-    provenance and makes a draft release. Left to the maintainer: turn
-    on immutable releases in the repository settings, and decide how
-    `Windows.Devices.Midi2.dll` reaches Windows users (it is not in the
-    archive).
+    provenance and makes a draft release. The Windows archives carry
+    `Windows.Devices.Midi2.dll` once `packaging/windows/midi-api` names
+    the package, and `raylib.dll` and `libffi-8.dll`. Left to the
+    maintainer: the address and checksum of Microsoft's package,
+    immutable releases in the repository settings, signing, and the
+    first tag.
 12. Done: the README is written for users. The configuration reference
     and the description of the architecture were kept up with each
     change and are as they were otherwise.
