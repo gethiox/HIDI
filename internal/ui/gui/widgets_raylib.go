@@ -468,21 +468,82 @@ func (k *kit) hot(r rl.Rectangle, roundness float32) bool {
 	return true
 }
 
-// stepper draws "label  [-] value [+]" and returns the change asked for.
-func (k *kit) stepper(label, value string, x, y float32) (delta int, right float32) {
-	k.text(k.sans, label, x, y+5, sizeText, col(colFaint))
-	x += width(k.sans, label, sizeText) + 8
+// typingOf returns the state of the field of a name, which is the same
+// from frame to frame. The name says which field it is: the place on a
+// page and what the field is of.
+func (k *kit) typingOf(name string) *typing {
+	if k.typings == nil {
+		k.typings = map[string]*typing{}
+	}
+	t := k.typings[name]
+	if t == nil {
+		t = &typing{}
+		k.typings[name] = t
+	}
+	return t
+}
+
+// typingAny reports whether one of the fields of typingOf is being typed
+// in: the keys are then the field's, and the page's own wait.
+func (k *kit) typingAny() bool {
+	for _, t := range k.typings {
+		if t.on {
+			return true
+		}
+	}
+	return false
+}
+
+// numberWidth is the width of the field of a number.
+func (k *kit) numberWidth() float32 { return width(k.mono, "+000.0", sizeMono) + 16 }
+
+// numberField draws a field for a number at x, y, with its unit behind
+// it. What is typed is taken when Enter is pressed, if it is a number the
+// field takes; until then a number out of range, or no number, is red. A
+// locked field shows the number only. It returns the number taken, and
+// where the field and its unit end.
+func (k *kit) numberField(name string, value float64, spec numberSpec, locked bool, x, y float32) (typed float64, ok bool, right float32) {
+	r := rl.NewRectangle(x, y, k.numberWidth(), 24)
+	text := spec.format(value)
+	look := fieldLook{rules: spec.rules(), locked: locked, valid: func(s string) bool { _, ok := spec.parse(s); return ok }}
+	if _, end := k.field(k.typingOf(name), r, &text, look); end == accepted {
+		typed, ok = spec.parse(text)
+	}
+	right = r.X + r.Width
+	if spec.unit != "" {
+		k.text(k.mono, spec.unit, right+4, y+6, sizeMono, col(colFaint))
+		right += 4 + width(k.mono, spec.unit, sizeMono)
+	}
+	return typed, ok, right
+}
+
+// stepper draws "label  [-] number [+]": the buttons step the number, and
+// repeat while held, and the number can be typed. It returns the steps
+// asked for, the number typed, if one was, and where it ends.
+func (k *kit) stepper(name, label string, value float64, spec numberSpec, x, y float32) (delta int, typed float64, ok bool, right float32) {
+	if label != "" {
+		k.text(k.sans, label, x, y+5, sizeText, col(colFaint))
+		x += width(k.sans, label, sizeText) + 8
+	}
 	minus, x2 := k.repeatButton("−", x, y)
-	valueW := width(k.mono, "+000", sizeMono)
-	k.text(k.mono, value, x2+8+(valueW-width(k.mono, value, sizeMono))/2, y+6, sizeMono, col(colText))
-	plus, x3 := k.repeatButton("+", x2+valueW+16, y)
+	typed, ok, x3 := k.numberField(name, value, spec, false, x2+6, y)
+	plus, x4 := k.repeatButton("+", x3+6, y)
 	switch {
 	case minus:
 		delta = -1
 	case plus:
 		delta = 1
 	}
-	return delta, x3
+	return delta, typed, ok, x4
+}
+
+// stepperWidth is the width of a stepper with a label and a unit.
+func (k *kit) stepperWidth(label, unit string) float32 {
+	w := width(k.sans, "−", sizeText) + width(k.sans, "+", sizeText) + 40 + 12 + k.numberWidth() + width(k.mono, unit, sizeMono) + 4
+	if label != "" {
+		w += width(k.sans, label, sizeText) + 8
+	}
+	return w
 }
 
 // saveButton draws the button that saves, a floppy disk, yellow while

@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -501,27 +500,26 @@ func (sh *sheet) devices(state *ipc.Snapshot) {
 	)
 	sh.y = w.drawDeviceList(state, sh.s, sh.editable, sh.x, sh.y, sh.right)
 	// How far an axis has to move in learning mode.
-	vx := sh.row("Learning mode lets an axis through", "when it moved by this much of its range")
-	if picked, hit := sh.choices(vx, sh.s.Input.LearnThreshold, []int{5, 10, 20, 30, 50}, percent); hit {
-		sh.s.Input.LearnThreshold = picked
-		sh.changed()
+	// Typed, and taken with Enter; out of range, a number is red.
+	for _, n := range []struct {
+		name, label, about string
+		value              *int
+		spec               numberSpec
+	}{
+		{"learn threshold", "Learning mode lets an axis through", "when it moved by this much of its range, 1 to 100",
+			&sh.s.Input.LearnThreshold, numberSpec{lo: 1, hi: 100, whole: true, unit: "%"}},
+		{"hysteresis", "Hysteresis of axes that act as buttons", "pressed half of this past the trigger point, let go half of it before; 0 to 100",
+			&sh.s.Input.Hysteresis, numberSpec{lo: 0, hi: 100, whole: true, unit: "%"}},
+		{"velocity step", "Velocity up and down move by", "1 to 127, from the profile's velocity, stopping at 1 and 127",
+			&sh.s.Input.VelocityStep, numberSpec{lo: 1, hi: 127, whole: true}},
+	} {
+		vx := sh.row(n.label, n.about)
+		if typed, ok, _ := w.numberField("settings "+n.name, float64(*n.value), n.spec, !sh.editable, vx, sh.y-2); ok && int(typed) != *n.value {
+			*n.value = int(typed)
+			sh.changed()
+		}
+		sh.y += 46
 	}
-	sh.y += 46
-	// How far past its trigger point an axis has to go to count as
-	// pressed, and behind it to count as let go, halved each way.
-	vx = sh.row("Hysteresis of axes that act as buttons", "pressed half of this past the trigger point, let go half of it before")
-	if picked, hit := sh.choices(vx, sh.s.Input.Hysteresis, []int{0, 2, 5, 10, 20, 50, 100}, percent); hit {
-		sh.s.Input.Hysteresis = picked
-		sh.changed()
-	}
-	sh.y += 46
-	// How far the velocity commands move the velocity.
-	vx = sh.row("Velocity up and down move by", "from the profile's velocity, stopping at 1 and 127")
-	if picked, hit := sh.choices(vx, sh.s.Input.VelocityStep, []int{1, 4, 8, 10, 16, 20, 32}, strconv.Itoa); hit {
-		sh.s.Input.VelocityStep = picked
-		sh.changed()
-	}
-	sh.y += 46
 }
 
 // midi draws where else the instruments send: the ports that exist, and

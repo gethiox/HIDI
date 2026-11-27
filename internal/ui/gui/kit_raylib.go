@@ -50,6 +50,9 @@ type kit struct {
 	// answer; see confirm. asking is that question.
 	blocked bool
 	asking  *question
+	// typings are the states of the text fields, by their names; see
+	// typingOf.
+	typings map[string]*typing
 	// press is the button the left mouse button is held down on, and
 	// pressing tells which one it is.
 	press    *press

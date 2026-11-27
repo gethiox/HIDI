@@ -414,9 +414,12 @@ func (w *window) detectResting(e *editor, now live, axes []control.Code, x, y, i
 		e.window = 10
 	}
 	hit, end := w.button("Detect axes that rest in the middle", x, y)
-	delta, end := w.stepper("within", percent(e.window), end+14, y)
-	if delta != 0 {
-		e.window = min(max(e.window+delta*5, 5), 45)
+	delta, typed, ok, end := w.stepper("resting window", "within", float64(e.window), numberSpec{lo: 1, hi: 50, whole: true, unit: "%"}, end+14, y)
+	switch {
+	case ok:
+		e.window = int(typed)
+	case delta != 0:
+		e.window = int(stepTo(float64(e.window), delta, 5, 5, 45))
 	}
 	note := "of the middle, as they stand now: leave the controller alone, then press"
 	w.text(w.sans, fit(w.sans, note, sizeText-1, x+inner-end-10), end+10, y+5, sizeText-1, col(colFaint))
@@ -573,12 +576,20 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 		delta int
 	}{{"−12", -12}, {"−1", -1}, {"+1", 1}, {"+12", 12}} {
 		if step.delta == 1 {
-			shown := "—"
+			// The note can be typed by its name, in either case; a
+			// name that is none is red and is not taken.
+			shown := ""
 			if role.Kind == RoleNote {
 				shown = role.Text
 			}
-			w.text(w.mono, shown, bx+6, y+6, sizeMono, col(colText))
-			bx += width(w.mono, "C#-2", sizeMono) + 18
+			r := rl.NewRectangle(bx, y, width(w.mono, "C#-2", sizeMono)+20, 24)
+			look := fieldLook{hint: "—", rules: fieldRules{most: 5}, valid: func(s string) bool { _, ok := noteName(s); return ok }}
+			if _, end := w.field(w.typingOf("note "+e.layout+" "+at.Key()), r, &shown, look); end == accepted {
+				if n, ok := noteName(shown); ok {
+					e.try(e.doc.SetNoteAt(e.layout, at, n))
+				}
+			}
+			bx += r.Width + 6
 		}
 		hit, end := w.repeatButton(step.label, bx, y)
 		if hit {
@@ -602,12 +613,20 @@ func (w *window) editChosen(e *editor, device *ipc.Instrument, x, y, inner float
 		delta int
 	}{{"−10", -10}, {"−1", -1}, {"+1", 1}, {"+10", 10}} {
 		if step.delta == 1 {
-			shown := "—"
+			// The number of the controller can be typed, 0 to 127.
+			shown := ""
 			if role.Kind == RoleController {
 				shown = strconv.Itoa(int(role.Controller))
 			}
-			w.text(w.mono, shown, bx+6, y+6, sizeMono, col(colText))
-			bx += width(w.mono, "000", sizeMono) + 18
+			spec := numberSpec{lo: 0, hi: 127, whole: true}
+			r := rl.NewRectangle(bx, y, width(w.mono, "000", sizeMono)+20, 24)
+			look := fieldLook{hint: "—", rules: spec.rules(), valid: func(s string) bool { _, ok := spec.parse(s); return ok }}
+			if _, end := w.field(w.typingOf("controller "+e.layout+" "+at.Key()), r, &shown, look); end == accepted {
+				if n, ok := spec.parse(shown); ok {
+					e.try(e.doc.SetControllerAt(e.layout, at, uint8(n), role.Shape))
+				}
+			}
+			bx += r.Width + 6
 		}
 		hit, end := w.repeatButton(step.label, bx, y)
 		if hit {
@@ -724,10 +743,14 @@ func (w *window) editShape(e *editor, at Spot, role Role, x, y, inner float32) f
 		// The dead zone is the profile's unless the axis has its own.
 		toggle("own dead zone", &shape.OwnDeadzone)
 		if shape.OwnDeadzone {
-			delta, _ := w.stepper("", percentOf(shape.Deadzone), px-10, y-2)
-			if delta != 0 {
-				hundredths := int(shape.Deadzone*100+0.5) + delta*5
-				shape.Deadzone = float64(min(max(hundredths, 0), 95)) / 100
+			zone := shape.Deadzone * 100
+			delta, typed, ok, _ := w.stepper("axis deadzone "+e.layout+" "+at.Key(), "", zone, zoneSpec, px-10, y-2)
+			switch {
+			case ok:
+				shape.Deadzone = typed / 100
+				again()
+			case delta != 0:
+				shape.Deadzone = stepZone(zone, delta) / 100
 				again()
 			}
 		} else {
@@ -735,14 +758,18 @@ func (w *window) editShape(e *editor, at Spot, role Role, x, y, inner float32) f
 		}
 	} else {
 		// Where the axis counts as pressed, in steps of a twentieth.
-		at := shape.Threshold
-		if at == 0 {
-			at = 0.5
+		trigger := shape.Threshold
+		if trigger == 0 {
+			trigger = 0.5
 		}
-		delta, _ := w.stepper("triggers at", fmt.Sprintf("%d%%", int(at*100+0.5)), px, y-2)
-		if delta != 0 {
-			hundredths := int(at*100+0.5) + delta*5
-			shape.Threshold = float64(min(max(hundredths, 5), 95)) / 100
+		point := trigger * 100
+		delta, typed, ok, _ := w.stepper("threshold "+e.layout+" "+at.Key(), "triggers at", point, thresholdSpec, px, y-2)
+		switch {
+		case ok:
+			shape.Threshold = typed / 100
+			again()
+		case delta != 0:
+			shape.Threshold = stepTo(point, delta, 5, 5, 95) / 100
 			again()
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 
 	"github.com/gethiox/HIDI/internal/control"
+	"github.com/gethiox/HIDI/internal/engine"
 	"github.com/gethiox/HIDI/internal/ipc"
 )
 
@@ -251,8 +252,9 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 		}
 	}()
 	// The keys that take a change back, make it again, and save. They
-	// reach the window only while the keyboard is not HIDI's alone.
-	if !w.deaf && !w.blocked && !e.adding && ctrlHeld() {
+	// reach the window only while the keyboard is not HIDI's alone, and
+	// are a field's while one is typed in.
+	if !w.deaf && !w.blocked && !e.adding && !w.typingAny() && ctrlHeld() {
 		shift := rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
 		switch {
 		case rl.IsKeyPressed(rl.KeyZ) && !shift:
@@ -427,34 +429,39 @@ func (w *window) drawEditor(state *ipc.Snapshot, area rl.Rectangle) {
 	for _, field := range []struct {
 		label, key string
 		value      int
-		shown      string
+		spec       numberSpec
 	}{
-		{"octave", "octave", d.Octave, fmt.Sprintf("%+d", d.Octave)},
-		{"transpose", "transpose", d.Transpose, fmt.Sprintf("%+d", d.Transpose)},
-		{"channel", "channel", int(d.Channel) + 1, fmt.Sprintf("%d", int(d.Channel)+1)},
-		{"velocity", "velocity", int(d.Velocity), fmt.Sprintf("%d", d.Velocity)},
+		{"octave", "octave", d.Octave, numberSpec{lo: -engine.MaxOctave, hi: engine.MaxOctave, whole: true, plus: true}},
+		{"transpose", "transpose", d.Transpose, numberSpec{lo: -engine.MaxTranspose, hi: engine.MaxTranspose, whole: true, plus: true}},
+		{"channel", "channel", int(d.Channel) + 1, numberSpec{lo: 1, hi: 16, whole: true}},
+		{"velocity", "velocity", int(d.Velocity), numberSpec{lo: 1, hi: 127, whole: true}},
 	} {
 		// On the next line where the page is too narrow for all four.
-		need := width(w.sans, field.label, sizeText) + 8 + width(w.sans, "−", sizeText) + width(w.sans, "+", sizeText) + 40 + width(w.mono, "+000", sizeMono) + 16
-		if sx > x && sx+need > right {
+		if need := w.stepperWidth(field.label, ""); sx > x && sx+need > right {
 			sx, y = x, y+34
 		}
-		delta, end := w.stepper(field.label, field.shown, sx, y)
-		if delta != 0 {
+		delta, typed, ok, end := w.stepper("profile "+field.key, field.label, float64(field.value), field.spec, sx, y)
+		switch {
+		case ok:
+			e.try(doc.SetDefault(field.key, int(typed)))
+		case delta != 0:
 			e.try(doc.SetDefault(field.key, field.value+delta))
 		}
 		sx = end + 22
 	}
 	if doc.Profile.Match.Type != control.DeviceKeyboard {
-		// The dead zone of every axis that names none of its own.
-		need := width(w.sans, "dead zone", sizeText) + 130
-		if sx > x && sx+need > right {
+		// The dead zone of every axis that names none of its own, in
+		// percent: the buttons go by 5, any can be typed.
+		if need := w.stepperWidth("dead zone", "%"); sx > x && sx+need > right {
 			sx, y = x, y+34
 		}
-		zone := doc.Profile.Deadzone
-		if delta, _ := w.stepper("dead zone", percentOf(zone), sx, y); delta != 0 {
-			hundredths := int(zone*100+0.5) + delta*5
-			e.try(doc.SetDeadzone(float64(min(max(hundredths, 0), 95)) / 100))
+		zone := doc.Profile.Deadzone * 100
+		delta, typed, ok, _ := w.stepper("profile deadzone", "dead zone", zone, zoneSpec, sx, y)
+		switch {
+		case ok:
+			e.try(doc.SetDeadzone(typed / 100))
+		case delta != 0:
+			e.try(doc.SetDeadzone(stepZone(zone, delta) / 100))
 		}
 	}
 	y += 40
