@@ -7,16 +7,18 @@ completes or changes an item.
 ## How the work is organised
 
 - `main` holds the released 1.x code and is not touched until 2.0 is ready.
-- `dev` is the integration branch. A rule of the repository lets changes
-  reach it through pull requests only, so every change comes as one: a
-  branch `v2/<topic>`, a pull request into `dev` labelled `v2.0`, merged
-  by the maintainer with a merge commit, never squashed.
+- `dev` is the integration branch. Since 27 November 2026, after pull
+  request 52, commits go to `dev` directly, without a branch or a pull
+  request of their own, by the maintainer's word. Before that every change
+  came as a pull request into `dev` labelled `v2.0`, merged with a merge
+  commit, never squashed.
 - A commit is written as a pull request would be: it is a whole area that
   can be tried in one go, or one topic of fixes, and its message has a
   title and a description that says everything the commit contains and
-  what could not be tried. A pull request gathers such commits and says
-  what they are together. Before anything is pushed, the checks that CI
+  what could not be tried. Before anything is pushed, the checks that CI
   runs pass.
+- The one pull request still to come is `dev` into `main`, for the
+  release, when the maintainer asks for it.
 - Pictures of an interface that changed go to the maintainer with the
   change.
 - Nothing is written on GitHub beyond the pull requests themselves, and
