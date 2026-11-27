@@ -29,6 +29,19 @@ func TestNumberSpec(t *testing.T) {
 	if got := percent.format(0.1 * 100); got != "10" {
 		t.Errorf("ten: %q", got)
 	}
+	for _, tt := range []struct {
+		spec numberSpec
+		most int
+	}{
+		{numberSpec{lo: 1, hi: 127, whole: true}, 3},
+		{numberSpec{lo: -12, hi: 12, whole: true}, 3},
+		{numberSpec{lo: 0, hi: 100}, 6},
+		{numberSpec{lo: -1, hi: 1}, 5},
+	} {
+		if got := tt.spec.rules().most; got != tt.most {
+			t.Errorf("%+v takes %d characters, want %d", tt.spec, got, tt.most)
+		}
+	}
 	if r := octave.rules(); r.kind != wholeNumber || !r.signed {
 		t.Errorf("the rules of an octave: %+v", r)
 	}

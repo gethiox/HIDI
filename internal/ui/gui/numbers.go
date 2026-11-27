@@ -23,13 +23,20 @@ type numberSpec struct {
 	unit string
 }
 
-// rules are what may be typed into the field of a number.
+// rules are what may be typed into the field of a number: no more
+// characters than the longest number in range has, so that 1 to 127 takes
+// three digits, and two places of a fraction behind a separator.
 func (s numberSpec) rules() fieldRules {
 	kind := decimalNumber
 	if s.whole {
 		kind = wholeNumber
 	}
-	return fieldRules{kind: kind, signed: s.lo < 0, most: 7}
+	wide := func(v float64) int { return len(strconv.FormatFloat(math.Trunc(v), 'f', 0, 64)) }
+	most := max(wide(s.lo), wide(s.hi))
+	if !s.whole {
+		most += 3
+	}
+	return fieldRules{kind: kind, signed: s.lo < 0, most: most}
 }
 
 // format writes a number as its field shows it: a whole number as it is,
