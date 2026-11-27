@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"runtime"
 	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -165,72 +166,145 @@ func (k *kit) pillIn(on bool, lit RGB, x, y float32) bool {
 	return k.toggle(r, on, lit, r)
 }
 
-// typing is what a text field keeps between frames.
+// typing is the state of a text field: whether it is being typed in, and
+// what is typed meanwhile.
 type typing struct {
 	// on says that the field takes what is typed.
 	on bool
+	// edit is the text as it is being typed, the cursor and the
+	// selection, and was the value when the typing began.
+	edit lineEdit
+	was  string
+	// dragging says that the mouse button went down in the field and
+	// is held: the selection follows the pointer.
+	dragging bool
+	// scroll is how far a text longer than the field is moved to the
+	// left, so that the cursor stays in view.
+	scroll float32
+}
+
+// start begins the typing in a field, with its whole text selected, as
+// a field does that was given a new value to change.
+func (t *typing) start(value string) {
+	*t = typing{on: true, edit: newLineEdit(value), was: value}
 }
 
 // fieldLook is how a text field looks and what it takes.
 type fieldLook struct {
-	// hint is shown, faintly, while the field is empty.
+	// hint is shown, faintly, while the field is empty: the value that
+	// is used then, for one.
 	hint string
-	// most is the most characters the field holds.
-	most int
-	// accept says which characters can be typed; nil accepts all that
-	// can be printed.
-	accept func(rune) bool
+	// rules say what may be typed: any text or a number, how much.
+	rules fieldRules
+	// valid, if set, says whether the text can be taken. While it
+	// cannot, it is red, and Enter does nothing. It is asked about after
+	// every change.
+	valid func(string) bool
+	// live gives every change to the value at once, as it is typed; a
+	// field that is cancelled then takes its old value back. Otherwise
+	// the value changes only when the typing is accepted.
+	live bool
 	// locked shows the text without letting it be changed.
 	locked bool
+	// with are the places of what belongs to the field, its "Add"
+	// button for one: a click there does not end the typing, and what
+	// is there acts on what was typed (see [typing.text]).
+	with []rl.Rectangle
 }
 
+// text returns what is typed, while the field is typed in.
+func (t *typing) text() string { return t.edit.String() }
+
+// fieldEnd is how the typing in a field ended in a frame.
+type fieldEnd uint8
+
+const (
+	// typingOn: it goes on, or there was none.
+	typingOn fieldEnd = iota
+	// accepted: Enter took what was typed.
+	accepted
+	// cancelled: Escape, or a click elsewhere, dropped it.
+	cancelled
+)
+
 // field draws a text field over r and, while it is being typed in, takes
-// what is typed. A click on it begins the typing and a click elsewhere
-// ends it. It reports whether the text changed in this frame, and the key
-// that asks to be done with it, rl.KeyEnter or rl.KeyEscape, or 0.
+// what is typed. A click on it begins the typing, puts the cursor where
+// the click was, and a drag selects; the keys do what they do in every
+// text field: the arrows, with Ctrl by word and with Shift selecting,
+// Home and End, Backspace and Delete, Ctrl+A, Ctrl+C, Ctrl+X and Ctrl+V.
+// Enter accepts what was typed and Escape drops it; so does a click
+// elsewhere, which a button that belongs to the field, such as "Add",
+// takes as accepting when the caller asks about the button first.
 //
-// The keys reach the window only while the keyboard is not HIDI's alone.
-// A field under the settings sheet takes no keys, as it takes no clicks:
-// what is typed belongs to the sheet.
-func (k *kit) field(state *typing, r rl.Rectangle, value *string, look fieldLook) (changed bool, key int32) {
-	free := !look.locked
-	if !free {
+// It reports whether the value changed in this frame, and how the typing
+// ended, if it did. The keys reach the window only while the keyboard is
+// not HIDI's alone. A field under the settings sheet takes no keys, as it
+// takes no clicks: what is typed belongs to the sheet.
+func (k *kit) field(state *typing, r rl.Rectangle, value *string, look fieldLook) (changed bool, end fieldEnd) {
+	if look.locked && state.on {
 		state.on = false
 	}
-	over := free && k.hovered(r)
+	over := !look.locked && k.hovered(r)
 	if over {
 		k.setCursor(rl.MouseCursorIBeam)
 	}
-	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
-		state.on = over
-	}
-	if state.on && !k.deaf {
-		before := *value
-		for c := rl.GetCharPressed(); c > 0; c = rl.GetCharPressed() {
-			if c < 0x20 || c == 0x7f || len([]rune(*value)) >= look.most {
-				continue
-			}
-			if look.accept == nil || look.accept(c) {
-				*value += string(c)
-			}
-		}
-		if (rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace)) && *value != "" {
-			runes := []rune(*value)
-			*value = string(runes[:len(runes)-1])
-		}
-		changed = *value != before
+	inner := r.Width - 16
+	at := func(x float32) int { return k.caretAt(state.edit.text, x-r.X-8+state.scroll) }
+
+	// The mouse: a click on the field begins the typing there or moves
+	// the cursor, with Shift selecting to it; a click elsewhere drops it.
+	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) && !k.deaf {
 		switch {
-		case rl.IsKeyPressed(rl.KeyEnter):
-			key = rl.KeyEnter
+		case over && !state.on:
+			state.start(*value)
+			state.edit.place(at(k.mouse().X), false)
+			state.dragging = true
+		case over:
+			state.edit.place(at(k.mouse().X), shiftHeld())
+			state.dragging = true
+		case state.on && !k.onAny(look.with):
+			return k.endTyping(state, value, look, cancelled)
+		}
+	}
+	if state.dragging {
+		if rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+			state.edit.place(at(k.mouse().X), true)
+			k.moving = true
+		} else {
+			state.dragging = false
+		}
+	}
+
+	if state.on && !k.deaf {
+		edited := k.typeInto(state, look)
+		if edited && look.live && state.edit.String() != *value {
+			*value, changed = state.edit.String(), true
+		}
+		switch {
+		case rl.IsKeyPressed(rl.KeyEnter) || rl.IsKeyPressed(rl.KeyKpEnter):
+			if look.valid == nil || look.valid(state.edit.String()) {
+				c, e := k.endTyping(state, value, look, accepted)
+				return changed || c, e
+			}
 		case rl.IsKeyPressed(rl.KeyEscape):
-			key = rl.KeyEscape
+			c, e := k.endTyping(state, value, look, cancelled)
+			return changed || c, e
 		}
 		k.moving = true // the caret blinks
 	}
 
+	// What is shown: the text being typed, or else the value; the hint
+	// while there is neither.
+	text := *value
+	if state.on {
+		text = state.edit.String()
+	}
+	ok := look.valid == nil || look.valid(text)
 	rl.DrawRectangleRounded(r, 0.3, 6, col(colBar))
 	edge := colPanelEdge
 	switch {
+	case state.on && !ok:
+		edge = colInvalid
 	case state.on:
 		edge = colAccent
 	case over:
@@ -238,18 +312,129 @@ func (k *kit) field(state *typing, r rl.Rectangle, value *string, look fieldLook
 		edge = colFaint
 	}
 	rl.DrawRectangleRoundedLinesEx(r, 0.3, 6, k.hair(), col(edge))
-	switch {
-	case *value == "":
+	if text == "" {
 		k.text(k.mono, look.hint, r.X+8, r.Y+5, sizeMono, colA(colFaint, 110))
-	case free:
-		k.text(k.mono, *value, r.X+8, r.Y+5, sizeMono, col(colText))
-	default:
-		k.text(k.mono, *value, r.X+8, r.Y+5, sizeMono, col(colFaint))
+	}
+	if !state.on {
+		state.scroll = 0
+	} else {
+		// The cursor stays in view.
+		caret := width(k.mono, string(state.edit.text[:state.edit.cursor]), sizeMono)
+		state.scroll = min(max(state.scroll, caret-inner+2), caret)
+		state.scroll = max(state.scroll, 0)
+	}
+	k.clip(rl.NewRectangle(r.X+4, r.Y, r.Width-8, r.Height))
+	x := r.X + 8 - state.scroll
+	if state.on {
+		if from, to := state.edit.selection(); from != to {
+			left := width(k.mono, string(state.edit.text[:from]), sizeMono)
+			right := width(k.mono, string(state.edit.text[:to]), sizeMono)
+			rl.DrawRectangleRec(rl.NewRectangle(x+left, r.Y+4, right-left, 16), colA(colAccent, 90))
+		}
+	}
+	ink := col(colText)
+	switch {
+	case !ok:
+		ink = col(colInvalid)
+	case look.locked:
+		ink = col(colFaint)
+	}
+	if text != "" {
+		k.text(k.mono, text, x, r.Y+5, sizeMono, ink)
 	}
 	if state.on && time.Now().UnixMilli()/500%2 == 0 {
-		rl.DrawRectangleRec(rl.NewRectangle(r.X+9+width(k.mono, *value, sizeMono), r.Y+5, 1, 14), col(colText))
+		caret := width(k.mono, string(state.edit.text[:state.edit.cursor]), sizeMono)
+		rl.DrawRectangleRec(rl.NewRectangle(x+caret, r.Y+5, 1, 14), col(colText))
 	}
-	return changed, key
+	k.unclip()
+	return changed, typingOn
+}
+
+// endTyping ends the typing in a field: accepted, the value is what was
+// typed; cancelled, it is what it was when the typing began.
+func (k *kit) endTyping(state *typing, value *string, look fieldLook, how fieldEnd) (changed bool, end fieldEnd) {
+	now := state.edit.String()
+	if how == cancelled {
+		now = state.was
+		if !look.live {
+			now = *value
+		}
+	}
+	state.on, state.dragging = false, false
+	if now != *value {
+		*value, changed = now, true
+	}
+	return changed, how
+}
+
+// typeInto applies the keys of a frame to a field that is typed in, and
+// reports whether its text changed.
+func (k *kit) typeInto(state *typing, look fieldLook) (edited bool) {
+	e := &state.edit
+	ctrl, shift := ctrlHeld(), shiftHeld()
+	windows := runtime.GOOS == "windows"
+	pressed := func(key int32) bool { return rl.IsKeyPressed(key) || rl.IsKeyPressedRepeat(key) }
+	for c := rl.GetCharPressed(); c > 0; c = rl.GetCharPressed() {
+		if !ctrl && e.insert(string(c), look.rules) {
+			edited = true
+		}
+	}
+	switch {
+	case pressed(rl.KeyLeft):
+		e.left(ctrl, shift)
+	case pressed(rl.KeyRight):
+		e.right(ctrl, shift, windows)
+	case pressed(rl.KeyHome):
+		e.place(0, shift)
+	case pressed(rl.KeyEnd):
+		e.place(len(e.text), shift)
+	case pressed(rl.KeyBackspace):
+		edited = e.erase(true, ctrl, windows) || edited
+	case pressed(rl.KeyDelete):
+		edited = e.erase(false, ctrl, windows) || edited
+	case ctrl && rl.IsKeyPressed(rl.KeyA):
+		e.selectAll()
+	case ctrl && rl.IsKeyPressed(rl.KeyC):
+		if s := e.selected(); s != "" {
+			rl.SetClipboardText(s)
+		}
+	case ctrl && rl.IsKeyPressed(rl.KeyX):
+		if s := e.cut(); s != "" {
+			rl.SetClipboardText(s)
+			edited = true
+		}
+	case ctrl && rl.IsKeyPressed(rl.KeyV):
+		edited = e.insert(rl.GetClipboardText(), look.rules) || edited
+	}
+	return edited
+}
+
+// onAny reports whether the pointer is on one of the places.
+func (k *kit) onAny(places []rl.Rectangle) bool {
+	for _, r := range places {
+		if k.hovered(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// caretAt returns the place in text nearest to x points from its start.
+func (k *kit) caretAt(text []rune, x float32) int {
+	prev := float32(0)
+	for i := range text {
+		next := width(k.mono, string(text[:i+1]), sizeMono)
+		if x < (prev+next)/2 {
+			return i
+		}
+		prev = next
+	}
+	return len(text)
+}
+
+// shiftHeld reports whether a Shift key is held.
+func shiftHeld() bool {
+	return rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
 }
 
 // checkbox draws a box that is ticked or not and reports a click on it or

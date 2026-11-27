@@ -541,27 +541,37 @@ func (w *window) editLayouts(e *editor, x, y, right float32) float32 {
 	}
 	if !e.adding {
 		if hit, _ := w.dimButton("+ Add a layout", can, lx, y); hit {
-			e.adding, e.newName = true, freeLayoutName(doc)
+			e.adding = true
+			e.naming.start(freeLayoutName(doc))
 		}
 		return y + 38
 	}
-	// The name of the new layout: there is one to begin with, which can
-	// be typed over. The field takes what is typed for as long as it is
-	// there.
-	e.naming.on = true
-	field := rl.NewRectangle(lx, y, max(width(w.mono, e.newName, sizeMono)+24, 140), 24)
-	_, key := w.field(&e.naming, field, &e.newName, fieldLook{most: 32})
-	add, end := w.button("Add", field.X+field.Width+8, y)
-	cancel, _ := w.button("Cancel", end+6, y)
+	// The name of the new layout: there is one to begin with, selected,
+	// so that what is typed takes its place. Add and Cancel belong to the
+	// field; a click anywhere else drops the new layout, as Escape does.
+	name := e.naming.text()
+	field := rl.NewRectangle(lx, y, max(width(w.mono, name, sizeMono)+24, 140), 24)
+	addAt := rl.NewRectangle(field.X+field.Width+8, y, width(w.sans, "Add", sizeText)+20, 24)
+	cancelAt := rl.NewRectangle(addAt.X+addAt.Width+6, y, width(w.sans, "Cancel", sizeText)+20, 24)
+	_, ended := w.field(&e.naming, field, &e.newName, fieldLook{rules: fieldRules{most: 32}, with: []rl.Rectangle{addAt, cancelAt}})
+	add, _ := w.button("Add", addAt.X, y)
+	cancel, _ := w.button("Cancel", cancelAt.X, y)
 	switch {
-	case add || key == rl.KeyEnter:
-		name := strings.TrimSpace(e.newName)
+	case add || ended == accepted:
+		if add {
+			name = e.naming.text()
+		} else {
+			name = e.newName
+		}
+		name = strings.TrimSpace(name)
 		e.try(doc.AddLayout(name, e.layout))
 		if slices.Contains(doc.Layouts(), name) {
-			e.layout, e.adding = name, false
+			e.layout, e.adding, e.naming.on = name, false, false
+		} else if !e.naming.on {
+			e.naming.start(name) // refused: typed again, the message says why
 		}
-	case cancel || key == rl.KeyEscape:
-		e.adding = false
+	case cancel || ended == cancelled:
+		e.adding, e.naming.on = false, false
 	}
 	return y + 38
 }

@@ -60,6 +60,7 @@ var (
 	colInputText  = RGB{0xa5, 0xe8, 0xc0} // a number of what comes in, while it is not zero
 	colMIDIText   = RGB{0xf2, 0xdc, 0x8c} // a number of what goes out, while it is not zero
 	colUnsaved    = RGB{0xf2, 0xc9, 0x4c} // changes that wait to be saved
+	colInvalid    = RGB{0xe5, 0x5b, 0x5b} // what is typed and cannot be taken
 	colIdleDown   = RGB{0x9a, 0xa1, 0xac} // a control that is down while HIDI is off
 	colKeyInk     = RGB{0xb9, 0xc0, 0xcc} // the lettering of a key that does something
 	colWhiteKey   = RGB{0xdd, 0xe1, 0xe7}

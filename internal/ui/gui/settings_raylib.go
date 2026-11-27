@@ -901,8 +901,8 @@ func (w *window) drawLights(s *settings.Settings, editable bool, x, y, right flo
 	// What is typed is taken as it is; whether it is an address is
 	// said when it is to be used.
 	address := s.Lights.Address
-	look := fieldLook{hint: settings.DefaultOpenRGBAddress, most: 64, locked: !editable || s.Lights.OpenRGB,
-		accept: func(c rune) bool { return c > 0x20 && c < 0x7f }}
+	look := fieldLook{hint: settings.DefaultOpenRGBAddress, live: true, locked: !editable || s.Lights.OpenRGB,
+		rules: fieldRules{most: 64, accept: func(c rune) bool { return c > 0x20 && c < 0x7f }}}
 	if changed, _ := w.field(&v.address, rl.NewRectangle(vx, y-2, min(200, right-vx), 24), &address, look); changed {
 		s.Lights.Address = address
 		w.set(*s)
