@@ -7,18 +7,18 @@ completes or changes an item.
 ## How the work is organised
 
 - `main` holds the released 1.x code and is not touched until 2.0 is ready.
-- `dev` is the integration branch. Since 27 November 2026, after pull
-  request 52, commits go to `dev` directly, without a branch or a pull
-  request of their own, by the maintainer's word. Before that every change
-  came as a pull request into `dev` labelled `v2.0`, merged with a merge
-  commit, never squashed.
+- `dev` is the integration branch. After pull request 52 the remaining
+  work for the release goes to `v2/pre-release` directly, by the
+  maintainer's word, and comes into `dev` with one pull request. Before
+  that every change came as a pull request into `dev` labelled `v2.0`,
+  merged with a merge commit, never squashed.
 - A commit is written as a pull request would be: it is a whole area that
   can be tried in one go, or one topic of fixes, and its message has a
   title and a description that says everything the commit contains and
   what could not be tried. Before anything is pushed, the checks that CI
   runs pass.
-- The one pull request still to come is `dev` into `main`, for the
-  release, when the maintainer asks for it.
+- After it, `dev` goes into `main` for the release, squashed, when the
+  maintainer asks for it.
 - Pictures of an interface that changed go to the maintainer with the
   change.
 - Nothing is written on GitHub beyond the pull requests themselves, and
@@ -40,7 +40,7 @@ completes or changes an item.
 | Windows input | While HIDI is on, all keyboard input is suppressed, and devices are told apart through Raw Input. Suppressing one keyboard and not another would need a driver and is left for later. |
 | Grabbing | Recognised devices do not reach the rest of the system while HIDI is on. Game controllers are the exception unless the user asks otherwise. |
 | Configuration | TOML, with a schema version and migrations from 2.0 onwards. HIDI 1.x files are not read. |
-| Where things are kept | One directory named HIDI in the system's place for configuration (`~/.config/HIDI`, `%AppData%\HIDI`): `settings.toml` for HIDI's own settings, apart from the profiles in `profiles/`. HIDI carries its defaults inside and writes them there on the first start, and only into a directory that is new or its own. |
+| Where things are kept | One directory named HIDI in the system's place for configuration (`~/.config/HIDI`, `%AppData%\HIDI`): `settings.toml` for HIDI's own settings, apart from the profiles in `profiles/`, and one for HIDI's own notes (`~/.local/state/HIDI`, `%LocalAppData%\HIDI`). HIDI writes nowhere else. It carries its defaults inside and writes them there on the first start, and only into a directory that is new or its own. |
 | Writing files | A file HIDI changes is changed in the text, one key at a time, never written anew from what HIDI understood of it. The new text goes to a file beside the old one, is brought to the disk, and takes its place in one step, so that a power failure leaves the old file or the new one. |
 | Configuring | The graphical interface is the first-class way to configure everything; nobody should have to edit a file. Files can still be edited by hand, and every mistake in one is reported clearly. |
 | Interfaces | A terminal interface for headless use, a tray icon, and a graphical interface built with raylib. They are clients of the running engine. |
@@ -48,20 +48,19 @@ completes or changes an item.
 | Axes on a channel or layout change | Both behaviours are needed, chosen by the profile's `axis_on_change`: an axis either keeps the value of the controller it left, or that controller returns to rest. |
 | Fonts | DejaVu Sans, and DejaVu Sans Mono for the log and for every text that changes while it is watched, padded to a fixed width so that nothing around it moves. The files and their licence are in `internal/assets/fonts`. |
 | Reviewing interfaces | A pull request that changes what an interface looks like includes screenshots, rendered in software where there is no display. |
-| Releases | Release artifacts are immutable, and builds are reproducible: the same commit gives the same binaries. |
+| Releases | Release artifacts are immutable (immutable releases are turned on for the repository), and builds are reproducible: the same commit gives the same binaries. The programs are not signed. The first release is `v2.0.0`. |
+| Starting state | The release expects a clean state and keeps nothing for the builds of HIDI 2 before it: no migration of their directories, files or settings. A usual `HIDI` directory with anything in it that HIDI 2 does not make is moved aside to `HIDI-old` (`-old_1` and on), never written into or removed. |
+| Linux programs | With the window for desktops, and `-headless` without it for machines without one, which need no library of the system. |
 | Logging | Structured, coloured log lines: time, level, component, message, and `key='value'` fields. Output without colours is always available. HIDI logs little, since the interfaces show its state; what it logs has a fitting level and its context as fields. |
 | OpenRGB | Supported through a server the user runs. HIDI does not bundle one. |
 | Go version | The current release; 1.27 at the time of writing. |
 
 ## Where things stand (27 November 2026)
 
-`dev` holds everything up to the thirteenth round (pull request 52), and
-the commits of the fourteenth round on top of it, which went to `dev`
-directly. What is left before the release is under "Release" in
-"Remaining": the address and checksum of Microsoft's package, a try of
-this round on Windows, and the maintainer's decisions on signing,
-immutable releases, the first tag and HIDI's needs on Linux without a
-desktop.
+`dev` holds everything up to the thirteenth round (pull request 52);
+`v2/pre-release` has the fourteenth round on top of it. What is left
+before the release is under "Release" in "Remaining": the address and
+checksum of Microsoft's package, and a try of this round on Windows.
 
 Apart from HIDI itself: a change to raylib's Win32 backend is on the
 maintainer's forks (`gethiox/raylib` and `gethiox/raylib-go`, branch
@@ -97,11 +96,19 @@ the sixth round.
 | Drag and drop | A control dragged onto another swaps with it; with Ctrl it is copied. |
 | Random writes, and "HIDI" in capitals | See "Where HIDI writes" in the architecture: the socket and crash reports moved into the state directory, which is created as `HIDI`, and the Windows release carries `raylib.dll` and `libffi-8.dll` beside `hidi.exe` (tags `extlib`, `ffi_no_embed`), so that it writes nothing under `%TEMP%` or `%LocalAppData%\github.com`. Without them the arm64 exe would not have started. |
 
-Found and reported, not changed: on Linux the 64-bit programs do not start
-without `libX11.so.6` and `libffi.so.8`, also headless, since raylib-go and
-the ffi library load them when the program starts; and raylib-go writes
-`libraylib.so` under `$TMPDIR` at every start and removes it. A separate
-program for the window would end both.
+Found and reported: on Linux the 64-bit programs do not start without
+`libX11.so.6` and `libffi.so.8` (and glibc), also headless, since raylib-go
+and the ffi library load them when the program starts; and raylib-go
+writes `libraylib.so` under `$TMPDIR` at every start and removes it.
+
+After the review, by the maintainer's word:
+
+| Asked for | Done |
+|---|---|
+| No renaming of a lowercase `hidi`, no compatibility with builds before the release; a directory that is not HIDI 2's goes to `HIDI-old` | Both usual directories are claimed at the start; one holding anything HIDI 2 does not make there is renamed to `HIDI-old` (`_1`, `_2`…) and made anew. The case rename, the old record and device list in the settings directory, the moving of profiles out of `profiles/`, and the old settings `always_grab`, `toggle_exclusive` and the chord colour are gone. |
+| Linux programs without the window | The tag `headless`; the release has `linux-amd64-headless` and `linux-arm64-headless`, statically linked, needing no library. |
+| Media stop left to the system | In Piano and Chromatic. |
+| Release | Immutable releases on, no signing, first tag `v2.0.0`; `v2/pre-release` into `dev`, then `dev` into `main` squashed. |
 
 ### Thirteenth round (26 November 2026): what was reported, and what was done
 
@@ -871,14 +878,20 @@ pull request before.
     release workflow runs it twice and compares, attests build
     provenance and makes a draft release. The Windows archives carry
     `Windows.Devices.Midi2.dll` once `packaging/windows/midi-api` names
-    the package, and `raylib.dll` and `libffi-8.dll`. Left to the
-    maintainer: the address and checksum of Microsoft's package,
-    immutable releases in the repository settings, signing, and the
-    first tag.
+    the package, and `raylib.dll` and `libffi-8.dll`; Linux has archives
+    with and without the window. Decided: immutable releases on, no
+    signing, the first tag `v2.0.0`. Left to the maintainer: the address
+    and checksum of Microsoft's package, and a try of the Windows
+    archives.
 12. Done: the README is written for users. The configuration reference
     and the description of the architecture were kept up with each
     change and are as they were otherwise.
-13. Merging `dev` into `main`.
+13. Merging into `main`: the work of the last rounds is on
+    `v2/pre-release`, which goes into `dev` by a pull request, and `dev`
+    then into `main` by a second one, squashed, so that `main` gets the
+    whole of HIDI 2 as one commit on top of 1.x, without the screenshots
+    and files that came and went on the way. The history stays readable
+    in the two pull requests.
 
 ### After 2.0
 
