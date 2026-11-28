@@ -19,30 +19,40 @@ func TestSocketPath(t *testing.T) {
 	}
 }
 
-// A directory in another case is renamed where the system tells no cases
-// apart, and left alone where it does, as here.
-func TestOwnName(t *testing.T) {
+// A state directory with only HIDI's files in it stays; one with anything
+// else is moved aside, to the first free name.
+func TestClaimState(t *testing.T) {
 	parent := t.TempDir()
-	lower := filepath.Join(parent, "hidi")
-	if err := os.Mkdir(lower, 0o755); err != nil {
+	dir := filepath.Join(parent, "HIDI")
+	if to, err := ClaimState(dir); to != "" || err != nil {
+		t.Fatalf("a directory that is not there: %q, %v", to, err)
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := OwnName(filepath.Join(parent, "HIDI")); err != nil {
+	for _, name := range []string{"written.json", "window.json", "crash.log", "crash-20261127-101010.log", ".tmp-123", "control.sock.lock"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if to, err := ClaimState(dir); to != "" || err != nil {
+		t.Fatalf("HIDI's own files: moved to %q, %v", to, err)
+	}
+	// Taken already, as by a directory moved aside before.
+	if err := os.Mkdir(filepath.Join(parent, "HIDI-old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(parent)
-	names := []string{}
-	for _, e := range entries {
-		names = append(names, e.Name())
+	if err := os.WriteFile(filepath.Join(dir, "other.dat"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	_, statErr := os.Stat(filepath.Join(parent, "HIDI"))
-	switch {
-	case statErr == nil && (len(names) != 1 || names[0] != "HIDI"):
-		t.Errorf("one directory for both cases, still named %v", names)
-	case statErr != nil && (len(names) != 1 || names[0] != "hidi"):
-		t.Errorf("cases told apart, and the other directory was touched: %v", names)
+	to, err := ClaimState(dir)
+	if err != nil || to != filepath.Join(parent, "HIDI-old_1") {
+		t.Fatalf("a directory of another program: moved to %q, %v", to, err)
 	}
-	if err := OwnName(filepath.Join(parent, "absent", "HIDI")); err != nil {
-		t.Errorf("a parent that is not there: %v", err)
+	if _, err := os.Stat(filepath.Join(to, "other.dat")); err != nil {
+		t.Errorf("what was in it is not where it went: %v", err)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Errorf("%s is still there", dir)
 	}
 }

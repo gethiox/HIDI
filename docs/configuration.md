@@ -45,13 +45,14 @@ settings with their defaults, and the profiles HIDI comes with in
   factory profile in `profiles/user`. "Customise" in the window makes that
   copy, and "Customise for specific device" makes one for a single
   product.
-- A directory from an earlier HIDI 2, with the profiles in `profiles`
-  itself, is brought into this shape on the first start: files HIDI wrote
-  and you did not change are dropped, since `factory` has them, and the
-  others move to `profiles/user`. HIDI logs each one.
-- A directory that HIDI did not make, with things in it that HIDI 2 does not
-  keep there, is left untouched. HIDI says so and runs with what it comes
-  with until you move the directory away or name another.
+- A `HIDI` directory that HIDI 2 did not make, with something in it that
+  HIDI 2 does not keep there, of another program with the same name for
+  instance, is moved aside to `HIDI-old` (`HIDI-old_1`, `HIDI-old_2` and so
+  on where that name is taken), and HIDI makes a new one. Nothing in it is
+  removed, and HIDI logs where it went. The same goes for HIDI's own notes
+  in `%LocalAppData%\HIDI` or `~/.local/state/HIDI`. A directory named with
+  `--config` is never moved: HIDI leaves it untouched, says so and runs
+  with what it comes with.
 
 ## Settings
 

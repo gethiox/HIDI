@@ -95,7 +95,7 @@ the sixth round.
 | The colours of the profile page | Key caps of commands, passthrough and nothing take the colours of the lights, as set. |
 | The last log line at the bottom | The line up to its message, without the attributes, written by the log's own formatter (`Line.Brief`, carried to the window as `LogLine.Brief`). |
 | Drag and drop | A control dragged onto another swaps with it; with Ctrl it is copied. |
-| Random writes, and "HIDI" in capitals | See "Where HIDI writes" in the architecture: the socket and crash reports moved into the state directory, a lowercase `hidi` is renamed, and the Windows release carries `raylib.dll` and `libffi-8.dll` beside `hidi.exe` (tags `extlib`, `ffi_no_embed`), so that it writes nothing under `%TEMP%` or `%LocalAppData%\github.com`. Without them the arm64 exe would not have started. |
+| Random writes, and "HIDI" in capitals | See "Where HIDI writes" in the architecture: the socket and crash reports moved into the state directory, which is created as `HIDI`, and the Windows release carries `raylib.dll` and `libffi-8.dll` beside `hidi.exe` (tags `extlib`, `ffi_no_embed`), so that it writes nothing under `%TEMP%` or `%LocalAppData%\github.com`. Without them the arm64 exe would not have started. |
 
 Found and reported, not changed: on Linux the 64-bit programs do not start
 without `libX11.so.6` and `libffi.so.8`, also headless, since raylib-go and

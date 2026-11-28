@@ -477,8 +477,13 @@ HIDI writes in its own directories and nowhere else, as released:
 | HIDI's own notes (`written.json`, `window.json`), crash reports, the control socket | `%LocalAppData%\HIDI` | `~/.local/state/HIDI`; the socket in `$XDG_RUNTIME_DIR/HIDI` |
 
 A directory named with `--config` keeps its notes in `.state` inside it.
-An earlier build made `%LocalAppData%\hidi`; Windows tells no case of names
-apart, and HIDI renames it to `HIDI` when it starts.
+The two usual directories are claimed when HIDI starts, the one of the
+notes before the crash report is opened in it: a directory that holds
+anything HIDI 2 does not put there is renamed to `HIDI-old`, or
+`HIDI-old_1` and on, and HIDI begins anew (`settings.ClaimState`,
+`settings.Prepare`). That way nothing of another program by the same name
+is written into or lost, which on Windows, where `hidi` and `HIDI` are one
+name, could otherwise happen.
 
 Two libraries HIDI draws its window with carry files inside the program
 and write them out when it starts, as they come: raylib-go writes

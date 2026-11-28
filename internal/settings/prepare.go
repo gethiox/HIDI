@@ -25,16 +25,21 @@ type Report struct {
 	// Updated the factory profiles that were there and not as this HIDI
 	// has them.
 	Written, Updated []string
-	// Removed are factory profiles this HIDI no longer comes with, and
-	// copies of them an earlier HIDI kept among the user's profiles.
+	// Removed are factory profiles this HIDI no longer comes with.
 	Removed []string
-	// Moved are profiles of the user's that an earlier HIDI kept in the
-	// directory of profiles itself, and where they are now.
-	Moved [][2]string
-	// Unrecognised says, for a directory that is not managed, what in it
-	// HIDI does not know.
+	// MovedAside are HIDI's usual directories that held something HIDI
+	// did not make there, each with where it was moved and why; HIDI
+	// made them anew.
+	MovedAside []Aside
+	// Unrecognised says, for a directory named by hand that is not
+	// managed, what in it HIDI does not know. Such a directory is left
+	// as it is.
 	Unrecognised string
 }
+
+// Aside is a directory moved out of HIDI's way: From is its name as HIDI
+// has it, To where it went, and Why what in it HIDI did not make.
+type Aside struct{ From, To, Why string }
 
 // written is the record of what HIDI wrote: for each file, relative to
 // the root, the fingerprint of the content.
@@ -42,26 +47,24 @@ type written struct {
 	Files map[string]string `json:"files"`
 }
 
-// readRecord reads the record of a directory: from the state directory,
-// or else from the file an earlier build kept in the directory itself.
-// It reports whether there was one. A record that cannot be read as one
+// readRecord reads the record of a directory from the state directory. It
+// reports whether there was one. A record that cannot be read as one
 // counts as none: it is a note of HIDI's own, and the directory is looked
 // at instead.
 func readRecord(p Paths) (record written, found bool, err error) {
-	for _, file := range []string{p.record(), filepath.Join(p.Root, oldRecord)} {
-		data, err := os.ReadFile(file)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return written{}, false, err
-		}
-		var r written
-		if json.Unmarshal(data, &r) == nil && r.Files != nil {
-			return r, true, nil
-		}
+	none := written{Files: map[string]string{}}
+	data, err := os.ReadFile(p.record())
+	if errors.Is(err, fs.ErrNotExist) {
+		return none, false, nil
 	}
-	return written{Files: map[string]string{}}, false, nil
+	if err != nil {
+		return none, false, err
+	}
+	var r written
+	if json.Unmarshal(data, &r) == nil && r.Files != nil {
+		return r, true, nil
+	}
+	return none, false, nil
 }
 
 func fingerprint(data []byte) string {
@@ -79,14 +82,25 @@ func fingerprint(data []byte) string {
 // the user's own profiles are in the directory beside it and are never
 // touched.
 //
+// HIDI's usual directories are claimed first: one that holds something
+// HIDI does not make there, of another program by the same name or of
+// HIDI 1, is moved aside with [MoveAside], and HIDI begins anew. Nothing
+// of it is removed. A directory named by hand is left as it is instead,
+// and reported as not managed.
+//
 // An error means the directory could not be read or written; HIDI then
 // runs with what it comes with.
 func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 	var report Report
-	// HIDI's directories are called HIDI, also where an earlier build
-	// made them under another case of the name.
-	OwnName(p.Root)
-	OwnName(p.State)
+	if p.usual {
+		to, err := ClaimState(p.State)
+		if err != nil {
+			return report, err
+		}
+		if to != "" {
+			report.MovedAside = append(report.MovedAside, Aside{From: p.State, To: to, Why: "it holds files HIDI 2 does not keep there"})
+		}
+	}
 	entries, err := os.ReadDir(p.Root)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -102,20 +116,20 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 	if !recorded {
 		if what := unknown(p, entries); what != "" {
 			// No record, and something is there: not a directory HIDI made.
-			return Report{Unrecognised: what}, nil
+			if !p.usual {
+				return Report{Unrecognised: what}, nil
+			}
+			to, err := MoveAside(p.Root)
+			if err != nil {
+				return report, fmt.Errorf("%s holds what HIDI did not make (%s), and cannot be moved aside: %w", p.Root, what, err)
+			}
+			report.MovedAside = append(report.MovedAside, Aside{From: p.Root, To: to, Why: what})
+			report.Created = true
 		}
 	}
 	report.Managed = true
-	// The record is where it belongs after this, and what earlier builds
-	// kept in the directory itself is gone.
 	_, statErr := os.Stat(p.record())
 	inPlace := statErr == nil
-	defer func() {
-		if _, err := os.Stat(p.record()); err == nil {
-			os.Remove(filepath.Join(p.Root, oldRecord))
-		}
-		os.Remove(filepath.Join(p.Root, oldDevices))
-	}()
 
 	for _, dir := range []string{p.Factory, p.User} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -157,49 +171,6 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 		}
 	} else if err != nil {
 		return fail(err)
-	}
-
-	// What an earlier HIDI kept in the directory of profiles itself: its
-	// own copies, as far as nobody changed them, go; everything else is
-	// the user's and moves to the user's profiles.
-	flat, err := os.ReadDir(p.Profiles)
-	if err != nil {
-		return fail(err)
-	}
-	for _, entry := range flat {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".toml") || strings.HasPrefix(name, ".") {
-			continue
-		}
-		file, key := filepath.Join(p.Profiles, name), "profiles/"+name
-		have, err := os.ReadFile(file)
-		if err != nil {
-			return fail(err)
-		}
-		was, known := record.Files[key]
-		delete(record.Files, key)
-		changed = true
-		if known && fingerprint(have) == was {
-			if err := os.Remove(file); err != nil {
-				return fail(err)
-			}
-			report.Removed = append(report.Removed, file)
-			continue
-		}
-		to := filepath.Join(p.User, name)
-		if _, err := os.Stat(to); err == nil {
-			continue // one of that name is there already; this one stays where it is
-		}
-		if err := os.Rename(file, to); err != nil {
-			return fail(err)
-		}
-		report.Moved = append(report.Moved, [2]string{file, to})
-	}
-	for key := range record.Files {
-		if strings.HasPrefix(key, "profiles/") {
-			delete(record.Files, key) // of a copy the user removed long ago
-			changed = true
-		}
 	}
 
 	// The factory profiles, exactly as this HIDI has them.
@@ -245,42 +216,31 @@ func Prepare(p Paths, profiles map[string][]byte) (Report, error) {
 }
 
 // unknown names something in a directory without a record that keeps HIDI
-// from taking the directory for its own; empty if there is nothing.
-// Profiles written for this HIDI and a settings file are fine: that is a
-// directory an earlier build of HIDI 2 used.
+// from taking the directory for its own; empty if there is nothing. What
+// HIDI 2 makes there is fine, in whatever state the user left it: the
+// settings file, and the profiles in their two directories. A directory
+// like that is HIDI's whose record went missing, or was filled by hand or
+// by a tool before the first start.
 func unknown(p Paths, entries []os.DirEntry) string {
 	for _, entry := range entries {
 		switch name := entry.Name(); {
 		case strings.HasPrefix(name, ".tmp-") && !entry.IsDir():
 			// What a write of HIDI's left behind when HIDI was ended in
 			// the middle of it.
-		case (name == oldRecord || name == oldDevices) && !entry.IsDir():
-			// What earlier builds of HIDI 2 noted here.
-		case name == ownState && entry.IsDir():
-			// Where a directory that is not the usual one keeps what
-			// HIDI notes.
+		case name == ownState && entry.IsDir() && !p.usual:
+			// Where a directory named by hand keeps what HIDI notes.
 		case name == "settings.toml" && !entry.IsDir():
-			if _, err := Load(p.Settings); err != nil {
-				return "settings.toml is not a settings file of this HIDI"
-			}
 		case name == "profiles" && entry.IsDir():
 			files, err := os.ReadDir(p.Profiles)
 			if err != nil {
 				return "profiles cannot be read"
 			}
 			for _, f := range files {
-				if f.IsDir() && (f.Name() == "factory" || f.Name() == "user") {
-					continue
-				}
-				if f.IsDir() {
-					return "profiles/" + f.Name() + " is a directory"
-				}
-				if !strings.HasSuffix(f.Name(), ".toml") {
-					continue
-				}
-				data, err := os.ReadFile(filepath.Join(p.Profiles, f.Name()))
-				if err != nil || !strings.Contains(string(data), "schema") {
-					return "profiles/" + f.Name() + " is not a profile of HIDI 2"
+				switch {
+				case f.IsDir() && (f.Name() == "factory" || f.Name() == "user"):
+				case strings.HasPrefix(f.Name(), ".tmp-") && !f.IsDir():
+				default:
+					return fmt.Sprintf("%q is nothing HIDI 2 keeps in profiles", f.Name())
 				}
 			}
 		default:

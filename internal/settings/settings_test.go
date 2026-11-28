@@ -201,7 +201,7 @@ func TestPrepareLater(t *testing.T) {
 		t.Error("a dropped factory profile stayed")
 	}
 	report, err = Prepare(p, shipped)
-	if err != nil || len(report.Written)+len(report.Updated)+len(report.Removed)+len(report.Moved) != 0 {
+	if err != nil || len(report.Written)+len(report.Updated)+len(report.Removed) != 0 {
 		t.Errorf("a start with nothing to do: %+v, %v", report, err)
 	}
 	// Removed settings stay removed.
@@ -214,52 +214,13 @@ func TestPrepareLater(t *testing.T) {
 	}
 }
 
-// An earlier HIDI 2 kept its copies of the profiles, and the user's own,
-// in one directory, with a record of which it wrote. Its unchanged copies
-// go; what the user changed or added moves to the user's profiles.
-func TestPrepareMovesTheEarlierLayout(t *testing.T) {
-	p := PathsIn(filepath.Join(t.TempDir(), DirName))
-	os.MkdirAll(p.Profiles, 0o755)
-	untouched, changedByUser := shipped["keyboard.toml"], []byte("schema = 1\nname = \"My gamepad\"\n")
-	os.WriteFile(filepath.Join(p.Profiles, "keyboard.toml"), untouched, 0o644)
-	os.WriteFile(filepath.Join(p.Profiles, "gamepad.toml"), changedByUser, 0o644)
-	os.WriteFile(filepath.Join(p.Profiles, "mine.toml"), []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
-	os.WriteFile(p.Settings, Default().Text(), 0o644)
-	os.WriteFile(filepath.Join(p.Root, ".written.json"), []byte(`{"note":"x","files":{`+
-		`"profiles/keyboard.toml":"`+fingerprint(untouched)+`",`+
-		`"profiles/gamepad.toml":"`+fingerprint(shipped["gamepad.toml"])+`",`+
-		`"settings.toml":"`+fingerprint(Default().Text())+`"}}`), 0o644)
-
-	report, err := Prepare(p, shipped)
-	if err != nil || !report.Managed {
-		t.Fatalf("Prepare: %+v, %v", report, err)
-	}
-	if len(report.Removed) != 1 || len(report.Moved) != 2 {
-		t.Errorf("report: %+v", report)
-	}
-	if _, err := os.Stat(filepath.Join(p.Profiles, "keyboard.toml")); err == nil {
-		t.Error("the unchanged copy is still in the directory of profiles")
-	}
-	if got := read(t, filepath.Join(p.User, "gamepad.toml")); got != string(changedByUser) {
-		t.Errorf("the profile the user changed: %q", got)
-	}
-	if !strings.Contains(read(t, filepath.Join(p.User, "mine.toml")), "Mine") {
-		t.Error("the user's own profile did not move")
-	}
-	if read(t, filepath.Join(p.Factory, "gamepad.toml")) != string(shipped["gamepad.toml"]) {
-		t.Error("the factory profile is not as HIDI has it")
-	}
-	// Nothing is moved twice.
-	report, err = Prepare(p, shipped)
-	if err != nil || len(report.Moved)+len(report.Removed)+len(report.Written)+len(report.Updated) != 0 {
-		t.Errorf("second start: %+v, %v", report, err)
-	}
-}
-
 func TestPrepareLeavesOtherDirectoriesAlone(t *testing.T) {
 	for name, make := range map[string]func(root string){
 		"a file of another program": func(root string) { os.WriteFile(filepath.Join(root, "config.ini"), []byte("x"), 0o644) },
-		"settings of another kind":  func(root string) { os.WriteFile(filepath.Join(root, "settings.toml"), []byte("volume = 3\n"), 0o644) },
+		"a file in profiles": func(root string) {
+			os.MkdirAll(filepath.Join(root, "profiles"), 0o755)
+			os.WriteFile(filepath.Join(root, "profiles", "notes.txt"), []byte("x"), 0o644)
+		},
 		"an unknown directory in profiles": func(root string) {
 			os.MkdirAll(filepath.Join(root, "profiles", "old"), 0o755)
 		},
@@ -280,12 +241,13 @@ func TestPrepareLeavesOtherDirectoriesAlone(t *testing.T) {
 	}
 }
 
-// A directory with settings and profiles of HIDI 2 and no record, as a
-// first build of it left one or as someone copied it, is taken over.
-func TestPrepareTakesOverEarlierDirectory(t *testing.T) {
+// A directory with settings and profiles of HIDI 2 and no record, as
+// someone copied it or a tool filled it before the first start, is taken
+// over.
+func TestPrepareTakesOverADirectoryWithoutRecord(t *testing.T) {
 	p := PathsIn(filepath.Join(t.TempDir(), DirName))
-	os.MkdirAll(p.Profiles, 0o755)
-	os.WriteFile(filepath.Join(p.Profiles, "mine.toml"), []byte("schema = 1\nname = \"Mine\"\n"), 0o644)
+	os.MkdirAll(p.User, 0o755)
+	os.WriteFile(filepath.Join(p.User, "mine.toml"), []byte("schema = 2\nname = \"Mine\"\n"), 0o644)
 	os.WriteFile(p.Settings, []byte("schema = 1\n[window]\nfps = 50\n"), 0o644)
 	if !Managed(p) {
 		t.Fatal("not taken for HIDI's directory before the first start")
@@ -389,15 +351,6 @@ func TestToggleTapSettings(t *testing.T) {
 	again, err := Parse(s.Text())
 	if err != nil || again.Input.ToggleTap || len(again.Input.Toggle) != 1 {
 		t.Errorf("written and read again: %+v, %v", again.Input, err)
-	}
-	// always_grab and toggle_exclusive were settings once: read without
-	// complaint, and gone when the file is written again.
-	old, err := Parse([]byte("schema = 1\n[input]\ntoggle_tap = true\nalways_grab = true\ntoggle_exclusive = false\n"))
-	if err != nil || !old.Input.ToggleTap {
-		t.Errorf("a file with the old settings: %+v, %v", old.Input, err)
-	}
-	if text := string(old.Text()); strings.Contains(text, "always_grab =") || strings.Contains(text, "toggle_exclusive =") {
-		t.Errorf("the old settings were written again:\n%s", text)
 	}
 	// A tap is for a toggle of one key. With three it says nothing,
 	// and is no mistake: the toggle may be one key by another profile.
@@ -567,9 +520,7 @@ func TestOpenRGBAddress(t *testing.T) {
 }
 
 // What HIDI notes for itself is not among what the user sets: a directory
-// that is not the usual one keeps it in a directory of its own inside,
-// and what earlier builds kept beside the settings is taken over and
-// removed.
+// that is not the usual one keeps it in a directory of its own inside.
 func TestStateIsKeptApart(t *testing.T) {
 	p := PathsIn(filepath.Join(t.TempDir(), "HIDI"))
 	if p.State != filepath.Join(p.Root, ".state") || p.Window() != filepath.Join(p.State, "window.json") {
@@ -580,31 +531,16 @@ func TestStateIsKeptApart(t *testing.T) {
 	}
 	profiles := map[string][]byte{"keyboard.toml": []byte("schema = 1\n")}
 
-	// An earlier build: the record and the list of devices beside the
-	// settings, the record with a note in it.
-	os.MkdirAll(p.Root, 0o755)
 	text := Default().Text()
-	os.WriteFile(p.Settings, text, 0o644)
-	old, devices := filepath.Join(p.Root, ".written.json"), filepath.Join(p.Root, ".devices.json")
-	os.WriteFile(old, []byte(`{"note":"x","files":{"settings.toml":"`+fingerprint(text)+`"}}`), 0o644)
-	os.WriteFile(devices, []byte(`[{"name":"Pad","type":"gamepad"}]`), 0o644)
-	if !Managed(p) {
-		t.Fatal("a directory of an earlier build does not count as HIDI's")
-	}
 	report, err := Prepare(p, profiles)
 	if err != nil || !report.Managed || report.Unrecognised != "" {
 		t.Fatalf("Prepare: %+v, %v", report, err)
-	}
-	for _, gone := range []string{old, devices} {
-		if _, err := os.Stat(gone); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("%s is still there: %v", gone, err)
-		}
 	}
 	data, err := os.ReadFile(p.record())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "note") || !strings.Contains(string(data), fingerprint(text)) {
+	if !strings.Contains(string(data), fingerprint(text)) {
 		t.Errorf("the record:\n%s", data)
 	}
 	// The settings were written once, the record says: removed, they
@@ -684,14 +620,47 @@ func TestPlayingSettings(t *testing.T) {
 	}
 }
 
-// The chord key had a colour of its own in earlier builds; a file that
-// still names it is read without complaint.
-func TestOldChordColour(t *testing.T) {
-	s, err := Parse([]byte("schema = 1\n[lights.colours]\nchord = \"#a030ff\"\npassthrough = \"#010203\"\n"))
-	if err != nil || s.Lights.Colours.Passthrough != (light.RGB{R: 1, G: 2, B: 3}) {
-		t.Errorf("%+v, %v", s.Lights.Colours, err)
+// HIDI's usual directories that hold what HIDI 2 does not make there, of
+// HIDI 1, another program or anything else, are moved aside whole, and
+// HIDI begins anew. A directory of HIDI 2's own stays as it is.
+func TestPrepareMovesOtherUsualDirectoriesAside(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("AppData", filepath.Join(home, "Roaming"))
+	t.Setenv("LocalAppData", filepath.Join(home, "Local"))
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(string(s.Text()), "chord") {
-		t.Error("the colour of the chord key was written again")
+	p := PathsIn(root)
+	os.MkdirAll(p.Root, 0o755)
+	os.WriteFile(filepath.Join(p.Root, "hidi.toml"), []byte("of another program"), 0o644)
+	os.MkdirAll(p.State, 0o755)
+	os.WriteFile(filepath.Join(p.State, "cache.db"), []byte("of another program"), 0o644)
+
+	report, err := Prepare(p, shipped)
+	if err != nil || !report.Managed || !report.Created || len(report.MovedAside) != 2 {
+		t.Fatalf("Prepare: %+v, %v", report, err)
+	}
+	for _, aside := range report.MovedAside {
+		if aside.To != aside.From+"-old" || aside.Why == "" {
+			t.Errorf("moved aside: %+v", aside)
+		}
+	}
+	if read(t, filepath.Join(p.Root+"-old", "hidi.toml")) != "of another program" || read(t, filepath.Join(p.State+"-old", "cache.db")) != "of another program" {
+		t.Error("what was there is not where it was moved")
+	}
+	if _, err := os.Stat(p.Settings); err != nil {
+		t.Errorf("HIDI did not begin anew: %v", err)
+	}
+	// From now on the directories are HIDI's: a start moves nothing,
+	// also after the user changed what is in them.
+	os.WriteFile(filepath.Join(p.User, "mine.toml"), []byte("schema = 2\n"), 0o644)
+	os.WriteFile(p.Settings, []byte("not toml ["), 0o644)
+	report, err = Prepare(p, shipped)
+	if err != nil || len(report.MovedAside) != 0 || report.Created {
+		t.Errorf("a later start: %+v, %v", report, err)
 	}
 }

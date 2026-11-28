@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -92,8 +91,17 @@ func guarded(ctx context.Context, args []string) (code int) {
 	}
 	dir, err := settings.CrashDir()
 	if err == nil {
-		settings.OwnName(dir) // made "hidi" by earlier builds
-
+		// The crash report goes into HIDI's state directory, which is
+		// claimed first: one that holds what HIDI did not put there is
+		// moved aside before anything is written into it.
+		var aside string
+		if aside, err = settings.ClaimState(dir); aside != "" {
+			note := fmt.Sprintf("%s held files HIDI 2 does not keep there; it was moved to %s, and HIDI made a new one", dir, aside)
+			fmt.Fprintln(os.Stderr, note)
+			ctx = context.WithValue(ctx, startNote{}, note)
+		}
+	}
+	if err == nil {
 		var previous string
 		if previous, err = crashlog.Start(dir); previous != "" {
 			fmt.Fprintf(os.Stderr, "HIDI did not end properly the last time it ran. What happened is in\n  %s\nPlease include that file if you report it.\n\n", previous)
@@ -114,6 +122,10 @@ func guarded(ctx context.Context, args []string) (code int) {
 	}()
 	return run(ctx, args, os.Stdout, os.Stderr)
 }
+
+// startNote is the key of what the start found before the log ran and
+// the log is to say: that HIDI's state directory was moved aside.
+type startNote struct{}
 
 // startsHIDI reports whether the command line starts HIDI itself: as the
 // application, which is what no command means, or with "run".
@@ -258,7 +270,6 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	// that one is running, before it would open any device.
 	var server *ipc.Server
 	if o.socket != "" {
-		settings.OwnName(filepath.Dir(o.socket)) // made "hidi" by earlier builds
 		server, err = ipc.Listen(o.socket)
 		switch {
 		case errors.Is(err, ipc.ErrRunning) && !o.headless:
@@ -286,6 +297,9 @@ func cmdRun(ctx context.Context, args []string, stderr io.Writer, app bool) int 
 	}
 	// Now HIDI's directory is made ready: filled on the first start.
 	pl := findPlace(o.root, o.profilesDir, true)
+	if note, ok := ctx.Value(startNote{}).(string); ok {
+		configLog.Warn(note)
+	}
 	for _, note := range pl.notes {
 		configLog.Info(note)
 	}

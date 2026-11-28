@@ -186,12 +186,6 @@ type file struct {
 		LearnThreshold *int      `toml:"learn_threshold"`
 		Hysteresis     *int      `toml:"hysteresis"`
 		VelocityStep   *int      `toml:"velocity_step"`
-		// AlwaysGrab and ToggleExclusive were settings once, of how a
-		// toggle of one key is kept from the system, which toggle_tap
-		// alone says now. A file that still has them is read, and the
-		// next writing of the file leaves them out.
-		AlwaysGrab      *bool `toml:"always_grab"`
-		ToggleExclusive *bool `toml:"toggle_exclusive"`
 	} `toml:"input"`
 	Devices struct {
 		Mode *string   `toml:"mode"`
@@ -291,12 +285,6 @@ func Parse(data []byte) (Settings, error) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(f.Lights.Colours)) {
 		target, known := named[name]
-		if name == "chord" {
-			// A colour of earlier HIDI 2 builds: the chord key has the
-			// colour of the commands now. The next writing of the file
-			// leaves it out.
-			continue
-		}
 		if !known {
 			problems = append(problems, fmt.Sprintf("unknown setting %q", "lights.colours."+name))
 			continue

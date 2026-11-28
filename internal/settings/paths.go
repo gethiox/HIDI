@@ -28,10 +28,14 @@ type Paths struct {
 	// machine to the next, while this stays on the machine. Empty means
 	// that nothing of the kind is kept.
 	State string
+	// usual says that these are the user's usual directories, which HIDI
+	// claims: one that holds what HIDI did not make there is moved aside.
+	// A directory named by hand is never moved.
+	usual bool
 }
 
 // record is the file in which HIDI notes what it wrote into Root.
-func (p Paths) record() string { return filepath.Join(p.State, "written.json") }
+func (p Paths) record() string { return filepath.Join(p.State, recordName) }
 
 // Window is the file in which the window notes how it was left; empty
 // where nothing is kept.
@@ -39,16 +43,8 @@ func (p Paths) Window() string {
 	if p.State == "" {
 		return ""
 	}
-	return filepath.Join(p.State, "window.json")
+	return filepath.Join(p.State, windowName)
 }
-
-// The files earlier builds of HIDI 2 kept in Root itself: the record of
-// what was written, and a list of the devices HIDI had met, which is no
-// longer kept at all.
-const (
-	oldRecord  = ".written.json"
-	oldDevices = ".devices.json"
-)
 
 // ownState is the name of the state directory inside a Root that is not
 // the user's usual one.
@@ -90,10 +86,10 @@ func DefaultState() (string, error) {
 // directory, named with --config, keeps its state inside itself, so that
 // it is complete by itself and two of them do not share what they note.
 func PathsIn(root string) Paths {
-	state := filepath.Join(root, ownState)
-	if usual, err := DefaultRoot(); err == nil && filepath.Clean(root) == usual {
+	state, usual := filepath.Join(root, ownState), false
+	if dir, err := DefaultRoot(); err == nil && filepath.Clean(root) == dir {
 		if dir, err := DefaultState(); err == nil {
-			state = dir
+			state, usual = dir, true
 		}
 	}
 	return Paths{
@@ -103,5 +99,6 @@ func PathsIn(root string) Paths {
 		Factory:  filepath.Join(root, "profiles", "factory"),
 		User:     filepath.Join(root, "profiles", "user"),
 		State:    state,
+		usual:    usual,
 	}
 }

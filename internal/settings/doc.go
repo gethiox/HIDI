@@ -15,6 +15,7 @@
 // with their defaults and the profiles it comes with, as files to change.
 // From then on the directory is what counts. A later HIDI brings a
 // built-in profile up to date only if the user has not changed the file,
-// and adds profiles that are new. A directory HIDI does not recognise,
-// one it did not make, is left untouched.
+// and adds profiles that are new. A usual directory HIDI does not
+// recognise, one it did not make, is moved aside to HIDI-old and made
+// anew; one named by hand is left untouched.
 package settings

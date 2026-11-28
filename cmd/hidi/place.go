@@ -67,10 +67,10 @@ func findPlace(root, profiles string, prepare bool) place {
 			pl.notes = append(pl.notes, "factory profile brought up to date with this HIDI: "+file)
 		}
 		for _, file := range report.Removed {
-			pl.notes = append(pl.notes, "removed, HIDI keeps the factory profiles elsewhere now or no longer has this one: "+file)
+			pl.notes = append(pl.notes, "factory profile removed, this HIDI no longer has it: "+file)
 		}
-		for _, move := range report.Moved {
-			pl.notes = append(pl.notes, fmt.Sprintf("your profile %s is now kept in %s", move[0], move[1]))
+		for _, aside := range report.MovedAside {
+			pl.problems = append(pl.problems, fmt.Sprintf("%s held what HIDI 2 did not make (%s); it was moved to %s, and HIDI made a new one", aside.From, aside.Why, aside.To))
 		}
 		if !report.Created {
 			for _, file := range report.Written {
