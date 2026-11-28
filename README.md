@@ -107,8 +107,10 @@ Raspberry Pi OS), which has no window either.
 ### Windows
 
 HIDI needs Windows 11 25H2 or later, because it creates its MIDI devices
-through Windows MIDI Services. See [Windows](#windows) for what else there
-is to know before the first start.
+through Windows MIDI Services. `hidi.exe` is not signed, so on the first
+start Windows SmartScreen may warn about it: "More info", then "Run
+anyway". See [Windows](#windows) for what else there is to know before the
+first start.
 
 ## Starting HIDI
 
