@@ -1,4 +1,4 @@
-//go:build (linux || windows) && (amd64 || arm64) && !cgo
+//go:build (linux || windows) && (amd64 || arm64) && !cgo && !headless
 
 package gui
 

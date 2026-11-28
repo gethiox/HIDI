@@ -115,17 +115,24 @@ fi
 raylib_dir=$(go list -m -f '{{.Dir}}' github.com/gen2brain/raylib-go/raylib)
 ffi_dir=$(go list -m -f '{{.Dir}}' github.com/jupiterrider/ffi)
 
-# system/architecture[/ARM version], and the name it has in a file name.
+# system/architecture[/ARM version], the name it has in a file name, and
+# build tags. The 64-bit Linux programs load libX11 and libffi for their
+# window when they start, and do not start without them; those built with
+# the tag headless have no window and need no library of the system, for
+# machines without a desktop. The 32-bit ARM programs have no window
+# anyway.
 targets="
 linux/amd64      linux-amd64
+linux/amd64      linux-amd64-headless    headless
 linux/arm64      linux-arm64
+linux/arm64      linux-arm64-headless    headless
 linux/arm/7      linux-armv7
 linux/arm/6      linux-armv6
-windows/amd64    windows-amd64
-windows/arm64    windows-arm64
+windows/amd64    windows-amd64           extlib,ffi_no_embed
+windows/arm64    windows-arm64           extlib,ffi_no_embed
 "
 
-echo "$targets" | while read -r target name; do
+echo "$targets" | while read -r target name buildtags; do
     [ -n "$target" ] || continue
     IFS=/ read -r goos goarch goarm <<<"$target"
     dir="hidi-$version-$name"
@@ -137,7 +144,8 @@ echo "$targets" | while read -r target name; do
     # The Windows program is one without a console: a double click opens
     # no black window. Started from a command line it writes there.
     kind= tags=
-    [ "$goos" = windows ] && kind="-H windowsgui" tags="-tags=extlib,ffi_no_embed"
+    [ "$goos" = windows ] && kind="-H windowsgui"
+    [ -n "$buildtags" ] && tags="-tags=$buildtags"
     GOOS=$goos GOARCH=$goarch GOARM=$goarm go build -trimpath -buildvcs=true $tags \
         -ldflags "-s -w -buildid= $kind -X github.com/gethiox/HIDI/internal/buildinfo.Version=$version" \
         -o "$work/$dir/$exe" ./cmd/hidi
@@ -145,7 +153,9 @@ echo "$targets" | while read -r target name; do
     # With modes of their own: those of the checkout depend on how it
     # was made.
     install -m 0644 LICENSE README.md "$work/$dir/"
-    [ "$goos" = linux ] && install -m 0644 packaging/linux/70-hidi.rules packaging/linux/hidi.desktop "$work/$dir/"
+    [ "$goos" = linux ] && install -m 0644 packaging/linux/70-hidi.rules "$work/$dir/"
+    # An entry for the desktop's menu, where there is a desktop.
+    [ "$goos" = linux ] && [ "$buildtags" != headless ] && install -m 0644 packaging/linux/hidi.desktop "$work/$dir/"
     if [ "$goos" = windows ]; then
         gzip -dc "$raylib_dir/libs/windows_$goarch/raylib.dll.gz" >"$work/$dir/raylib.dll"
         install -m 0644 "$ffi_dir/assets/libffi/windows_$goarch/libffi-8.dll" "$work/$dir/"

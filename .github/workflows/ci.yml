@@ -51,6 +51,21 @@ jobs:
           GOTOOLCHAIN: local
           CGO_ENABLED: "0"
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./internal/ui/... ./cmd/...
+      - name: The build without the window
+        # The release's Linux programs for machines without a desktop are
+        # built with the tag headless: without the window, and with no
+        # library of the system at all.
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "0"
+        run: |
+          go vet -tags headless ./internal/ui/... ./cmd/...
+          go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -tags headless ./internal/ui/... ./cmd/...
+          go build -tags headless -o "$RUNNER_TEMP/hidi" ./cmd/hidi
+          if go version -m "$RUNNER_TEMP/hidi" | grep -E 'raylib|purego|jupiterrider/ffi'; then
+            echo "the headless build links the window's libraries" >&2
+            exit 1
+          fi
       - name: go test
         run: go test -race ./...
       - name: go test, 32-bit

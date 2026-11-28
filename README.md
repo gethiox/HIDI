@@ -92,13 +92,17 @@ machine, which programs under X11 can do anyway.
 `hidi.desktop` is an entry for the desktop's menu. Copy it to
 `~/.local/share/applications/` once `hidi` is somewhere on your `PATH`.
 
-HIDI for 64-bit processors (`linux-amd64`, `linux-arm64`) needs two
-libraries of the system, which a desktop has: `libX11.so.6`, for the
-window, and `libffi.so.8` (`libffi8` on Debian and Ubuntu, `libffi` on
-Fedora and Arch). Without them it does not start at all, also without a
-window. On Wayland the window runs through XWayland. HIDI for 32-bit ARM
-(`linux-armv6`, `linux-armv7`, the 32-bit Raspberry Pi OS) has no window
-and needs neither: it runs in a terminal or as a service.
+HIDI for 64-bit processors (`linux-amd64`, `linux-arm64`) needs a few
+libraries of the system, which a desktop has: the C library (glibc),
+`libX11.so.6` for the window, and `libffi.so.8` (`libffi8` on Debian and
+Ubuntu, `libffi` on Fedora and Arch). Without them it does not start at
+all, also without a window. On Wayland the window runs through XWayland.
+
+For a machine without a desktop, a server or Raspberry Pi OS Lite, take
+`linux-amd64-headless` or `linux-arm64-headless`: HIDI without the window,
+which needs no library at all and runs in a terminal or as a service. So
+does HIDI for 32-bit ARM (`linux-armv6`, `linux-armv7`, the 32-bit
+Raspberry Pi OS), which has no window either.
 
 ### Windows
 
@@ -780,7 +784,10 @@ HIDI needs Go 1.27 or later and no C toolchain.
 CGO_ENABLED=0 go build ./cmd/hidi
 ```
 
-Without `CGO_ENABLED=0` the program is built without the window.
+Without `CGO_ENABLED=0` the program is built without the window. The tag
+`headless` leaves the window out on purpose, for the programs of the
+release for machines without a desktop: `go build -tags headless` makes a
+HIDI that loads no library of the system.
 Cross-compiling works with the usual Go variables:
 
 ```bash

@@ -498,5 +498,8 @@ tags `extlib` and `ffi_no_embed` and carries both files beside
 `go build` without the tags writes them as described. On Linux, raylib
 is not a library a system has, and the release writes and removes it
 under `$TMPDIR` at every start; libffi comes from the system
-(`libffi.so.8`).
+(`libffi.so.8`). The Linux programs of the release for machines without a
+desktop are built with the tag `headless`, which leaves the window and
+both libraries out: they write nothing outside HIDI's directories and
+load no library of the system.
 
